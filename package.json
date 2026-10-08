@@ -1,0 +1,56 @@
+{
+  "name": "@idleware/ringi",
+  "version": "0.2.0",
+  "description": "Distributed agent coordinator.",
+  "keywords": [
+    "agents",
+    "multi-agent",
+    "coordination",
+    "git",
+    "claude",
+    "codex",
+    "cursor",
+    "skill",
+    "agent-skills",
+    "ringi"
+  ],
+  "homepage": "https://github.com/idleware/ringi#readme",
+  "repository": "github:idleware/ringi",
+  "author": "Anton Golub <antongolub@antongolub.com>",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "ringi": "target/esm/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./target/dts/index.d.ts",
+      "import": "./target/esm/index.js"
+    }
+  },
+  "types": "target/dts/index.d.ts",
+  "files": [
+    "target/esm",
+    "target/dts",
+    "src/main/resources",
+    "README.md",
+    "COMMANDS.md",
+    "docs/ARCHITECTURE.md",
+    "docs/spec"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node -e \"require('fs').chmodSync('target/esm/cli.js', 0o755)\"",
+    "test": "npm run build && tsc -p tsconfig.test.json && node --test --test-reporter=spec src/test/ts/*.test.ts",
+    "commands": "node target/esm/cli.js help --md > COMMANDS.md"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

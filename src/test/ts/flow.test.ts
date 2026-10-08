@@ -1,0 +1,163 @@
+// The README's local journey, through the public CLI only. No store or session files are edited.
+import {describe, it} from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import {spawnSync} from 'node:child_process'
+import {fileURLToPath} from 'node:url'
+
+const CLI = fileURLToPath(new URL('../../../target/esm/cli.js', import.meta.url))
+const BASE = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CLAUDE|CODEX|CURSOR|RINGI_|GIT_)/.test(k)))
+const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`
+type Result = {code: number | null, out: string, err: string}
+type Message = {id: string, from: string, subject: string, kind: string | null, state: string | null, trust: string, files: {path: string}[]}
+type Task = {id: string, subject: string, state: string, by: string, taken: string[]}
+type Signal = {actor: string, signal: string, target: string, ok: boolean}
+
+describe('local flow: operator, chat agent and headless reviewer', () => {
+  it('delivers, takes, reviews and completes work, then resumes and archives it', t => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'ringi-flow-'))
+    const home = path.join(base, 'home')
+    const transcript: string[] = []
+    t.after(() => {
+      if (process.env.RINGI_FLOW_REPORT) fs.writeFileSync(process.env.RINGI_FLOW_REPORT, JSON.stringify({transcript}, null, 2) + '\n')
+      fs.rmSync(base, {recursive: true, force: true})
+    })
+    const run = (args: string[], session?: string): Result => {
+      const r = spawnSync(process.execPath, [CLI, ...args], {encoding: 'utf8', timeout: 60000,
+        env: {...BASE, RINGI_HOME: home, ...(session ? {RINGI_SESSION: session} : {})}})
+      const result = {code: r.status, out: r.stdout ?? '', err: r.error?.message ?? r.stderr ?? ''}
+      transcript.push(`${session ?? 'operator'}: ringi ${args.join(' ')}\nexit ${result.code}\n${result.out}${result.err}`)
+      return result
+    }
+    const ok = (args: string[], session?: string): string => {
+      const r = run(args, session)
+      assert.equal(r.code, 0, `${args.join(' ')}: ${r.err}`)
+      return r.out
+    }
+    const agent = (session: string, ...args: string[]) => ok(['agent', ...args], session)
+    const json = <T>(args: string[], session?: string): T => JSON.parse(ok([...args, '--json'], session))
+    const sent = (out: string) => /sent (\S+)/.exec(out)?.[1] ?? assert.fail('the command returns its message id')
+    const no = (args: string[], expected: RegExp, session?: string) => {
+      const r = run(args, session)
+      assert.notEqual(r.code, 0, `${args.join(' ')} should be refused`)
+      assert.match(r.err, expected)
+    }
+    const codex = 'chat-codex', claude = 'chat-claude'
+    const implement = 'implement tasks from operator; no commits'
+    const review = 'review work from codex; no commits'
+    const patch = path.join(base, 'badge.diff'), report = path.join(base, 'review.md')
+    const change = '- badge: hidden\n+ badge: visible\n'
+    fs.writeFileSync(patch, change)
+
+    // The operator follows the README literally; each command starts a fresh process.
+    assert.match(ok(['room', 'create', 'fix-badge']), /created room fix-badge/)
+    for (const [session, who, scope] of [[codex, 'codex', implement], [claude, 'claude', review]]) {
+      assert.match(ok(['join', 'local', 'fix-badge', '--as', who, '--scope', scope], session), /joined local\/fix-badge/)
+      assert.ok(agent(session, 'whoami').includes(scope))
+    }
+    ok(['send', '--task', '--assign', 'codex', '-m', 'Fix the badge', '-m', 'acceptance: renders on main'])
+    const [work] = json<Message[]>(['agent', 'inbox'], codex)
+    assert.equal(work?.subject, 'Fix the badge')
+    assert.deepEqual([work.from, work.kind, work.trust], ['operator', 'task', 'asserted'])
+    assert.deepEqual(json<Message[]>(['agent', 'inbox'], codex), [], 'delivery is once per chat turn')
+    agent(codex, 'take', work.id)
+    const working = sent(agent(codex, 'reply', work.id, '--state', 'working', '-m', 'Implementing the badge'))
+    const ready = sent(agent(codex, 'reply', working, '--state', 'input-required', '-m', 'Implementation ready; awaiting review',
+      '--attach', `${patch}:files/badge.diff`))
+    const reviewTask = sent(agent(codex, 'send', '--task', '--assign', 'claude', '--re', ready, '-m', 'Review the badge',
+      '--attach', `${patch}:files/badge.diff`))
+    const before = json<Task[]>(['tasks'])
+    assert.equal(before.find(x => x.id === work.id)?.state, 'input-required')
+    assert.deepEqual(before.find(x => x.id === work.id)?.taken, ['codex'])
+    assert.equal(before.find(x => x.id.startsWith(reviewTask))?.state, 'submitted')
+    assert.match(ok(['where']), /Fix the badge[\s\S]*Review the badge|Review the badge[\s\S]*Fix the badge/)
+    assert.match(ok(['read', work.id]), /Fix the badge/)
+
+    // A deterministic reviewer stands in for the external agent command; it uses the same public CLI.
+    const runner = path.join(base, 'reviewer.mjs')
+    fs.writeFileSync(runner, `
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import {spawnSync} from 'node:child_process'
+const [cli, report] = process.argv.slice(2)
+const run = (...args) => spawnSync(process.execPath, [cli, ...args], {encoding: 'utf8', env: process.env, timeout: 30000})
+const call = (...args) => {
+  const r = run(...args)
+  assert.equal(r.status, 0, r.stderr)
+  return r.stdout
+}
+const id = text => /sent (\\S+)/.exec(text)[1]
+assert.ok(call('agent', 'whoami').includes(${JSON.stringify(review)}))
+const task = JSON.parse(call('agent', 'inbox', '--json')).find(m => m.subject === 'Review the badge')
+assert.ok(task, 'the watcher delivers the pending review to its turn')
+call('agent', 'take', task.id)
+const working = id(call('agent', 'reply', task.id, '--state', 'working', '-m', 'Checking the patch'))
+assert.equal(call('agent', 'cat', task.id, 'files/badge.diff'), ${JSON.stringify(change)})
+fs.writeFileSync(report, 'Reviewed the patch: badge is visible.\\n')
+call('agent', 'reply', working, '--state', 'completed', '-m', 'Review complete', '--attach', report + ':files/review.md')
+`)
+    const command = [process.execPath, runner, CLI, report].map(quote).join(' ')
+    const watch = (exec: string, session?: string, handoff = false) =>
+      run(['watch', 'fix-badge/claude', '--once', '--exec', exec, ...(handoff ? ['--handoff'] : [])], session)
+    const refused = watch('true', claude)
+    assert.notEqual(refused.code, 0, 'headless turns require an explicit handoff from a chat')
+    assert.match(refused.err, /held by session.*chat-claude/)
+    const failed = watch(`${quote(process.execPath)} ${quote(CLI)} agent inbox --json >/dev/null; exit 7`, claude, true)
+    assert.match(failed.err, /watch: exit 7/, 'the reviewer fails after reading its inbox')
+    assert.equal(failed.code, 7)
+    const delivered = watch(command)
+    assert.equal(delivered.code, 0, delivered.err)
+    assert.equal(fs.readFileSync(report, 'utf8'), 'Reviewed the patch: badge is visible.\n')
+    const reviewMessages = json<Message[]>(['agent', 'inbox'], codex)
+    const approved = reviewMessages.find(m => m.from === 'claude' && m.state === 'completed')
+    assert.ok(approved, 'the reviewer replies to codex with its completed review')
+    assert.equal(agent(codex, 'cat', approved.id, 'files/review.md'), fs.readFileSync(report, 'utf8'))
+    const exported = path.join(base, 'received')
+    agent(codex, 'get', approved.id, '-o', exported)
+    assert.equal(fs.readFileSync(path.join(exported, 'files/review.md'), 'utf8'), fs.readFileSync(report, 'utf8'))
+    const done = sent(agent(codex, 'reply', work.id, '--state', 'completed', '-m', 'Badge fixed and reviewed',
+      '-m', `Review: ${approved.id}`, '--attach', `${patch}:files/badge.diff`, '--attach', `${report}:files/review.md`))
+
+    // The operator sees both work items, their assignees, taken marks, states and deliverables.
+    assert.deepEqual(json<Task[]>(['tasks']), [])
+    const completed = json<Task[]>(['tasks', '--all'])
+    assert.deepEqual(completed.map(x => [x.subject, x.state, x.by]).sort(),
+      [['Fix the badge', 'completed', 'codex'], ['Review the badge', 'completed', 'claude']])
+    assert.deepEqual(completed.find(x => x.id.startsWith(reviewTask))?.taken, ['claude'])
+    assert.match(ok(['where']), /Badge fixed and reviewed/)
+    assert.match(ok(['read', done]), /Badge fixed and reviewed/)
+    const deliverable = json<Message>(['read', done])
+    assert.deepEqual(deliverable.files.map(f => f.path).sort(), ['files/badge.diff', 'files/review.md'])
+    assert.equal(ok(['cat', done, 'files/badge.diff']), change)
+    const signals = json<Signal[]>(['signals', '--all'])
+    for (const actor of ['codex', 'claude']) {
+      for (const signal of ['read', 'taken', 'state.working', 'state.completed']) {
+        assert.ok(signals.some(s => s.actor === actor && s.signal === signal && s.ok), `${actor}: ${signal} is visible and checked`)
+      }
+    }
+
+    // Stop keeps the scope and seat; continue restores it after a process restart.
+    assert.match(ok(['stop'], codex), /keeps its seat/)
+    no(['agent', 'inbox'], /stopped/, codex)
+    assert.match(ok(['where']), /codex +stopped/)
+    assert.ok(ok(['continue'], codex).includes(implement))
+    assert.ok(agent(codex, 'whoami').includes(implement))
+    assert.ok(ok(['continue'], claude).includes(review))
+    assert.ok(agent(claude, 'whoami').includes(review))
+    for (const session of [codex, claude]) {
+      assert.match(ok(['leave'], session), /seat of .* is free/)
+      no(['agent', 'whoami'], /not in a room/, session)
+    }
+    assert.match(ok(['where']), /sessions: none joined/)
+    const archived = /archived fix-badge as (\S+):/.exec(ok(['room', 'archive', 'fix-badge']))?.[1]
+      ?? assert.fail('the operator receives the archive name')
+    assert.ok(ok(['room', 'list', '--archived']).includes(archived))
+    assert.match(ok(['log', '--room', archived, '--all']), /Badge fixed and reviewed/)
+    assert.equal(ok(['cat', done, 'files/review.md', '--room', archived]), fs.readFileSync(report, 'utf8'))
+    no(['send', '--room', archived, '-m', 'Work after archive'], /archived: read-only/)
+    assert.deepEqual(json<Task[]>(['tasks', '--room', archived, '--all']).map(x => x.state), ['completed', 'completed'])
+
+  })
+})

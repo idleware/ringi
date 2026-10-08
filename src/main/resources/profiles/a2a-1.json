@@ -1,0 +1,43 @@
+{
+  "schema": "ringi-profile/1",
+  "name": "a2a-1",
+  "description": "Tasks with the A2A task states. One way to coordinate work; a hub may carry others.",
+  "opens": "task",
+  "states": [
+    "submitted",
+    "working",
+    "input-required",
+    "completed",
+    "failed",
+    "canceled",
+    "rejected"
+  ],
+  "initial": "submitted",
+  "terminal": [
+    "completed",
+    "failed",
+    "canceled",
+    "rejected"
+  ],
+  "waiting": "input-required",
+  "rules": {
+    "assign": [
+      "requester",
+      "role:lead"
+    ],
+    "roles": [
+      "requester",
+      "role:lead"
+    ],
+    "grant": [
+      "requester",
+      "role:lead"
+    ],
+    "state:canceled": [
+      "requester"
+    ],
+    "state:*": [
+      "assignee"
+    ]
+  }
+}
