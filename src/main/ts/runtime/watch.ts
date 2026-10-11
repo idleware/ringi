@@ -116,7 +116,13 @@ export const watch = async (w: WatchOptions, log: (line: string) => void = note)
     }
     const H = openHub(H0.name, {refresh: true})
     const R = openRoom(H, R0.name, {quiet: true})
-    if (!R || R.genesis !== R0.genesis || !R.members[me]) { log(`watch: ${R0.name} is gone, recreated or archived, or ${me} was removed; stopping`); return 0 }
+    if (!R || R.genesis !== R0.genesis) {
+      // The room's branch is gone: the watcher leaves its seat (a hub it cannot reach fails above and leaves nothing).
+      locked('sessions', () => { if (readSession(handle)?.genesis === R0.genesis) dropSession(handle) })
+      log(`watch: ${R0.name} is gone, recreated or archived; ${me} left it`)
+      return 0
+    }
+    if (!R.members[me]) { log(`watch: ${me} was removed from ${R0.name}; stopping`); return 0 }
     const P = R.profile
     // Lock order throughout planning and dispatch: grant, reader, sessions (then the store's own writes).
     const plan = locked(`grant-${H.name}`, () => readerLock(R, me, () => {

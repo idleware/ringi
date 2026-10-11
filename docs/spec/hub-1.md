@@ -98,8 +98,12 @@ old branches into the room's branch, every message keeps its id and its readers'
    --handoff --exec …` run from that chat: the watcher takes the seat with its scope; `stop` and `leave` in that chat
    reach the watcher; plain `continue` in that chat takes the seat back once the watcher has ended. A seat another
    chat holds is never taken.
-8. End: `ringi room archive fix-badge` moves the room under `refs/archive/`, ends its seats and watchers, keeps it
-   readable. `ringi room delete fix-badge --yes` is separate and irreversible.
+8. End: `ringi room archive fix-badge` moves the room under `refs/archive/`, keeps it readable. `ringi room delete
+   fix-badge --yes` erases it, irreversibly: its branch, every tag on its commits, every ref the store keeps under its
+   genesis (pins, ringi 0.1's refs, evidence), its unpublished commits, its readers' state and a migration's backup;
+   git objects are left to the repository. Either way the room's branch is gone, and every session and watcher bound
+   to it, on this machine or another, leaves its seat on its own when it finds that. A hub that cannot be reached is
+   not a gone room: it fails, and waiting or retrying is the orchestrator's concern.
 
 ## Commands, seats and locks
 

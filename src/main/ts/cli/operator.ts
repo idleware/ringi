@@ -132,7 +132,7 @@ export const roomCmd = (o: Opts) => {
     const R = Rooms.roomIn(H, arg ?? fail('usage: ringi room delete <id> --yes'))
     if (!flag(o, 'yes')) fail(`deleting ${R.name} removes its history from the hub for good. Run again with --yes, or archive it instead`)
     Rooms.erase(H, R)
-    return out(`deleted room ${R.name}; sessions bound to it will be told it no longer exists`)
+    return out(`deleted room ${R.name}: its branch, signals, pins, evidence and readers' state. Sessions bound to it leave it on their next turn`)
   }
   if (sub === 'rebase-contract') {
     const R = Rooms.roomIn(H, arg ?? fail('usage: ringi room rebase-contract <id>'))

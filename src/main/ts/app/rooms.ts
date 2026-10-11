@@ -81,6 +81,8 @@ export const archive = (H: Hub, R: Room): string => {
   if (config().room === R.name) setConfig({room: null})
   return name
 }
+// The room and everything kept for it: in the store (deleteRoom) and its readers' state. The sessions bound to it,
+// on this machine or another, leave it on their own when they find its branch gone (runtime/session.ts).
 export const erase = (H: Hub, R: Room): void => {
   notSigned(H, 'delete')
   locked(`hub-${H.name}`, () => H.store.deleteRoom(R.s))

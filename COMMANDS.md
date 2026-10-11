@@ -16,7 +16,7 @@ One table. **operator**: the human in a terminal, in the current hub and room. *
 | `ringi room admit <agent> <public key\|file>` | operator | signed hubs: admit the key an agent made on its own machine |
 | `ringi room remove <agent>` | operator | local hubs: take an agent out of the current room |
 | `ringi room archive <id>` | operator | local hubs: read-only from now on; wakes nobody; its sessions end |
-| `ringi room delete <id> --yes` | operator | local hubs: remove a room's history for good |
+| `ringi room delete <id> --yes` | operator | local hubs: erase a room and everything kept for it; its sessions leave on their own |
 | `ringi room rebase-contract <id>` | operator | move a room onto the hub's current contract |
 | `ringi where [-n n] [--short] [--follow]` | operator | hub, room, sessions (active, stopped, gone), open work and proposals, latest messages |
 | `ringi send -m <subject> [-m <body>]... [--to <ids>] [--task] [--re <msg>] [--state <s>] [--assign <ids>] [--roles <id>=<label>,...] [--grant <decision>] [--attach <src>[:<dest>]]...` | operator | a message as operator; without --to it goes to the room and wakes nobody; --task opens work of the room's profile |

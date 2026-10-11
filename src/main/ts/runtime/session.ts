@@ -98,9 +98,13 @@ export const bound = (): Bound => {
   const H = openHub(s.hub)
   const R = openRoom(H, s.room, {quiet: true})
   if (!R || R.genesis !== s.genesis) {
+    // The room's branch is gone (deleted, archived, or deleted and made anew): the session leaves it on its own. A hub
+    // that cannot be reached fails above and leaves nothing.
+    locked('sessions', () => { if (readSession(me.handle)?.genesis === s.genesis) dropSession(me.handle) })
     const gone = roomNames(H, true).find(a => a === `${s.room}@${s.genesis.slice(0, 8)}`)
-    if (gone) fail(`room ${s.room} was archived as ${gone}; nothing more happens there. Tell the operator`)
-    fail(R ? `room ${s.room} was deleted and created again; this session's binding ended with the old room. The operator joins it anew` : `room ${s.room} no longer exists in hub ${s.hub}. Tell the operator`)
+    fail(gone ? `room ${s.room} was archived as ${gone}; this session left it`
+      : R ? `room ${s.room} was deleted and created again; this session left the old room. The operator joins it anew`
+        : `room ${s.room} is gone from hub ${s.hub}; this session left it`)
   }
   if (!R!.members[s.agent]) fail(`${s.agent} was removed from room ${s.room}; returning needs a fresh join by the operator`)
   locked('sessions', () => {

@@ -124,10 +124,50 @@ describe('rooms', () => {
     assert.match(w.ok(['room', 'list', '--archived']), new RegExp(`${name} +archived`))
     w.ok(['room', 'create', 'r'])
     w.ok(['send', '--to', 'codex', '-m', 'new room'])
-    w.no(['agent', 'inbox'], /archived/, {as: 'C'})
+    // codex left the archived room on its own: the new room is not bound to it.
+    w.no(['agent', 'inbox'], /this session is not in a room/, {as: 'C'})
     w.no(['room', 'delete', 'r'], /--yes/)
     assert.match(w.ok(['room', 'delete', 'r', '--yes']), /deleted room r/)
     assert.equal(w.git('for-each-ref', 'refs/heads/r'), '')
+  })
+
+  it('erases a room and everything kept for it, and its sessions leave on their own', (t) => {
+    const w = world(t)
+    w.ok(['room', 'create', 'r'])
+    w.ok(['join', 'local', 'r', '--as', 'codex'], {as: 'C'})
+    const task = w.lastId(['send', '--task', '--assign', 'codex', '-m', 'Job', '--attach', `${w.fixture}:spec.txt`])
+    w.ok(['agent', 'inbox'], {as: 'C'})
+    w.ok(['agent', 'reply', task, '--state', 'completed', '-m', 'done'], {as: 'C'})
+    const genesis = w.git('rev-list', '--reverse', 'refs/heads/r', '^refs/heads/main').split('\n')[0]
+    const commits = new Set(w.git('rev-list', 'refs/heads/r', '^refs/heads/main').split('\n'))
+    const full = [...commits].find(c => c.startsWith(task))!
+    // What else may hang on the room: anyone's tag, ringi 0.1's tag and refs, evidence, a migration's backup.
+    w.git('tag', 'release-x', full)
+    w.git('update-ref', `refs/tags/ringi/${genesis}/codex/${full}.read`, full)
+    for (const ref of [`refs/ringi/legacy/${genesis}/control`, `refs/ringi/quarantine/${genesis}/${full}`, `refs/ringi/unpublished/${full}`]) w.git('update-ref', ref, full)
+    const backup = path.join(w.home, 'migration', 'local', genesis)
+    fs.mkdirSync(path.join(backup, 'readers'), {recursive: true})
+    fs.writeFileSync(path.join(backup, 'readers', 'codex.json'), '{}')
+    // Another room stays as it is.
+    w.ok(['room', 'create', 'other'])
+    w.ok(['join', 'local', 'other', '--as', 'claude'], {as: 'L'})
+    w.ok(['send', '--to', 'claude', '-m', 'stays'])
+    w.ok(['agent', 'inbox'], {as: 'L'})
+    const outside = () => w.git('for-each-ref', '--format=%(refname) %(objectname) %(*objectname)', 'refs/tags/', 'refs/heads/other').split('\n')
+      .filter(l => !l.includes(genesis) && !l.split(' ').some(x => commits.has(x)))
+    const kept = outside()
+    assert.match(w.ok(['room', 'delete', 'r', '--yes']), /deleted room r/)
+    const left = w.git('for-each-ref', '--format=%(refname) %(objectname) %(*objectname)').split('\n')
+    assert.deepEqual(left.filter(l => l.includes(genesis) || l.split(' ').some(x => commits.has(x))), [])
+    assert.deepEqual(outside(), kept)
+    assert.ok(kept.some(l => l.startsWith('refs/tags/claude.read.')))
+    assert.equal(fs.existsSync(backup), false)
+    assert.equal(fs.existsSync(path.join(w.home, 'readers', 'local', genesis)), false)
+    assert.match(w.ok(['log', '--room', 'other']), /stays/)
+    // The session finds the branch gone and leaves on its own; the other room's session is untouched.
+    w.no(['agent', 'inbox'], /room r is gone from hub local; this session left it/, {as: 'C'})
+    w.no(['agent', 'inbox'], /this session is not in a room/, {as: 'C'})
+    assert.match(w.ok(['agent', 'whoami'], {as: 'L'}), /claude in local\/other/)
   })
 
   it('ends old bindings when a room is recreated', (t) => {
@@ -533,6 +573,20 @@ describe('watchers', () => {
     first.kill('SIGKILL')
     await exited
     assert.equal(w.run(['watch', 'r/codex', '--once', '--exec', 'true']).code, 0)
+  })
+
+  it('leaves its seat when the room\'s branch is gone', async (t) => {
+    const w = world(t)
+    w.ok(['room', 'create', 'r'])
+    w.ok(['join', 'local', 'r', '--as', 'codex'], {as: 'C'})
+    w.ok(['leave'], {as: 'C'})
+    const watcher = spawn(BIN[0], [...BIN.slice(1), 'watch', 'r/codex', '--exec', 'true', '--interval', '1'], {env: {...BASE, RINGI_HOME: w.home}, stdio: 'ignore'})
+    const exited = new Promise(resolve => watcher.once('exit', resolve))
+    t.after(() => { if (watcher.exitCode === null) watcher.kill('SIGKILL') })
+    await until(() => w.json(['sessions']).some(s => s.product === 'watch'))
+    w.ok(['room', 'delete', 'r', '--yes'])
+    assert.equal(await exited, 0)
+    assert.deepEqual(w.json(['sessions', '--all']).filter(s => s.product === 'watch'), [])
   })
 
   it('checks stop and revocation between planned turns', async (t) => {

@@ -406,11 +406,20 @@ export class GitStore implements Store {
     this.git(['update-ref', `refs/archive/${as}`, tip, ZERO])
     this.git(['update-ref', '-d', this.ref(room.name), tip])
   }
+  // Every ref of the room in one transaction: its branch (or archive) and a pending migration, every tag on its
+  // commits (signals, ringi 0.1's, anyone's), what the store keeps under its genesis (pins, ringi 0.1's refs, evidence)
+  // and its unpublished commits; then the migration's backup of its readers. Objects are left to the repository.
   deleteRoom(room: StoredRoom): void {
-    const signals = this.signals(room)
-    this.gitOk(['update-ref', '-d', this.ref(room.name)])
-    for (const [ref] of this.refsUnder(`refs/ringi/accepted/${room.genesis}/`)) this.git(['update-ref', '-d', ref])
-    for (const s of signals) this.gitOk(['update-ref', '-d', s.ref])
+    const commits = this.commitsOf(room)
+    const tags = this.git(['for-each-ref', '--format=%(refname) %(objectname) %(*objectname)', 'refs/tags/']).split('\n').filter(Boolean)
+      .map(l => l.split(' ')).filter(([ref, object, target]) => commits.has(target || object) || ref.startsWith(`refs/tags/ringi/${room.genesis}/`)).map(([ref]) => ref)
+    const kept = this.refsUnder('refs/ringi/').map(([ref]) => ref).filter(ref => {
+      const [, , kind, key] = ref.split('/')
+      return key === room.genesis || (kind === 'unpublished' && commits.has(key))
+    })
+    const refs = [this.ref(room.name), this.transition(room.name)].filter(r => this.rev(r)).concat(tags, kept)
+    this.git(['update-ref', '--stdin'], {input: ['start', ...refs.map(r => `delete ${r}`), 'prepare', 'commit', ''].join('\n')})
+    fs.rmSync(path.join(this.home, 'migration', this.d.name, room.genesis), {recursive: true, force: true})
   }
   private remote(room: StoredRoom): Remote.Room {
     return {name: room.name, ref: this.ref(room.name), head: room.head, genesis: room.genesis, archived: room.archived}

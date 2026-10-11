@@ -55,6 +55,7 @@ export interface Store {
   createRoom(name: string, who: string, text: string, files: Record<string, string>): Rev
   updateControl(room: StoredRoom, who: string, text: string, files: Record<string, string>): Rev
   archiveRoom(room: StoredRoom, as: string): void
+  // The room and everything the store keeps for it.
   deleteRoom(room: StoredRoom): void
   // An explicit, history-preserving transition from an older store layout, if supported.
   migrateRoom?(name: string): Rev
