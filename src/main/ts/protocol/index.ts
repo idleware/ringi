@@ -6,6 +6,8 @@ import {CC_RE} from './files.ts'
 import {fail} from '../lib/index.ts'
 
 export const ID_RE = /^(?=.{1,64}$)[a-z0-9]+(?:[._-][a-z0-9]+)*(?<!\.lock)$/
+// An agent's id has no dot: it starts the name of its signals, `<agent>.<signal>.<message12>`.
+export const AGENT_RE = /^(?=.{1,64}$)[a-z0-9]+(?:[_-][a-z0-9]+)*$/
 export const TOKEN_RE = /^[a-z][a-z0-9-]*$/
 export const HOP_RE = /^(?:0|[1-9]\d{0,5})$/
 export const TRAILER_RE = /^([A-Za-z][A-Za-z0-9-]*):[ \t]*(.*)$/

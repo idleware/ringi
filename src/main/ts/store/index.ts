@@ -78,7 +78,8 @@ export interface Store {
   file(rev: Rev, path: string): Buffer
   sizes(rev: Rev, paths: string[]): Map<string, number>
   // --- signals ---
-  signal(room: StoredRoom, who: string, target: Rev, name: string, text: string): void
+  // A signal `<signal>.<message12>` of `who` on the message `target`; writing it twice is a no-op.
+  signal(room: StoredRoom, who: string, target: Rev, name: string): void
   signals(room: StoredRoom): SignalRecord[]
   // --- signed stores only ---
   admit?(room: StoredRoom, who: string, key: string): Rev

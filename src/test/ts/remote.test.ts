@@ -63,11 +63,11 @@ const commit = (H: Hub, home: string, who: string, text: string, tr: string, ps:
 ], {input: text, env: {GIT_AUTHOR_NAME: who, GIT_AUTHOR_EMAIL: `${who}@fixture`, GIT_COMMITTER_NAME: who, GIT_COMMITTER_EMAIL: `${who}@fixture`}}).trim()
 const message = (H: Hub, home: string, who: string, text: string, ps: string[], opt?: {unsigned?: boolean, signer?: string}) => commit(H, home, who, text, ps.length ? H.git(['rev-parse', `${ps[0]}^{tree}`]).trim() : tree(H), ps, opt)
 const publish = (H: Hub, ref: string, sha: string, force = false) => H.git(['push', '-q', ...(force ? ['--force'] : []), 'origin', `${sha}:${ref}`])
-const tag = (H: Hub, home: string, actor: string, message: string, {signed = true, signer = actor, target = message, signal = 'opened', text, date}: {
-  signed?: boolean, signer?: string, target?: string, signal?: string, text?: string, date?: string
+const tag = (H: Hub, home: string, actor: string, message: string, {signed = true, signer = actor, target = message, signal = 'opened', text, date, name: named}: {
+  signed?: boolean, signer?: string, target?: string, signal?: string, text?: string, date?: string, name?: string
 } = {}) => {
-  const R = room(H), name = `ringi/${R.genesis}/${actor}/${message}.${signal}`
-  const body = text ?? `${signal}\n\nRoom: ${R.name}\nGenesis: ${R.genesis}\nActor: ${actor}\nMessage: ${message}\nSignal: ${signal}\n`
+  const name = named ?? `${actor}.${signal}.${message.slice(0, 12)}`
+  const body = text ?? ''
   H.git(['-c', 'gpg.format=ssh', '-c', 'gpg.ssh.program=ssh-keygen', '-c', `user.signingkey=${path.join(home, 'keys', H.name, signer)}`,
     'tag', '-f', signed ? '-s' : '-a', '-F', '-', name, target], {input: body,
     env: {GIT_COMMITTER_NAME: actor, GIT_COMMITTER_EMAIL: `${actor}@fixture`, ...(date ? {GIT_COMMITTER_DATE: date} : {})}})
@@ -544,8 +544,28 @@ describe('signed remote hubs', () => {
       assert.equal(w.op.git(['rev-parse', s.ref]).trim(), s.object)
       assert.notEqual(s.object, sha)
       assert.equal(w.op.rev(s.ref), sha)
-      assert.equal(w.op.git(['rev-parse', s.ref.replace('refs/tags/ringi/', 'refs/ringi/remote-accepted-tags/')]).trim(), s.object)
+      assert.equal(w.op.git(['rev-parse', s.ref.replace('refs/tags/', 'refs/ringi/remote-accepted-tags/')]).trim(), s.object)
       assert.equal(Remote.verifySignal(w.op, room(w.op), s.ref, s.object), null)
+      assert.equal(s.ref, `refs/tags/bob.opened.${sha.slice(0, 12)}`)
+      const raw = bob.H.git(['cat-file', 'tag', s.object])
+      assert.match(raw, new RegExp(`^object ${sha}\\ntype commit\\ntag bob\\.opened\\.${sha.slice(0, 12)}\\ntagger bob `))
+      assert.equal(raw.split('\n\n').slice(1).join('\n\n').split('-----BEGIN SSH SIGNATURE-----')[0], '')
+    })
+
+    it('ignores legacy room-scoped and ordinary tags, and refuses them on explicit signal pushes', t => {
+      const w = world(t), bob = w.agent('bob')
+      const sha = openTask(bob.H, bob.home, 'bob'), R = room(bob.H)
+      for (const name of [`ringi/${R.genesis}/bob/${sha}.opened`, `ringi/bob/${sha.slice(0, 12)}.opened`, `bob.opened.${sha}`, 'release-v1']) {
+        const s = tag(bob.H, bob.home, 'bob', sha, {name})
+        assert.throws(() => Remote.push(bob.H, s.ref), /malformed signal tag namespace/)
+        publish(bob.H, s.ref, s.object)
+      }
+      const valid = tag(bob.H, bob.home, 'bob', sha, {signal: 'state.completed'})
+      Remote.push(bob.H, valid.ref)
+      Remote.sync(w.op)
+      assert.deepEqual(w.op.remoteAlarms, {})
+      assert.deepEqual(w.op.git(['for-each-ref', '--format=%(refname)', 'refs/tags/']).trim().split('\n'), [valid.ref])
+      assert.equal(Remote.verifySignal(w.op, room(w.op), valid.ref, valid.object), null)
     })
 
     it('withholds unsigned, lightweight, wrong-principal and mismatched tags', t => {
@@ -555,7 +575,7 @@ describe('signed remote hubs', () => {
         ['unsigned', /bad or missing signature/],
         ['lightweight', /must be an annotated tag/],
         ['wrong-principal', /bad or missing signature/],
-        ['body', /trailers disagree/],
+        ['body', /message must be empty/],
         ['target', /name, actor or target disagrees/],
       ] as const) {
         const previous = bob.H.rev(room(bob.H).ref) ?? room(bob.H).genesis
@@ -690,9 +710,8 @@ describe('signed remote hubs', () => {
       Remote.sync(alice.H)
       for (const [target, signal, signer, home, why] of [
         [sha, 'read', 'bob', bob.home, /bad or missing signature/],
-        [w.genesis, 'read', 'alice', alice.home, /no accepted message of this room/],
+        [w.genesis, 'read', 'alice', alice.home, /no verified room/],
         [room(alice.H).genesis, 'taken', 'alice', alice.home, /no message of this room/],
-        [foreign, 'taken', 'alice', alice.home, /no accepted message of this room/],
         [sha, 'opened', 'alice', alice.home, /no accepted message of its actor/],
         [sha, 'usage.reserve', 'alice', alice.home, /no accepted message of its actor/],
         [sha, 'usage.settle', 'alice', alice.home, /no accepted message of its actor/],
@@ -700,6 +719,9 @@ describe('signed remote hubs', () => {
         const s = tag(alice.H, home, 'alice', target, {signal, signer})
         assert.throws(() => Remote.push(alice.H, s.ref), why)
       }
+      const foreignMark = tag(alice.H, alice.home, 'alice', foreign, {signal: 'taken'})
+      assert.equal(Remote.push(alice.H, foreignMark.ref), true, 'the full target identifies its other admitted room')
+      assert.match(Remote.verifySignal(alice.H, room(alice.H), foreignMark.ref, foreignMark.object)!, /no accepted message of this room/)
       const R = room(bob.H)
       const unsigned = message(bob.H, bob.home, 'bob', 'bad extension\n\nTo: alice\n', [sha], {unsigned: true})
       publish(bob.H, R.ref, unsigned)

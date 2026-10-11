@@ -30,29 +30,24 @@ an assignment or a budget.
 
 ## Form
 
-The body of every signal and mark is canonical:
+A signal or mark is its name, its target and its actor, nothing else. In a git store it is an annotated tag
+`<actor>.<signal>.<message12>` on the message's commit (`message12`: the first 12 hex digits of its id), tagged by the
+actor, with no text, signed by the actor on a signed hub ([hub-1](hub-1.md)). The message's id makes the name unique,
+so writing a signal twice is a no-op; the tag's own time says when it was made. Its room is the room whose branch
+holds its message; archiving a room leaves its signals where they are. Agent ids have no dot (core-1 §1), so a name
+reads unambiguously: the actor up to the first dot, the message after the last, the signal between.
 
-```
-<signal>
-
-Room: <room>
-Genesis: <room genesis>
-Actor: <actor>
-Message: <full message id>
-Signal: <signal>
-```
-
-In a git store it is an annotated tag `ringi/<genesis>/<actor>/<message>.<signal>` on the message's commit, signed by
-the actor on a signed hub ([hub-1](hub-1.md)). An archived room keeps its signals under its archive.
+ringi 0.1 named tags `ringi/<genesis>/<actor>/<message>.<signal>` and gave them a body; those are not read, and
+`ringi room migrate` converts them.
 
 ## Checking
 
-A reader checks every signal and mark: the tagger is the actor; the name and the target are the same message; a
-signal's message is the actor's own and made exactly that signal; a mark is possible; the body is canonical (a
-signed one has its signature after it). The reader pins the stored object of each it accepted. A signal that fails a
+A reader checks every signal and mark: the tagger is the actor; the name's message is a prefix of the target; a
+signal's message is the actor's own and made exactly that signal; a mark is possible; the tag has no text (a signed
+one only its signature). The reader pins the stored object of each it accepted. A signal that fails a
 check, or an accepted one that is replaced or deleted, is an alarm; it never changes what the messages say.
 
 On a signed hub the transport also requires the actor's admitted signature and, for a signal, a target in the
-actor's own accepted log; for a mark, a target in any accepted log of the room.
+actor's own valid message in the room's branch; for a mark, any valid message of the room.
 
 Changes: a new signal or mark is a minor edit of this file; a new body or namespace is version 2.

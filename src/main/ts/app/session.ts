@@ -1,7 +1,7 @@
 // Session use cases preserve the operator's identity, seat and delegated scope.
 import {OPERATOR, ensureHome, locked} from '../home/index.ts'
 import {controlChange, openHub, room as roomOf} from '../hub/index.ts'
-import {ID_RE} from '../protocol/index.ts'
+import {AGENT_RE} from '../protocol/index.ts'
 import {allSessions, bound, dropSession, liveness, ownSession, parseSelector, pidAlive, readSession, saveSession, seatHolder, whoAmI} from '../runtime/session.ts'
 import type {Session} from '../runtime/session.ts'
 import type {JoinKey} from '../store/index.ts'
@@ -20,7 +20,7 @@ export type JoinResult = {agent: string, hub: string, room: string} & ({session:
 export const join = ({hub, room, agent: id, scope}: JoinInput): JoinResult => {
   const me = whoAmI()
   const agent = id ?? me.product ?? fail('--as <id> is required: this session\'s product is unknown')
-  if (!ID_RE.test(agent) || agent === OPERATOR) fail(`bad agent id ${agent}`)
+  if (!AGENT_RE.test(agent) || agent === OPERATOR) fail(`bad agent id ${agent}: lowercase letters, digits, - and _, no dot`)
   const H = openHub(hub), R = roomOf(H, room)
   if (R.archived) fail(`${room} is archived`)
   if (H.signed) {

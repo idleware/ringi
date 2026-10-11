@@ -174,9 +174,10 @@ describe('signals: what happened, beside the messages', () => {
     const sig = w.json(['signals'])
     assert.deepEqual(sig.map(s => `${s.actor}:${s.signal}`).sort(), ['alice:state.completed', 'alice:state.working', 'operator:assigned', 'operator:opened'])
     assert.ok(sig.every(s => s.ok))
-    const genesis = w.json(['sessions'])[0].genesis
-    assert.match(w.git('tag', '-l', `ringi/${genesis}/alice/*`), new RegExp(`^ringi/${genesis}/alice/[0-9a-f]{40}\\.state\\.completed$`, 'm'))
-    assert.match(w.git('cat-file', '-p', `ringi/${genesis}/operator/${find(sig, s => s.signal === 'opened').target}.opened`), /^tagger operator [\s\S]*Room: r\n/m)
+    assert.match(w.git('tag', '-l', 'alice.*'), /^alice\.state\.completed\.[0-9a-f]{12}$/m)
+    // A signal is its name, its target and its tagger; it carries no text.
+    const opened = w.git('cat-file', '-p', `operator.opened.${find(sig, s => s.signal === 'opened').target.slice(0, 12)}`)
+    assert.match(opened, /^object [0-9a-f]{40}\ntype commit\ntag operator\.opened\.[0-9a-f]{12}\ntagger operator <operator@ringi> \d+ [+-]\d{4}$/)
   })
 
   it('alarms on a signal that disagrees with its message, or that changes or disappears after it was accepted', (t) => {
@@ -185,17 +186,20 @@ describe('signals: what happened, beside the messages', () => {
     w.ok(['join', 'local', 'r', '--as', 'alice'], {as: 'A'})
     const task = w.id(w.ok(['send', '--task', '--assign', 'alice', '-m', 'Job']))
     const full = find(w.json(['log']), m => m.id.startsWith(task)).id
-    const genesis = w.json(['sessions'])[0].genesis
     assert.equal(w.run(['signals']).err, '')
     // A forged signal: alice claims a completion her message never made.
     const env = {...FIXTURE_GIT, GIT_COMMITTER_NAME: 'alice', GIT_COMMITTER_EMAIL: 'alice@ringi'}
-    spawnSync('git', ['--git-dir', path.join(w.home, 'hub', 'local', 'store', '.git'), 'tag', '-a', '-m', 'forged', `ringi/${genesis}/alice/${full}.state.completed`, full], {env})
+    spawnSync('git', ['--git-dir', path.join(w.home, 'hub', 'local', 'store', '.git'), 'tag', '-a', '-m', '', `alice.state.completed.${task}`, full], {env})
     assert.match(w.run(['signals']).err, /ALARM signal .*alice.*points at a message of operator/)
-    w.git('tag', '-d', `ringi/${genesis}/alice/${full}.state.completed`)
+    w.git('tag', '-d', `alice.state.completed.${task}`)
+    // A signal with text is not one.
+    spawnSync('git', ['--git-dir', path.join(w.home, 'hub', 'local', 'store', '.git'), 'tag', '-a', '-m', 'Room: r', `alice.read.${task}`, full], {env})
+    assert.match(w.run(['signals']).err, /ALARM signal .*alice\.read.*carries text/)
+    w.git('tag', '-d', `alice.read.${task}`)
     // An accepted signal replaced by another object, then removed.
-    const ref = `ringi/${genesis}/operator/${full}.opened`
+    const ref = `operator.opened.${task}`
     w.git('tag', '-f', '-a', '-m', 'replaced', ref, full)
-    assert.match(w.run(['signals']).err, /ALARM signal refs\/tags\/.*\.opened was replaced after it was accepted/)
+    assert.match(w.run(['signals']).err, /ALARM signal refs\/tags\/operator\.opened\.[0-9a-f]{12} was replaced after it was accepted/)
     w.git('tag', '-d', ref)
     assert.match(w.run(['signals']).err, /was removed after it was accepted/)
   })
@@ -240,9 +244,7 @@ describe('signals: what happened, beside the messages', () => {
     // Three runs, codex's r2 still open; 5s and 3s spent, the duplicate and the early settlement count nothing.
     assert.match(w.ok(['grants']), /runs 3\/5, open 1, 8s used/)
     // A tag forged on the receipt no grant counts is an alarm.
-    const genesis = w.json(['sessions'])[0].genesis
-    const body = `usage.reserve\n\nRoom: r\nGenesis: ${genesis}\nActor: codex\nMessage: ${stray}\nSignal: usage.reserve\n`
-    spawnSync('git', ['--git-dir', store, 'tag', '-a', '-F', '-', `ringi/${genesis}/codex/${stray}.usage.reserve`, stray], {env: env('codex'), input: body})
+    spawnSync('git', ['--git-dir', store, 'tag', '-a', '-F', '-', `codex.usage.reserve.${stray.slice(0, 12)}`, stray], {env: env('codex'), input: ''})
     assert.match(w.run(['signals', '--all']).err, /ALARM signal .*codex.*did not make usage\.reserve/)
   })
 
@@ -256,13 +258,35 @@ describe('signals: what happened, beside the messages', () => {
     const genesis = fs.readdirSync(dir)[0]
     const file = path.join(dir, genesis, 'operator.json')
     const st = JSON.parse(fs.readFileSync(file, 'utf8'))
-    const [key, object] = Object.entries(st.signals as Record<string, string>).find(([k]) => k.endsWith('.opened'))!
-    const name = key.split('/').slice(-2).join('/')
-    // The live pin holds what was accepted first; the archive pin holds what is there now. Without care the second
-    // would quietly win after one read.
+    const [, object] = Object.entries(st.signals as Record<string, string>).find(([k]) => k.startsWith('operator.opened.'))!
+    const name = `operator/${w.json(['signals']).find(s => s.signal === 'opened')!.target}.opened`
+    // Pins of the layout before tags were named by their message: the live pin holds what was accepted first; the
+    // archive pin holds what is there now. Without care the second would quietly win after one read.
     st.signals = {[`refs/tags/ringi/${genesis}/${name}`]: '0'.repeat(40), [`refs/archive/r@${genesis.slice(0, 8)}/signals/${name}`]: object}
     fs.writeFileSync(file, JSON.stringify(st))
-    for (let i = 0; i < 2; i++) assert.match(w.run(['signals']).err, /ALARM signal .*\.opened has two different accepted objects/)
+    for (let i = 0; i < 2; i++) assert.match(w.run(['signals']).err, /ALARM signal operator\.opened\.[0-9a-f]{12} has two different accepted objects/)
+  })
+
+  it('reads pins an older reader kept under each actor\'s full message id', (t) => {
+    const w = world(t)
+    w.ok(['room', 'create', 'r'])
+    w.ok(['join', 'local', 'r', '--as', 'alice'], {as: 'A'})
+    w.ok(['send', '--task', '--assign', 'alice', '-m', 'Job'])
+    w.ok(['agent', 'inbox'], {as: 'A'})
+    assert.equal(w.run(['signals']).err, '')
+    const dir = path.join(w.home, 'readers', 'local')
+    const file = path.join(dir, fs.readdirSync(dir)[0], 'operator.json')
+    const st = JSON.parse(fs.readFileSync(file, 'utf8'))
+    const full = w.json(['signals']).find(s => s.signal === 'opened')!.target
+    // `<actor>/<message>.<signal>`: alice's read and the operator's signals on one message stay apart.
+    st.signals = Object.fromEntries(Object.entries(st.signals as Record<string, string>).map(([k, v]) => {
+      const [actor, signal] = /^([^.]+)\.(.+)\.[0-9a-f]{12}$/.exec(k)!.slice(1)
+      return [`${actor}/${full}.${signal}`, v]
+    }))
+    fs.writeFileSync(file, JSON.stringify(st))
+    assert.equal(w.run(['signals']).err, '')
+    assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file, 'utf8')).signals).sort(),
+      ['alice.read', 'operator.assigned', 'operator.opened'].map(k => `${k}.${full.slice(0, 12)}`))
   })
 
   it('keeps a reader\'s pins when the room is archived', (t) => {
@@ -286,8 +310,7 @@ describe('signals: what happened, beside the messages', () => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
     w.ok(['send', '--task', '--assign', 'alice', '-m', 'Job'])
-    const genesis = w.git('rev-list', '--reverse', 'refs/heads/r', '^refs/heads/main').split('\n')[0]
-    for (const tag of w.git('tag', '-l', `ringi/${genesis}/*`).split('\n').filter(Boolean)) w.git('tag', '-d', tag)
+    for (const tag of w.git('tag', '-l').split('\n').filter(Boolean)) w.git('tag', '-d', tag)
     assert.match(w.ok(['signals']), /no signals/)
     assert.match(w.ok(['signals', '--repair']), /restored 2 signal\(s\) of operator/)
     assert.deepEqual(w.json(['signals']).map(s => s.signal).sort(), ['assigned', 'opened'])
@@ -323,11 +346,9 @@ describe('marks: the second layer, where attention is', () => {
     const note = w.id(w.ok(['send', '--to', 'alice', '-m', 'just a note']))
     w.no(['agent', 'take', note], /does not open work/, {as: 'A'})
     const full = find(w.json(['log']), m => m.id.startsWith(note)).id
-    const genesis = w.json(['sessions'])[0].genesis
     // bob marks as read a message addressed to alice only.
     const env = {...FIXTURE_GIT, GIT_COMMITTER_NAME: 'bob', GIT_COMMITTER_EMAIL: 'bob@ringi'}
-    const body = `read\n\nRoom: r\nGenesis: ${genesis}\nActor: bob\nMessage: ${full}\nSignal: read\n`
-    spawnSync('git', ['--git-dir', path.join(w.home, 'hub', 'local', 'store', '.git'), 'tag', '-a', '-F', '-', `ringi/${genesis}/bob/${full}.read`, full], {env, input: body})
+    spawnSync('git', ['--git-dir', path.join(w.home, 'hub', 'local', 'store', '.git'), 'tag', '-a', '-F', '-', `bob.read.${note}`, full], {env, input: ''})
     assert.match(w.run(['signals']).err, /ALARM signal .*bob.*not delivered to bob/)
   })
 })

@@ -9,7 +9,7 @@ import {HOME, OPERATOR, config, guard, locked, setConfig} from '../home/index.ts
 import {RESERVED_ROOMS, ROOM_MD, controlChange, profileText, room as roomOf, roomNames} from '../hub/index.ts'
 import type {Hub, Room} from '../hub/index.ts'
 import {Fail, fail, note} from '../lib/index.ts'
-import {ID_RE, compose} from '../protocol/index.ts'
+import {AGENT_RE, ID_RE, compose} from '../protocol/index.ts'
 import {loadState, readerLock, saveState} from '../runtime/reader.ts'
 import {allSessions, liveness} from '../runtime/session.ts'
 
@@ -64,6 +64,7 @@ export const migrate = (H: Hub, name: string): string => {
 const notSigned = (H: Hub, what: string) => { if (H.signed) fail(`room ${what} is not supported on signed hubs yet: a local change would come back with the next fetch`) }
 export const admit = (H: Hub, R: Room, who: string, key: string): void => {
   if (!H.signed || !H.store.admit) fail('room admit is for signed hubs; on a local hub the operator\'s join adds members')
+  if (!AGENT_RE.test(who)) fail(`bad agent id ${who}: lowercase letters, digits, - and _, no dot`)
   locked(`hub-${H.name}`, () => H.store.admit!(R.s, who, key))
 }
 export const remove = (H: Hub, R: Room, who: string): void => {

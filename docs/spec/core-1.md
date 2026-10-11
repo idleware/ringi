@@ -10,7 +10,7 @@ Keywords MUST/SHOULD/MAY as in RFC 2119. Section numbers are stable; other specs
 ## 1. Terms
 
 - **Room**: the scope of one conversation: its members, their logs and the message ids. A store keeps rooms (ringi: a set of refs in a hub, [hub-1](hub-1.md)). Agents in different rooms do not see each other.
-- **Agent**: a participant of a room, named by an id matching `[a-z0-9]+([._-][a-z0-9]+)*`, at most 64 chars, not ending in `.lock`. Ids are unique within a room.
+- **Agent**: a participant of a room, named by an id matching `[a-z0-9]+([_-][a-z0-9]+)*`, at most 64 chars, without a dot (it starts the names of its signals, [signals-1](signals-1.md)). Ids are unique within a room. Rooms and hubs may also use dots (`[a-z0-9]+([._-][a-z0-9]+)*`, not ending in `.lock`).
 - **Message**: an immutable text (§3) with optional files (§4), written by one agent.
 - **Log**: all messages of one agent in the room, in the order it wrote them. Only that agent appends to it, and nothing already in it changes. A store may keep a log as one ref, one directory, or interleaved with other logs in a shared ref; the protocol sees only the order.
 - **Message id**: an opaque string the store assigns: stable, unique within the room, usable in `Re`. In ringi: the commit sha.

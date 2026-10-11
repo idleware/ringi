@@ -28,7 +28,7 @@ const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
 const ROOT = 'operator'
 const TRACK = 'refs/remotes/origin/'
 const ACCEPT = 'refs/ringi/remote-accepted/'
-const TAGS = 'refs/tags/ringi/'
+const TAGS = 'refs/tags/'
 const TAG_TRACK = 'refs/ringi/remote-tags/'
 const TAG_ACCEPT = 'refs/ringi/remote-accepted-tags/'
 const ENV = {GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GIT_NO_REPLACE_OBJECTS: '1', LC_ALL: 'C'}
@@ -340,26 +340,29 @@ export const verify = (H: Handle, R: Room, who: string, head: string): string | 
   } catch (e) { return reason(e) }
 }
 
-const signalName = (ref: string): {genesis: string, actor: string, message: string, signal: string} => {
-  const parts = ref.startsWith(TAGS) ? ref.slice(TAGS.length).split('/') : []
-  const [genesis, actor, name = ''] = parts
-  const dot = name.indexOf('.'), message = name.slice(0, dot), signal = name.slice(dot + 1)
-  if (parts.length !== 3 || !SHA.test(genesis) || !P.ID_RE.test(actor) || !SHA.test(message) || !/^[a-z][a-z0-9.-]*$/.test(signal)) C.fail('malformed signal tag namespace')
-  return {genesis, actor, message, signal}
+const SIGNAL_NAME = /^([a-z0-9]+(?:[_-][a-z0-9]+)*)\.([a-z][a-z0-9.-]*)\.([0-9a-f]{12})$/
+const signalName = (ref: string): {actor: string, id: string, signal: string} => {
+  const m = ref.startsWith(TAGS) && SIGNAL_NAME.exec(ref.slice(TAGS.length))
+  if (!m) return C.fail('malformed signal tag namespace')
+  return {actor: m[1], id: m[3], signal: m[2]}
 }
-// The transport binds a signed tag to an accepted message. Derived signals belong to the message's author;
-// read/taken marks may name another member's message. Readers check the transition or mark's meaning (signals.ts).
-const checkSignal = (H: Handle, R: Room, ref: string, sha: string): void => {
+// The signed header carries the full target, tag name and actor; there is no message body.
+const signalObject = (H: Handle, ref: string, sha: string) => {
   const s = signalName(ref)
-  if (s.genesis !== R.genesis) C.fail('signal belongs to another room genesis')
   if (git(H, ['cat-file', '-t', sha]).trim() !== 'tag') C.fail('signal must be an annotated tag')
   const text = P.decodeText(git(H, ['cat-file', 'tag', sha], {raw: true}))
   if (text.invalid) C.fail(`signal tag is ${text.invalid}`)
   const [header, ...rest] = text.text!.split('\n\n')
   const target = /^object ([0-9a-f]+)\ntype commit\ntag ([^\n]+)\ntagger ([^<\n]+) <[^\n]*> \d+ [+-]\d{4}\n?$/.exec(header) ?? C.fail('malformed signal tag headers')
-  if (target[1] !== s.message || target[2] !== ref.slice('refs/tags/'.length) || target[3].trim() !== s.actor) C.fail('signal tag name, actor or target disagrees')
-  const body = rest.join('\n\n').split('-----BEGIN SSH SIGNATURE-----')[0].trimEnd()
-  if (body !== `${s.signal}\n\nRoom: ${R.name}\nGenesis: ${R.genesis}\nActor: ${s.actor}\nMessage: ${s.message}\nSignal: ${s.signal}`) C.fail('signal tag trailers disagree with its namespace or target')
+  if (!SHA.test(target[1]) || !target[1].startsWith(s.id) || target[2] !== ref.slice('refs/tags/'.length) || target[3].trim() !== s.actor) C.fail('signal tag name, actor or target disagrees')
+  const body = rest.join('\n\n').split('-----BEGIN SSH SIGNATURE-----')[0]
+  if (body !== '') C.fail('signal tag message must be empty')
+  return {...s, message: target[1]}
+}
+// Derived signals belong to their message's author; read/taken marks may name another member's message.
+// The room is determined by the full target commit on its verified branch, never by a short name or a tag body.
+const checkSignal = (H: Handle, R: Room, ref: string, sha: string): void => {
+  const s = signalObject(H, ref, sha)
   const b = branch(H, R, rev(H, R.ref) ?? C.fail('signal room has no branch here'))
   const signer = b.entries.find(e => e.principal === s.actor) ?? C.fail(`unadmitted signal principal ${s.actor}`)
   checkSignature(H, sha, s.actor, signer.key, 'tag')
@@ -421,7 +424,7 @@ const syncUnlocked = (H: Handle): Handle => {
   H.main = rev(H, 'refs/heads/main')!
   // Every other branch is a room. Branches of ringi 0.1 (`<room>/control`, `<room>/log/<agent>`) are not read.
   const names = new Set([...fetched.keys(), ...refs(H, ACCEPT).keys()].map(r => r.slice(r.startsWith(TRACK) ? TRACK.length : ACCEPT.length)).filter(r => r !== 'main' && !r.includes('/')))
-  const byGenesis = new Map<string, Room>()
+  const byGenesis = new Map<string, Room>(), byTarget = new Map<string, Room>()
   for (const name of names) {
     const ref = 'refs/heads/' + name
     try {
@@ -432,16 +435,20 @@ const syncUnlocked = (H: Handle): Handle => {
       promote(H, ref, sha)
       // Local commits not yet published stay on top.
       const local = branchData(H, name, rev(H, ref)!, data.genesis)
-      byGenesis.set(data.genesis, {name, ref, head: local.control.at(-1)!, genesis: data.genesis})
+      const R = {name, ref, head: local.control.at(-1)!, genesis: data.genesis}
+      byGenesis.set(data.genesis, R)
+      for (const target of [...local.control, ...local.authors.keys(), ...local.skipped.keys()]) byTarget.set(target, R)
     } catch (e) { H.remoteAlarms[ref] = reason(e) }
   }
   const tags = refs(H, TAG_TRACK), pinned = refs(H, TAG_ACCEPT)
   for (const name of new Set([...tags.keys()].map(r => r.slice(TAG_TRACK.length)).concat([...pinned.keys()].map(r => r.slice(TAG_ACCEPT.length))))) {
+    // Other tags, including the old room-scoped namespace, are not signals.
+    if (!SIGNAL_NAME.test(name)) continue
     const ref = TAGS + name
     try {
       const sha = tags.get(TAG_TRACK + name) ?? C.fail('signal was deleted on the remote after acceptance')
-      const s = signalName(ref)
-      const R = byGenesis.get(s.genesis) ?? C.fail('signal room is missing or quarantined')
+      const s = signalObject(H, ref, sha)
+      const R = byTarget.get(s.message) ?? C.fail('signal room is missing or quarantined')
       checkSignal(H, R, ref, sha)
       const acc = pinned.get(TAG_ACCEPT + name), cur = object(H, ref)
       if (acc && acc !== sha) C.fail('signal was replaced after transport acceptance')
@@ -525,12 +532,12 @@ export const roomAdmit = (H: Handle, R: Room, who: string, publicKey: string, ho
 }
 const validateRef = (H: Handle, ref: string, sha: string): void => {
   if (ref.startsWith(TAGS)) {
-    const s = signalName(ref)
+    const s = signalObject(H, ref, sha)
     for (const [branchRef, head] of refs(H, 'refs/heads/')) {
       const name = branchRef.slice('refs/heads/'.length)
-      if (name === 'main' || name.includes('/') || !ancestor(H, s.genesis, head)) continue
+      if (name === 'main' || name.includes('/') || !ancestor(H, s.message, head)) continue
       const b = branchData(H, name, head)
-      if (b.genesis === s.genesis) { checkSignal(H, {name, ref: branchRef, head: b.control.at(-1)!, genesis: b.genesis}, ref, sha); return }
+      if (b.control.includes(s.message) || b.authors.has(s.message) || b.skipped.has(s.message)) { checkSignal(H, {name, ref: branchRef, head: b.control.at(-1)!, genesis: b.genesis}, ref, sha); return }
     }
     return C.fail('signal points at no verified room')
   }

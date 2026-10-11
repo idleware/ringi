@@ -36,9 +36,19 @@ const legacy = (t: TestContext) => {
   const readers = path.join(home, 'readers', 'local', genesis)
   fs.mkdirSync(readers, {recursive: true})
   const state = path.join(readers, 'codex.json')
-  fs.writeFileSync(state, JSON.stringify({control: ctl, heads: {claude: task, codex: reply}, seen: {}, signals: {}}))
+  const tag = (actor: string, target: string, signal: string, date = '1700000000 +0300') => {
+    const name = `ringi/${genesis}/${actor}/${target}.${signal}`, ref = `refs/tags/${name}`
+    const header = `object ${target}\ntype commit\ntag ${name}\ntagger ${actor} <${actor}@fixture> ${date}\n\n`
+    const body = `${signal}\n\nRoom: r\nGenesis: ${genesis}\nActor: ${actor}\nMessage: ${target}\nSignal: ${signal}\n`
+    const object = git(['mktag'], header + body)
+    git(['update-ref', ref, object])
+    return {ref, object, key: `${actor}.${signal}.${target.slice(0, 12)}`, actor, target, signal, date}
+  }
+  const tags = [tag('claude', task, 'opened'), tag('codex', task, 'read')]
+  const signals = Object.fromEntries(tags.map(s => [`${s.actor}/${s.target}.${s.signal}`, s.object]))
+  fs.writeFileSync(state, JSON.stringify({control: ctl, heads: {claude: task, codex: reply}, seen: {claude: task}, pending: [task], signals}))
   for (const [who, sha] of [['claude', task], ['codex', reply]]) git(['update-ref', `refs/ringi/accepted/${genesis}/codex/${who}`, sha])
-  return {home, dir, run, ok, git, ctl, genesis, task, reply, state}
+  return {home, dir, run, ok, git, ctl, genesis, task, reply, state, tag, tags}
 }
 
 describe('legacy room migration', () => {
@@ -54,6 +64,20 @@ describe('legacy room migration', () => {
     const before = JSON.parse(fs.readFileSync(w.state, 'utf8'))
     assert.equal(before.heads.claude, w.task)
     assert.equal(before.heads.codex, w.reply)
+    assert.deepEqual(before.seen, {claude: w.task})
+    assert.deepEqual(before.pending, [w.task])
+    for (const s of w.tags) {
+      const object = w.git(['rev-parse', `refs/tags/${s.key}`])
+      const header = `object ${s.target}\ntype commit\ntag ${s.key}\ntagger ${s.actor} <${s.actor}@fixture> ${s.date}\n\n`
+      assert.equal(w.git(['cat-file', '-s', object]), String(Buffer.byteLength(header)), 'the new tag has an empty body')
+      assert.equal(w.git(['cat-file', 'tag', object]), header.trim())
+      assert.equal(before.signals[s.key], object)
+      assert.equal(w.git(['rev-parse', s.ref.replace(`refs/tags/ringi/${w.genesis}/`, `refs/ringi/legacy/${w.genesis}/signals/`)]), s.object)
+    }
+    assert.equal(w.git(['for-each-ref', '--format=%(refname)', 'refs/tags/ringi/']), '')
+    const snapshots = path.join(w.home, 'migration', 'local', w.genesis, 'readers')
+    const saved = JSON.parse(fs.readFileSync(path.join(snapshots, fs.readdirSync(snapshots)[0]), 'utf8'))
+    assert.deepEqual(saved.signals, Object.fromEntries(w.tags.map(s => [`${s.actor}/${s.target}.${s.signal}`, s.object])))
     const sent = /sent (\w+)/.exec(w.ok(['agent', 'reply', w.task, '--state', 'completed', '-m', 'Done'], 'codex-chat'))![1]
     const received = w.ok(['agent', 'inbox'], 'claude-chat')
     assert.match(received, /codex \(asserted\) → claude[\s\S]*Subject: Done/)
@@ -92,5 +116,69 @@ describe('legacy room migration', () => {
     assert.equal(w.git(['rev-parse', 'refs/heads/r/control']), w.ctl)
     assert.equal(w.git(['rev-parse', 'refs/heads/r/log/claude']), changed)
     assert.equal(w.git(['for-each-ref', '--format=%(refname)', 'refs/ringi/migrating/', 'refs/ringi/legacy/']), '')
+  })
+
+  it('resumes tag pins after a crash following the ref transaction, including on an already shared room', t => {
+    const w = legacy(t), original = fs.readFileSync(w.state, 'utf8')
+    w.ok(['room', 'migrate', 'r'])
+    const tip = w.git(['rev-parse', 'refs/heads/r'])
+    fs.writeFileSync(w.state, original)
+    // A new reader version may already have shortened the old keys while still pinning the old objects.
+    const st = JSON.parse(original)
+    st.signals = Object.fromEntries(w.tags.map(s => [s.key, s.object]))
+    const other = path.join(path.dirname(w.state), 'operator.json')
+    fs.writeFileSync(other, JSON.stringify(st))
+    const lostActor = path.join(path.dirname(w.state), 'claude.json')
+    st.signals = Object.fromEntries(w.tags.map(s => [`${s.target}.${s.signal}`, s.object]))
+    fs.writeFileSync(lostActor, JSON.stringify(st))
+    w.ok(['room', 'migrate', 'r'])
+    assert.equal(w.git(['rev-parse', 'refs/heads/r']), tip)
+    for (const file of [w.state, other, lostActor]) {
+      const restored = JSON.parse(fs.readFileSync(file, 'utf8'))
+      for (const s of w.tags) assert.equal(restored.signals[s.key], w.git(['rev-parse', `refs/tags/${s.key}`]))
+      assert.deepEqual(restored.pending, [w.task])
+    }
+    const good = fs.readFileSync(w.state, 'utf8')
+    w.git(['update-ref', '-d', `refs/tags/${w.tags[0].key}`])
+    const failed = w.run(['room', 'migrate', 'r'])
+    assert.notEqual(failed.status, 0)
+    assert.match(failed.stderr, /ALARM migrated signal.*removed/)
+    assert.equal(fs.readFileSync(w.state, 'utf8'), good, 'a removed migrated tag is never silently restored')
+  })
+
+  it('refuses deleted or replaced accepted tags before moving any old room refs', t => {
+    for (const how of ['deleted', 'replaced', 'shortened-deleted', 'lost-identity']) {
+      const w = legacy(t), s = w.tags[0]
+      if (how === 'replaced') w.tag(s.actor, s.target, s.signal, '1700000001 +0300')
+      else if (how !== 'lost-identity') w.git(['update-ref', '-d', s.ref])
+      if (how === 'shortened-deleted') {
+        const st = JSON.parse(fs.readFileSync(w.state, 'utf8'))
+        st.signals = Object.fromEntries(w.tags.map(s => [s.key, s.object]))
+        fs.writeFileSync(w.state, JSON.stringify(st))
+      }
+      if (how === 'lost-identity') {
+        const st = JSON.parse(fs.readFileSync(w.state, 'utf8'))
+        st.signals = {[`${w.reply}.${s.signal}`]: s.object}
+        fs.writeFileSync(w.state, JSON.stringify(st))
+      }
+      const before = fs.readFileSync(w.state, 'utf8'), r = w.run(['room', 'migrate', 'r'])
+      assert.notEqual(r.status, 0, how)
+      assert.match(r.stderr, /ALARM accepted signal.*(?:missing|replaced|lost its verified identity)/)
+      assert.equal(fs.readFileSync(w.state, 'utf8'), before)
+      assert.equal(w.git(['rev-parse', 'refs/heads/r/control']), w.ctl)
+      assert.equal(w.git(['for-each-ref', '--format=%(refname)', 'refs/ringi/migrating/', 'refs/ringi/legacy/']), '')
+    }
+  })
+
+  it('refuses a conflicting shortened tag without replacing it or changing reader pins', t => {
+    const w = legacy(t), s = w.tags[0], before = fs.readFileSync(w.state, 'utf8')
+    const object = w.git(['mktag'], `object ${s.target}\ntype commit\ntag ${s.key}\ntagger ${s.actor} <${s.actor}@fixture> 1700000001 +0300\n\n`)
+    w.git(['update-ref', `refs/tags/${s.key}`, object])
+    const r = w.run(['room', 'migrate', 'r'])
+    assert.notEqual(r.status, 0)
+    assert.match(r.stderr, /ALARM signal.*collides/)
+    assert.equal(w.git(['rev-parse', `refs/tags/${s.key}`]), object)
+    assert.equal(fs.readFileSync(w.state, 'utf8'), before)
+    assert.equal(w.git(['rev-parse', 'refs/heads/r/control']), w.ctl)
   })
 })

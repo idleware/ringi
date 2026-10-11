@@ -3,7 +3,7 @@
 //   refs/heads/<room>                     the room: one linear branch, like a chat. Its first commit is the room's genesis
 //                                         (the root's, on top of main); then every message is a commit by its author, and
 //                                         every control record (Kind: room) a commit by the root
-//   refs/tags/ringi/<genesis>/<agent>/<message>.<signal>   signals, annotated tags in their author's namespace
+//   refs/tags/<agent>.<signal>.<message12>   signals: annotated tags without text on the message's commit
 //   refs/archive/<room>@<genesis8>        an archived room, read-only
 //   refs/ringi/accepted/<genesis>/<reader>/<author>   readers' pins of each author's accepted last message
 // A member's log is its own commits in the room's branch, in branch order. The control files at the root of a room's
@@ -18,8 +18,8 @@ import type {SpawnSyncReturns} from 'node:child_process'
 import {cannotWrite, mkdirIn, SANDBOX} from '../../lib/index.ts'
 import * as Remote from './remote.ts'
 import type {Descriptor, JoinKey, Roster, SignalRecord, Store, StoredMessage, StoredRoom} from '../index.ts'
-import {fail, note, strictJson} from '../../lib/index.ts'
-import {ID_RE, TEXT_MAX, checkOutgoing, compose, parse} from '../../protocol/index.ts'
+import {fail, locked, note, strictJson, writeJsonAtomic} from '../../lib/index.ts'
+import {AGENT_RE, ID_RE, TEXT_MAX, checkOutgoing, compose, parse} from '../../protocol/index.ts'
 import {checkCollisions, checkPath} from '../../protocol/files.ts'
 import type {Entry} from '../../protocol/files.ts'
 
@@ -37,8 +37,8 @@ const runGitOk = (args: string[], o: GitOpt = {}): SpawnSyncReturns<string> => {
   Remote.checkGitTimeout(r.error)
   return r
 }
-const runGitRaw = (args: string[], where?: string): Buffer => {
-  const r = spawnSync('git', args, {encoding: 'buffer', env: Remote.gitEnv(), maxBuffer: 1 << 30, timeout: Remote.gitTimeout()})
+const runGitRaw = (args: string[], where?: string, input?: Buffer): Buffer => {
+  const r = spawnSync('git', args, {input, encoding: 'buffer', env: Remote.gitEnv(), maxBuffer: 1 << 30, timeout: Remote.gitTimeout()})
   return check(args, r, where).stdout
 }
 function check<T extends string | Buffer>(args: string[], r: SpawnSyncReturns<T>, where = 'the hub store'): SpawnSyncReturns<T> {
@@ -240,51 +240,155 @@ export class GitStore implements Store {
     if (this.trust !== 'asserted') fail('legacy room migration is only supported for local asserted hubs')
     if (!ID_RE.test(name) || name === 'main') fail('expected a room id')
     const ref = this.ref(name), pending = this.transition(name)
-    const finish = (sha: string) => {
-      this.git(['update-ref', '--stdin'], {input: `start\ncreate ${ref} ${sha}\ndelete ${pending} ${sha}\nprepare\ncommit\n`})
+    const source = this.rev(pending) ?? this.rev(ref) ?? this.rev(`${ref}/control`) ?? fail(`no legacy room ${name}`)
+    const genesis = this.git(['rev-list', '--first-parent', '--reverse', source, '^refs/heads/main']).trim().split('\n')[0]
+    const readers = path.join(this.home, 'readers', this.d.name, genesis)
+    const files = fs.existsSync(readers) ? fs.readdirSync(readers).filter(f => f.endsWith('.json')).sort() : []
+    // Readers pin tag objects while holding these same locks. Keep their state stable across both ref transactions
+    // and the explicit conversion of their old accepted objects; no new baseline is supplied.
+    const protect = (at: number): string => at === files.length ? migrate() : locked(path.join(this.home, 'locks',
+      `reader-${this.d.name}-${genesis.slice(0, 12)}-${files[at].slice(0, -5)}.lock`), () => protect(at + 1))
+    const migrate = (): string => {
+      if (!genesis || this.git(['show', '-s', '--format=%s', genesis]).trim() !== `room ${name}`) fail('legacy room genesis does not name this room')
+      const finish = (sha: string) => {
+        this.git(['update-ref', '--stdin'], {input: `start\ncreate ${ref} ${sha}\ndelete ${pending} ${sha}\nprepare\ncommit\n`})
+        return sha
+      }
+      const staged = this.rev(pending)
+      const current = this.rev(ref)
+      if (staged || current) {
+        const tip = staged ?? current!
+        const tags = this.migrateSignals(name, genesis, [tip], files.map(f => path.join(readers, f)))
+        if (staged) finish(staged)
+        tags()
+        return tip
+      }
+      const ctl = `${ref}/control`, head = this.rev(ctl) ?? fail(`no legacy room ${name}`)
+      const logs = this.refsUnder(`${ref}/log/`)
+      for (const [r, sha] of [[ctl, head], ...logs]) {
+        const who = r === ctl ? ROOT : r.slice(`${ref}/log/`.length)
+        if (!ID_RE.test(who) || !this.extends(genesis, sha)) fail(`ALARM ${r} does not descend from its room genesis`)
+        const commits = this.git(['rev-list', '--parents', '--reverse', sha, `^${genesis}`]).trim().split('\n').filter(Boolean)
+        let parent = genesis
+        for (const row of commits) {
+          const [id, ...parents] = row.split(' ')
+          if (parents.length !== 1 || parents[0] !== parent) fail(`ALARM ${r} is not linear`)
+          if (this.git(['show', '-s', '--format=%an', id]).trim() !== who) fail(`ALARM ${r} contains another author's message`)
+          parent = id
+        }
+      }
+      // Accepted heads must still be present before any ref moves. Migration never supplies a fresh baseline.
+      const byAuthor = new Map(logs.map(([r, sha]) => [r.slice(`${ref}/log/`.length), sha]))
+      const checkAccepted = (who: string, sha: string) => {
+        const tip = byAuthor.get(who)
+        if (!tip || !this.extends(sha, tip)) fail(`ALARM log ${who} lost accepted history; migration stopped`)
+      }
+      for (const [r, sha] of this.refsUnder(`refs/ringi/accepted/${genesis}/`)) checkAccepted(r.split('/').at(-1)!, sha)
+      for (const f of files) {
+        const st = strictJson<{control?: string, heads?: Record<string, string>}>(fs.readFileSync(path.join(readers, f), 'utf8'), f)
+        if (st.control && !this.extends(st.control, head)) fail('ALARM room control lost accepted history; migration stopped')
+        for (const [who, sha] of Object.entries(st.heads ?? {})) checkAccepted(who, sha)
+      }
+      const tags = this.migrateSignals(name, genesis, [head, ...logs.map(([, id]) => id)], files.map(f => path.join(readers, f)))
+      const sha = this.commit(ROOT, compose(`migrate room ${name}`, [['To', '*'], ['Kind', 'room'], ['Ringi-Layout', 'branch/1']]),
+        this.git(['rev-parse', `${head}^{tree}`]).trim(), [...new Set([head, ...logs.map(([, id]) => id)])])
+      const old = [[ctl, head], ...logs]
+      const backup = `refs/ringi/legacy/${genesis}/`
+      this.git(['update-ref', '--stdin'], {input: ['start', `create ${pending} ${sha}`,
+        ...old.flatMap(([r, id]) => [`create ${backup}${r.slice(`${ref}/`.length)} ${id}`, `delete ${r} ${id}`]),
+        'prepare', 'commit', ''].join('\n')})
+      finish(sha)
+      tags()
       return sha
     }
-    const staged = this.rev(pending)
-    if (staged) return finish(staged)
-    const current = this.rev(ref)
-    if (current) return current
-    const ctl = `${ref}/control`, head = this.rev(ctl) ?? fail(`no legacy room ${name}`)
-    const genesis = this.git(['rev-list', '--reverse', head, '^refs/heads/main']).trim().split('\n')[0]
-    if (!genesis || this.git(['show', '-s', '--format=%s', genesis]).trim() !== `room ${name}`) fail('legacy room genesis does not name this room')
-    const logs = this.refsUnder(`${ref}/log/`)
-    for (const [r, sha] of [[ctl, head], ...logs]) {
-      const who = r === ctl ? ROOT : r.slice(`${ref}/log/`.length)
-      if (!ID_RE.test(who) || !this.extends(genesis, sha)) fail(`ALARM ${r} does not descend from its room genesis`)
-      const commits = this.git(['rev-list', '--parents', '--reverse', sha, `^${genesis}`]).trim().split('\n').filter(Boolean)
-      let parent = genesis
-      for (const row of commits) {
-        const [id, ...parents] = row.split(' ')
-        if (parents.length !== 1 || parents[0] !== parent) fail(`ALARM ${r} is not linear`)
-        if (this.git(['show', '-s', '--format=%an', id]).trim() !== who) fail(`ALARM ${r} contains another author's message`)
-        parent = id
+    mkdirIn(this.home, path.join(this.home, 'locks'))
+    return protect(0)
+  }
+  // An asserted hub can explicitly convert its old tag annotations, keeping their target, tagger and date. The
+  // original objects and reader snapshots remain evidence. Ref changes are atomic; a repeat resumes reader writes
+  // after a crash without replacing an accepted object that changed or disappeared in either format.
+  private migrateSignals(room: string, genesis: string, tips: string[], readers: string[]): () => void {
+    const prefix = `refs/tags/ringi/${genesis}/`, backup = `refs/ringi/legacy/${genesis}/signals/`
+    const old = new Map(this.refsUnder(prefix)), saved = new Map(this.refsUnder(backup))
+    const liveTags = new Map(this.refsUnder('refs/tags/'))
+    const refs: string[] = []
+    const changes = new Map<string, {before: string, after: string}>()
+    const identities = new Map<string, {key: string, target: string, signal: string}>()
+    const targets = new Set(this.git(['rev-list', ...tips, `^${genesis}`]).trim().split('\n').filter(Boolean))
+    const kept = (sha: string): boolean => tips.some(tip => this.extends(sha, tip))
+    for (const [ref, sha] of this.refsUnder(`refs/ringi/accepted/${genesis}/`)) {
+      if (!kept(sha)) fail(`ALARM ${ref} lost accepted history; migration stopped`)
+    }
+    for (const suffix of new Set([...old.keys()].map(r => r.slice(prefix.length)).concat([...saved.keys()].map(r => r.slice(backup.length))))) {
+      const before = saved.get(backup + suffix) ?? old.get(prefix + suffix)!
+      const liveOld = old.get(prefix + suffix), recorded = saved.get(backup + suffix)
+      if (recorded && liveOld && recorded !== liveOld) fail(`ALARM signal ${prefix + suffix} changed after migration; stopped`)
+      const m = /^([^/]+)\/((?:[0-9a-f]{40}|[0-9a-f]{64}))\.([a-z][a-z0-9.-]*)$/.exec(suffix)
+      if (!m || !AGENT_RE.test(m[1])) return fail(`ALARM signal ${prefix + suffix} cannot be migrated to an unambiguous agent id`)
+      const [, actor, target, signal] = m
+      if (this.git(['cat-file', '-t', before]).trim() !== 'tag') fail(`ALARM signal ${prefix + suffix} is not annotated`)
+      const text = this.git(['cat-file', 'tag', before])
+      const split = text.indexOf('\n\n'), header = text.slice(0, split), body = text.slice(split + 2)
+      const h = /^object ([0-9a-f]+)\ntype commit\ntag ([^\n]+)\n(tagger ([^<\n]+) <[^\n]*> \d+ [+-]\d{4})$/.exec(header)
+      if (!h || h[1] !== target || h[2] !== (prefix + suffix).slice('refs/tags/'.length) || h[4].trim() !== actor || !targets.has(target))
+        return fail(`ALARM signal ${prefix + suffix} disagrees with its name, actor or room target`)
+      if (body.includes('-----BEGIN')) fail('signed legacy signals need their authors to sign the new names; migration stopped')
+      const p = parse(body, s => this.isRef(s))
+      for (const [k, value] of [['room', room], ['genesis', genesis], ['actor', actor], ['message', target], ['signal', signal]]) {
+        if (p.trailers[k]?.length !== 1 || p.trailers[k][0] !== value) fail(`ALARM signal ${prefix + suffix} has inconsistent legacy metadata`)
+      }
+      const key = `${actor}.${signal}.${target.slice(0, 12)}`, ref = `refs/tags/${key}`
+      const after = this.git(['mktag'], {input: `object ${target}\ntype commit\ntag ${key}\n${h[3]}\n\n`}).trim()
+      const existing = changes.get(key), live = liveTags.get(ref)
+      if ((existing && existing.after !== after) || (live && live !== after)) fail(`ALARM signal ${key} collides with another tag; migration stopped`)
+      if (recorded && !live) fail(`ALARM migrated signal ${key} was removed; migration stopped`)
+      changes.set(key, {before, after})
+      identities.set(before, {key, target, signal})
+      identities.set(after, {key, target, signal})
+      if (!recorded) refs.push(`create ${backup + suffix} ${before}`)
+      if (!live) refs.push(`create ${ref} ${after}`)
+      if (liveOld) refs.push(`delete ${prefix + suffix} ${liveOld}`)
+    }
+    const planned = readers.map(file => {
+      const text = fs.readFileSync(file, 'utf8')
+      const st = strictJson<Record<string, unknown> & {signals?: Record<string, string>}>(text, file)
+      if (typeof st.control === 'string' && !kept(st.control)) fail('ALARM room control lost accepted history; migration stopped')
+      for (const sha of Object.values(st.heads as Record<string, string> ?? {})) {
+        if (!kept(sha)) fail('ALARM room log lost accepted history; migration stopped')
+      }
+      const next: Record<string, string> = {}
+      for (const [original, object] of Object.entries(st.signals ?? {})) {
+        const m = /(?:^|\/)([^/]+)\/((?:[0-9a-f]{40}|[0-9a-f]{64}))\.([a-z][a-z0-9.-]*)$/.exec(original)
+        // An early reader shortened a full ref to its last component and lost the actor. Its pinned object still
+        // proves the identity: recover it only from an exact, verified old object retained by this migration.
+        const bare = /^((?:[0-9a-f]{40}|[0-9a-f]{64}))\.([a-z][a-z0-9.-]*)$/.exec(original)
+        const identity = bare ? identities.get(object) : undefined
+        if (bare && (!identity || identity.target !== bare[1] || identity.signal !== bare[2])) fail(`ALARM accepted signal ${original} lost its verified identity; migration stopped`)
+        const key = m ? `${m[1]}.${m[3]}.${m[2].slice(0, 12)}` : identity?.key ?? original
+        const change = changes.get(key)
+        if (m && !change) fail(`ALARM accepted signal ${original} is missing; migration stopped`)
+        if (!change && /^[a-z0-9]+(?:[_-][a-z0-9]+)*\.[a-z][a-z0-9.-]*\.[0-9a-f]{12}$/.test(key)
+          && liveTags.get(`refs/tags/${key}`) !== object) fail(`ALARM accepted signal ${original} is missing or replaced; migration stopped`)
+        if (change && object !== change.before && object !== change.after) fail(`ALARM accepted signal ${original} was replaced; migration stopped`)
+        const value = change?.after ?? object
+        if (next[key] && next[key] !== value) fail(`ALARM accepted signal ${key} has conflicting objects; migration stopped`)
+        next[key] = value
+      }
+      return {file, text, st, next, changed: JSON.stringify(st.signals ?? {}) !== JSON.stringify(next)}
+    })
+    return () => {
+      if (refs.length) this.git(['update-ref', '--stdin'], {input: ['start', ...refs, 'prepare', 'commit', ''].join('\n')})
+      for (const p of planned) {
+        if (!p.changed) continue
+        // Separate from the live readers directory so the snapshot is never mistaken for another reader.
+        const dir = path.join(this.home, 'migration', this.d.name, genesis, 'readers')
+        mkdirIn(this.home, dir)
+        const snapshot = path.join(dir, `${path.basename(p.file)}.${crypto.createHash('sha256').update(p.text).digest('hex')}`)
+        if (!fs.existsSync(snapshot)) fs.writeFileSync(snapshot, p.text, {flag: 'wx', mode: 0o600})
+        else if (fs.readFileSync(snapshot, 'utf8') !== p.text) fail('ALARM migration reader snapshot changed; migration stopped')
+        writeJsonAtomic(p.file, {...p.st, signals: p.next})
       }
     }
-    // Accepted heads must still be present before any ref moves. Migration never supplies a fresh baseline.
-    const byAuthor = new Map(logs.map(([r, sha]) => [r.slice(`${ref}/log/`.length), sha]))
-    const checkAccepted = (who: string, sha: string) => {
-      const tip = byAuthor.get(who)
-      if (!tip || !this.extends(sha, tip)) fail(`ALARM log ${who} lost accepted history; migration stopped`)
-    }
-    for (const [r, sha] of this.refsUnder(`refs/ringi/accepted/${genesis}/`)) checkAccepted(r.split('/').at(-1)!, sha)
-    const readers = path.join(this.home, 'readers', this.d.name, genesis)
-    for (const f of fs.existsSync(readers) ? fs.readdirSync(readers).filter(f => f.endsWith('.json')) : []) {
-      const st = strictJson<{control?: string, heads?: Record<string, string>}>(fs.readFileSync(path.join(readers, f), 'utf8'), f)
-      if (st.control && !this.extends(st.control, head)) fail('ALARM room control lost accepted history; migration stopped')
-      for (const [who, sha] of Object.entries(st.heads ?? {})) checkAccepted(who, sha)
-    }
-    const sha = this.commit(ROOT, compose(`migrate room ${name}`, [['To', '*'], ['Kind', 'room'], ['Ringi-Layout', 'branch/1']]),
-      this.git(['rev-parse', `${head}^{tree}`]).trim(), [...new Set([head, ...logs.map(([, id]) => id)])])
-    const old = [[ctl, head], ...logs]
-    const backup = `refs/ringi/legacy/${genesis}/`
-    this.git(['update-ref', '--stdin'], {input: ['start', `create ${pending} ${sha}`,
-      ...old.flatMap(([r, id]) => [`create ${backup}${r.slice(`${ref}/`.length)} ${id}`, `delete ${r} ${id}`]),
-      'prepare', 'commit', ''].join('\n')})
-    return finish(sha)
   }
   // A control record on top of the branch: the control files come from the last control record, never from the tip,
   // and the messages' files are kept.
@@ -296,17 +400,17 @@ export class GitStore implements Store {
   private refsUnder(prefix: string): Array<[string, string]> {
     return this.git(['for-each-ref', '--format=%(refname) %(objectname)', prefix]).split('\n').filter(Boolean).map(l => l.split(' ') as [string, string])
   }
-  // The branch moves under the archive; signals stay under the room's genesis.
+  // The branch moves under the archive; its signals stay where they are, on its commits.
   archiveRoom(room: StoredRoom, as: string): void {
     const tip = this.rev(this.ref(room.name)) ?? fail(`room ${room.name} is gone`)
     this.git(['update-ref', `refs/archive/${as}`, tip, ZERO])
     this.git(['update-ref', '-d', this.ref(room.name), tip])
   }
   deleteRoom(room: StoredRoom): void {
+    const signals = this.signals(room)
     this.gitOk(['update-ref', '-d', this.ref(room.name)])
-    for (const prefix of [`refs/ringi/accepted/${room.genesis}/`, `refs/tags/ringi/${room.genesis}/`]) {
-      for (const [ref] of this.refsUnder(prefix)) this.git(['update-ref', '-d', ref])
-    }
+    for (const [ref] of this.refsUnder(`refs/ringi/accepted/${room.genesis}/`)) this.git(['update-ref', '-d', ref])
+    for (const s of signals) this.gitOk(['update-ref', '-d', s.ref])
   }
   private remote(room: StoredRoom): Remote.Room {
     return {name: room.name, ref: this.ref(room.name), head: room.head, genesis: room.genesis, archived: room.archived}
@@ -411,10 +515,10 @@ export class GitStore implements Store {
 
   // --- signals ---
 
-  // An annotated tag in its author's namespace under the room's genesis (a room recreated under the same name is
-  // another namespace), signed on a signed hub. Writing the same signal twice is a no-op.
-  signal(room: StoredRoom, who: string, target: string, name: string, text: string): void {
-    const tag = `ringi/${room.genesis}/${who}/${name}`
+  // An annotated tag without text in its author's namespace, on the message's commit, signed on a signed hub. The
+  // message's id in the name keeps it unique, so writing the same signal twice is a no-op.
+  signal(room: StoredRoom, who: string, target: string, name: string): void {
+    const tag = `${who}.${name}`
     const ref = `refs/tags/${tag}`
     if (this.gitOk(['rev-parse', '-q', '--verify', ref]).status === 0) {
       Remote.push(this.h, ref)
@@ -422,17 +526,50 @@ export class GitStore implements Store {
     }
     const sign = Remote.sign(this.h, who, this.home)
     const key = sign[0]?.slice(2)
-    this.git([...(key ? ['-c', `user.signingkey=${key}`] : []), 'tag', key ? '-s' : '-a', '-F', '-', tag, target], {input: text, env: ident(who)})
+    this.git([...(key ? ['-c', `user.signingkey=${key}`] : []), 'tag', key ? '-s' : '-a', '-F', '-', tag, target], {input: '', env: ident(who)})
     Remote.push(this.h, ref)
   }
+  // The tags named `<actor>.<signal>.<message12>`, with the objects they name.
+  private tags(): Array<{ref: string, actor: string, name: string, object: string, type: string}> {
+    return this.git(['for-each-ref', '--format=%(refname) %(objectname) %(objecttype)', 'refs/tags/']).split('\n').flatMap(line => {
+      const [ref, object, type] = line.split(' ')
+      const m = /^refs\/tags\/([a-z0-9]+(?:[_-][a-z0-9]+)*)\.([a-z][a-z0-9.-]*\.[0-9a-f]{12})$/.exec(ref ?? '')
+      return m ? [{ref, actor: m[1], name: m[2], object, type}] : []
+    })
+  }
+  // Annotated tag objects read whole, size-framed: their target, tagger and text are never split on bytes they hold.
+  private tagObjects(shas: string[]): Map<string, {target: string, tagger: string, text: string}> {
+    const out = new Map<string, {target: string, tagger: string, text: string}>()
+    if (!shas.length) return out
+    const raw = runGitRaw(this.args(['cat-file', '--batch']), this.home, Buffer.from(shas.join('\n') + '\n'))
+    let at = 0
+    for (const sha of shas) {
+      const nl = raw.indexOf(0x0a, at)
+      const [got, type, size] = raw.subarray(at, nl).toString('utf8').split(' ')
+      const body = raw.subarray(nl + 1, nl + 1 + Number(size))
+      at = nl + 1 + Number(size) + 1
+      if (got !== sha || type !== 'tag') continue
+      const split = body.indexOf('\n\n')
+      const hdr = body.subarray(0, split < 0 ? body.length : split).toString('utf8')
+      const text = split < 0 ? '' : body.subarray(split + 2).toString('utf8').split('-----BEGIN SSH SIGNATURE-----')[0]
+      const target = /^object ([0-9a-f]+)\ntype commit$/m.exec(hdr)?.[1] ?? ''
+      out.set(sha, {target, tagger: /^tagger (.*?) <[^>\n]*> \d+ [+-]\d{4}$/m.exec(hdr)?.[1] ?? '', text})
+    }
+    return out
+  }
+  // Every commit of the room's branch: a signal belongs to the room whose branch holds its message.
+  private commitsOf(room: StoredRoom): Set<string> {
+    const tip = this.tip(room.name)
+    return new Set(tip ? this.entries(room, tip).map(e => e.sha) : [])
+  }
   signals(room: StoredRoom): SignalRecord[] {
-    const prefix = `refs/tags/ringi/${room.genesis}/`
-    const raw = this.git(['for-each-ref', '--format=%(refname)%1f%(objectname)%1f%(objecttype)%1f%(*objectname)%1f%(taggername)%1f%(contents)%1e', prefix])
-    const records = raw.split('\x1e').map(s => s.replace(/^\n/, '')).filter(Boolean).map(rec => {
-      const [ref, object, type, target, tagger, text = ''] = rec.split('\x1f')
-      const [actor, ...rest] = ref.slice(prefix.length).split('/')
+    const tags = this.tags(), objects = this.tagObjects(tags.filter(t => t.type === 'tag').map(t => t.object))
+    const mine = this.commitsOf(room)
+    const records = tags.flatMap(t => {
+      const o = objects.get(t.object)
       // Only an annotated tag on a commit is a signal; anything else points nowhere.
-      return {ref, object, name: rest.join('/'), actor, target: type === 'tag' ? target : '', tagger, text}
+      if (!mine.has(o?.target || t.object)) return []
+      return [{ref: t.ref, object: t.object, name: t.name, actor: t.actor, target: o?.target ?? '', tagger: o?.tagger ?? '', text: o?.text ?? ''}]
     })
     if (this.trust !== 'signed' || room.archived) return records
     return Remote.withVerification(this.h, () => records.filter(s => {

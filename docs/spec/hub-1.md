@@ -39,7 +39,7 @@ A git store:
 ```
 refs/heads/main                      the shared contract: contract.json, authority.json, profiles/, HUB.md
 refs/heads/<room>                    the room: one linear branch, a stack of messages like a chat
-refs/tags/ringi/<genesis>/<agent>/<message>.<signal>   signals and marks (signals-1)
+refs/tags/<agent>.<signal>.<message12>   signals and marks on their message's commit (signals-1)
 refs/ringi/accepted/<genesis>/<reader>/<author>   reader-owned pins of each author's accepted last message, so gc never erases evidence
 refs/archive/<room>@<genesis8>       an archived room: read-only, nothing appends, nothing wakes; its signals stay where they are
 ```

@@ -1,8 +1,9 @@
 // signals: explicit markers of what happens in a room, beside the messages that carry it. Every effective transition
 // (work opened, assigned, a state reached, a proposal, a counted stamp, the decision, a counted usage receipt) is also
-// a signal in its author's own namespace under the room's genesis, pointing at the message that made it: in a git
-// store an annotated tag `ringi/<genesis>/<author>/<message>.<signal>`, signed on a signed hub. Signals are visible
-// and checkable with the store's own tools (`git tag -v`, a forge's tag list and tag-push webhooks) and cheap to poll.
+// a signal of its author on the message that made it: in a git store an annotated tag `<author>.<signal>.<message12>`
+// on that message's commit, with no text of its own, signed on a signed hub. The message's id keeps the name unique;
+// the name, target, author and time are the tag itself. Signals are visible and checkable with the store's own tools
+// (`git tag -v`, a forge's tag list and tag-push webhooks) and cheap to poll.
 //
 // The messages stay the truth. A signal is made only for a transition the fold actually counted (a State the author
 // had no right to makes none). A reader checks every signal against its message and pins the stored object it
@@ -22,13 +23,13 @@ import {HIDDEN, one, visible} from '../protocol/index.ts'
 import type {All, Message} from '../protocol/index.ts'
 // What the folds need of a room; a hub's Room is one.
 export type RoomModel = {name: string, genesis: string, profile: Profile, members: Record<string, unknown>, authorityAt: D.AuthorityAt}
-// A stored signal as a store returns it: an annotated tag (git) or its equivalent.
+// A stored signal as a store returns it: an annotated tag (git) or its equivalent. `name` is `<signal>.<message12>`,
+// after its actor; `text` is whatever the tag says besides its signature, which for a signal is nothing.
 export type SignalRecord = {ref: string, object: string, name: string, actor: string, target: string, tagger: string, text: string}
 
 export const MARKS = ['read', 'taken']
-// The canonical text of a signal or mark: what its author stores and every reader compares.
-export const signalBody = (R: Pick<RoomModel, 'name' | 'genesis'>, who: string, id: string, signal: string): string =>
-  `${signal}\n\nRoom: ${R.name}\nGenesis: ${R.genesis}\nActor: ${who}\nMessage: ${id}\nSignal: ${signal}\n`
+// A signal's name after its actor: the signal and the message's short id.
+export const signalName = (id: string, signal: string): string => `${signal}.${id.slice(0, 12)}`
 // Why the actor cannot put this mark on this message, or nothing when it can.
 export const markWhy = (R: RoomModel, actor: string, m: Message, mark: string): string | undefined =>
   !R.members[actor] ? `${actor} is not a member of ${R.name}`
@@ -68,14 +69,14 @@ export type Checked = {ref: string, actor: string, signal: string, target: strin
 // A signal holds when its author made it, it is named after and points at a message of its author in this room, and
 // that message made exactly this signal.
 export const check = (R: RoomModel, all: All, records: SignalRecord[]): Checked[] => records.map(x => {
-  const dot = x.name.indexOf('.')
-  const id = x.name.slice(0, dot)
-  const signal = x.name.slice(dot + 1)
+  const dot = x.name.lastIndexOf('.')
+  const id = x.name.slice(dot + 1)
+  const signal = x.name.slice(0, dot)
   const m = all.get(x.target)
   const what = (): string | undefined => {
     if (!x.target) return 'is not an annotated tag on a message'
     if (x.tagger !== x.actor) return `was made by ${x.tagger}, not ${x.actor}`
-    if (id !== x.target) return 'is named after another message'
+    if (id.length !== 12 || !x.target.startsWith(id)) return 'is named after another message'
     if (!m) return 'points at no accepted message of this room'
     if (MARKS.includes(signal)) {
       const why = markWhy(R, x.actor, m, signal)
@@ -84,19 +85,23 @@ export const check = (R: RoomModel, all: All, records: SignalRecord[]): Checked[
       if (m.from !== x.actor) return `points at a message of ${m.from}`
       if (!effective(R, all, m).includes(signal)) return `its message did not make ${signal}`
     }
-    // Signals and marks alike carry exactly their canonical body (a signed one, its signature after it).
-    if (x.text.split('-----BEGIN SSH SIGNATURE-----')[0].trimEnd() !== signalBody({...R, name: R.name.split('@')[0]}, x.actor, x.target, signal).trimEnd()) return 'its trailers disagree with the signal'
+    // A signal is its name and its target; any text besides a signature is not one.
+    if (x.text !== '') return 'carries text; a signal has none'
     return undefined
   }
   const why = what()
   return {ref: x.ref, actor: x.actor, signal, target: x.target, ok: !why, why}
 })
-// A signal's identity in any store and after an archive: `<actor>/<message>.<signal>`, the last two components of its
-// ref; pins an older reader kept under a full ref read the same way.
-const keyOf = (ref: string): string => ref.split('/').slice(-2).join('/')
+// A signal's identity in any store and after an archive: its tag's name `<actor>.<signal>.<message12>`. Pins an older
+// reader kept as `<actor>/<message>.<signal>`, or under a full ref ending so, read the same way.
+const keyOf = (ref: string): string => {
+  const parts = ref.split('/'), last = parts.at(-1)!
+  const old = /^([0-9a-f]{40,64})\.(.+)$/.exec(last)
+  return old && parts.length >= 2 ? `${parts.at(-2)}.${old[2]}.${old[1].slice(0, 12)}` : last
+}
 // A reader's pins: the stored object of each signal it accepted. A changed or vanished one is an alarm.
 export const pins = (records: SignalRecord[], checked: Checked[], accepted: Record<string, string> = {}): {accepted: Record<string, string>, alarms: string[]} => {
-  const now = new Map(records.map(x => [`${x.actor}/${x.name}`, x]))
+  const now = new Map(records.map(x => [`${x.actor}.${x.name}`, x]))
   const alarms: string[] = []
   const next: Record<string, string> = {}
   for (const [k, object] of Object.entries(accepted)) {
