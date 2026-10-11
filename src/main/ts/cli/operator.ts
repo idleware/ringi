@@ -105,6 +105,10 @@ export const roomCmd = (o: Opts) => {
     const r = Rooms.create(H, arg ?? '', {profile: opt(o, 'profile')})
     return out(`created room ${arg} in hub ${H.name} with profile ${r.profile}; it is the current room. In each chat that should take part, say: "join ${arg} as <id>; <what to accept>"`)
   }
+  if (sub === 'migrate') {
+    const rev = Rooms.migrate(H, arg ?? fail('usage: ringi room migrate <id>'))
+    return out(`room ${arg} uses one branch; its genesis, message ids and session bindings are kept (${short(rev)})`)
+  }
   if (sub === 'switch') {
     const R = Rooms.use(H, arg ?? fail('usage: ringi room switch <id>'))
     return out(`current room: ${H.name}/${R.name}; agents keep their own rooms`)

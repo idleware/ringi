@@ -41,7 +41,7 @@ export const loadRoomUnlocked = (R: Room, reader: string): {logs: Logs, st: Read
   }
   st.control = R.head
   st.heads ??= {}
-  const alarms: string[] = []
+  const alarms: string[] = [...store.alarms?.(R.s) ?? []]
   const logs: Logs = new Map()
   for (const id of new Set([...store.logIds(R.s), ...Object.keys(st.heads)])) {
     const cur = store.logHead(R.s, id)
@@ -68,7 +68,8 @@ export const loadRoomUnlocked = (R: Room, reader: string): {logs: Logs, st: Read
   const reported = new Set(st.alarms ?? [])
   for (const a of alarms) if (!reported.has(a)) note(`ALARM ${a}; ${a.startsWith('signal ')
     ? 'the messages stay the truth; the author restores a missing signal with ringi agent signals --repair'
-    : `it is quarantined and withheld. Restore it, or the operator runs ringi forget ${R.name}/<log>`}`)
+    : a.startsWith('commit ') ? 'it is skipped; the room reads on without it'
+      : `it is quarantined and withheld. Restore it, or the operator runs ringi forget ${R.name}/<log>`}`)
   st.alarms = alarms
   saveState(R, reader, st)
   return {logs, st}

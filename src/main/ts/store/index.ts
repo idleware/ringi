@@ -20,11 +20,12 @@ export type ControlRecord = {rev: Rev, text: string}
 export type StoredRoom = {
   name: string
   archived: boolean
-  // The control record's head, its first entry (the room's genesis, unique per room) and the contract revision the
-  // room was created on.
+  // The latest control record, the room's first one (its genesis, unique per room), the contract revision the room was
+  // created on, and the room's latest entry of any kind.
   head: Rev
   genesis: Rev
   base: Rev
+  tip: Rev
   // Control entries, oldest first.
   control: ControlRecord[]
 }
@@ -55,6 +56,8 @@ export interface Store {
   updateControl(room: StoredRoom, who: string, text: string, files: Record<string, string>): Rev
   archiveRoom(room: StoredRoom, as: string): void
   deleteRoom(room: StoredRoom): void
+  // An explicit, history-preserving transition from an older store layout, if supported.
+  migrateRoom?(name: string): Rev
   // A signed store's verified roster of a room; null for a store whose members are asserted.
   roster(room: StoredRoom): Roster | null
   // --- logs ---
@@ -62,9 +65,11 @@ export interface Store {
   logHead(room: StoredRoom, id: string): Rev | null
   // Whether `newer` extends `older` (or is it).
   extends(older: Rev, newer: Rev): boolean
-  // The entries of one log after the room's genesis up to `head`, oldest first.
+  // One member's messages after the room's genesis up to `head`, oldest first.
   messages(room: StoredRoom, id: string, head: Rev): StoredMessage[]
   append(room: StoredRoom, who: string, text: string, entries: Entry[]): Rev
+  // What the store skipped while reading the room (a signed hub: commits that are no valid message), as alarms.
+  alarms?(room: StoredRoom): string[]
   // Why a log may not be accepted (signature, roster, transport), or null.
   verifyLog(room: StoredRoom, id: string, head: Rev): string | null
   // Keep an accepted revision reachable for a reader, as evidence; and let it go.

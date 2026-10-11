@@ -215,7 +215,7 @@ describe('signals: what happened, beside the messages', () => {
     const env = (who: string) => ({...FIXTURE_GIT, GIT_AUTHOR_NAME: who, GIT_AUTHOR_EMAIL: `${who}@ringi`, GIT_COMMITTER_NAME: who, GIT_COMMITTER_EMAIL: `${who}@ringi`})
     const store = path.join(w.home, 'hub', 'local', 'store', '.git')
     const receipt = (subject: string, trailers: string, who = 'codex') => {
-      const ref = `refs/heads/r/log/${who}`
+      const ref = 'refs/heads/r'
       const head = w.git('rev-parse', ref)
       const sha = spawnSync('git', ['--git-dir', store, 'commit-tree', w.git('rev-parse', `${head}^{tree}`), '-p', head, '-m', `${subject}\n\nTo: operator\nKind: usage\n${trailers}`],
         {encoding: 'utf8', env: env(who)}).stdout.trim()
@@ -286,7 +286,7 @@ describe('signals: what happened, beside the messages', () => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
     w.ok(['send', '--task', '--assign', 'alice', '-m', 'Job'])
-    const genesis = w.git('rev-list', '--reverse', 'refs/heads/r/control', '^refs/heads/main').split('\n')[0]
+    const genesis = w.git('rev-list', '--reverse', 'refs/heads/r', '^refs/heads/main').split('\n')[0]
     for (const tag of w.git('tag', '-l', `ringi/${genesis}/*`).split('\n').filter(Boolean)) w.git('tag', '-d', tag)
     assert.match(w.ok(['signals']), /no signals/)
     assert.match(w.ok(['signals', '--repair']), /restored 2 signal\(s\) of operator/)
@@ -347,13 +347,23 @@ describe('hubs: a descriptor beside a store', () => {
     w.no(['where'], /selects two majors of decisions, which this ringi .* cannot enforce/)
   })
 
+  it('names a room in the layout of ringi 0.1 instead of hiding it', (t) => {
+    const w = world(t)
+    w.ok(['room', 'create', 'r'])
+    w.git('update-ref', 'refs/heads/old/control', w.git('rev-parse', 'refs/heads/r'))
+    const list = w.run(['room', 'list'])
+    assert.equal(list.code, 0, list.err)
+    assert.match(list.err, /ALARM room old is in the layout of ringi 0\.1/)
+    w.no(['log', '--room', 'old'], /layout of ringi 0\.1/)
+  })
+
   it('refuses a room\'s history offered under another name', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
     w.ok(['send', '--to', '*', '-m', 'only in r'])
-    // A store that copies r's control and logs to `other`, and invents an archive of r.
-    for (const ref of w.git('for-each-ref', '--format=%(refname)', 'refs/heads/r/').split('\n')) w.git('update-ref', ref.replace('/r/', '/other/'), w.git('rev-parse', ref))
-    w.git('update-ref', 'refs/archive/r@00000000/control', w.git('rev-parse', 'refs/heads/r/control'))
+    // A store that copies r's branch to `other`, and invents an archive of r.
+    w.git('update-ref', 'refs/heads/other', w.git('rev-parse', 'refs/heads/r'))
+    w.git('update-ref', 'refs/archive/r@00000000', w.git('rev-parse', 'refs/heads/r'))
     const list = w.run(['room', 'list', '--archived'])
     assert.equal(list.code, 0, list.err)
     assert.match(list.out, /^\* r +1 member/m)

@@ -12,10 +12,15 @@ import * as P from '../../protocol/index.ts'
 import type {Descriptor, Member} from '../index.ts'
 
 export type Handle = {name: string, dir: string, d: Descriptor, main?: string, remoteAlarms?: Record<string, string>, bootstrap?: boolean}
-export type Room = {name: string, head: string, genesis: string, control: string, log: (who: string) => string, archived?: boolean, members?: Record<string, Member>}
+// A room: its one branch (`ref`), its latest control record (`head`) and its genesis.
+export type Room = {name: string, ref: string, head: string, genesis: string, archived?: boolean, members?: Record<string, Member>}
 type Key = {line: string, fp: string}
 type Signer = {principal: string, key: Key}
 type VerifiedRoom = {genesis: string, entries: Signer[], members: Record<string, Member>}
+// A room's branch as verified up to a tip: its control records in order, the admitted author of each valid message,
+// and why each other commit is skipped.
+export type Branch = VerifiedRoom & {subject: string, control: string[], authors: Map<string, string>, skipped: Map<string, string>}
+const CONTROL_FILES = ['ROOM.md', 'members.json', 'profile.json', 'allowed_signers']
 type CommandOpt = {input?: string | Buffer, env?: NodeJS.ProcessEnv, ok?: boolean, raw?: boolean}
 const reason = (e: unknown): string => e instanceof Error ? e.message : String(e)
 
@@ -249,47 +254,90 @@ export const verifyHub = (H: Handle) => {
   const head = rev(H, 'refs/heads/main') || C.fail('signed hub has no main')
   return verifyMain(H, head)
 }
-const roomData = (H: Handle, name: string, head: string, expectedGenesis?: string): VerifiedRoom => {
-  const data = memo(H, `room/${head}`, () => {
+// Commits read raw, without trusting any separator inside them: parents, author name and message text.
+type Raw = {sha: string, parents: string[], author: string, text: string, body: Buffer}
+export const readCommits = (H: Handle, shas: string[]): Raw[] => {
+  if (!shas.length) return []
+  const out = git(H, ['cat-file', '--batch'], {input: Buffer.from(shas.join('\n') + '\n'), raw: true})
+  let at = 0
+  return shas.map(sha => {
+    const nl = out.indexOf(0x0a, at)
+    const [got, type, size] = out.subarray(at, nl).toString('utf8').split(' ')
+    if (got !== sha || type !== 'commit') C.fail(`malformed commit ${sha.slice(0, 12)}`)
+    const body = out.subarray(nl + 1, nl + 1 + Number(size))
+    at = nl + 1 + Number(size) + 1
+    const split = body.indexOf(Buffer.from('\n\n'))
+    const hdr = body.subarray(0, split < 0 ? body.length : split).toString('utf8')
+    const parents = [...hdr.matchAll(/^parent ([0-9a-f]+)$/gm)].map(m => m[1])
+    const author = /^author (.*?) <[^>\n]*> \d+ [+-]\d{4}$/m.exec(hdr)?.[1] ?? ''
+    const message = split < 0 ? Buffer.alloc(0) : body.subarray(split + 2)
+    return {sha, parents, author, body: message, text: P.decodeText(message).text ?? ''}
+  })
+}
+const broken = (why: string): C.Fail => Object.assign(new C.Fail(why), {broken: true})
+// A room is one branch on the verified contract: the root's genesis, then members' messages and the root's control
+// records, along first parents. What breaks the room (its genesis, a root-signed control record, the roster) fails it
+// whole; any other commit that is not a valid message of an admitted member is skipped, and the room reads on.
+const branchData = (H: Handle, name: string, tip: string, expectedGenesis?: string): Branch => {
+  const data = memo(H, `branch/${tip}`, () => {
     const main = verifyHub(H) ?? C.fail('room verification requires a signed hub')
-    const commits = chain(H, head, main.head)
-    if (!commits.length) C.fail(`room ${name} has no control genesis`)
-    const firstParents = commits[0].parents
-    if (firstParents.length !== 1 || !main.commits.includes(firstParents[0])) C.fail('room control does not descend from the verified hub contract')
-    let prev: Signer[] = []
-    let current: {entries: Signer[], members: Record<string, Member>} | undefined
-    linear(commits, firstParents[0], sha => {
-      checkSignature(H, sha, ROOT, rootKey(H))
-      current = rosterAt(H, sha)
-      const next = current
-      for (const e of prev) if (!next.entries.some(n => n.principal === e.principal && n.key.line === e.key.line)) C.fail('room roster drops or changes an admitted key; revocation/freeze is not implemented')
-      prev = current.entries
-    })
-    return {genesis: commits[0].sha, subject: git(H, ['show', '-s', '--format=%B', commits[0].sha]).split('\n')[0], ...current!}
+    const shas = git(H, ['rev-list', '--first-parent', '--reverse', tip, `^${main.head}`]).trim().split('\n').filter(Boolean)
+    if (!shas.length) C.fail(`room ${name} has no genesis`)
+    const list = readCommits(H, shas)
+    const genesis = list[0]
+    if (genesis.parents.length !== 1 || !main.commits.includes(genesis.parents[0])) C.fail('room does not descend from the verified hub contract')
+    const touching = new Set(git(H, ['log', '--first-parent', '--format=%H', tip, `^${main.head}`, '--', ...CONTROL_FILES]).trim().split('\n').filter(Boolean))
+    let roster: {entries: Signer[], members: Record<string, Member>} = {entries: [], members: {}}
+    const control: string[] = [], authors = new Map<string, string>(), skipped = new Map<string, string>()
+    let parent = genesis.parents[0]
+    for (const c of list) {
+      if (c.parents.length !== 1 || c.parents[0] !== parent) throw broken('a merge or non-linear history; a room is one linear branch')
+      parent = c.sha
+      try {
+        if (c === genesis || (c.author === ROOT && P.parse(c.text, x => SHA.test(x)).kind === 'room')) {
+          try { checkSignature(H, c.sha, ROOT, rootKey(H)) } catch (e) {
+            if (c === genesis || C.errno(e) === 'ETIMEDOUT') throw e
+            C.fail(`${reason(e)}; only the root writes control records`)
+          }
+          // A control record the root signed is the room's: a broken one breaks the room.
+          let next: typeof roster
+          try { next = rosterAt(H, c.sha) } catch (e) { throw broken(reason(e)) }
+          for (const e of roster.entries) if (!next.entries.some(n => n.principal === e.principal && n.key.line === e.key.line)) throw broken('room roster drops or changes an admitted key; revocation/freeze is not implemented')
+          roster = next
+          control.push(c.sha)
+          continue
+        }
+        const signer = roster.entries.find(e => e.principal === c.author) ?? C.fail(`${c.author || 'its author'} is unadmitted in this room`)
+        if (touching.has(c.sha)) C.fail('it changes the room\'s control files, which only the root changes')
+        checkSignature(H, c.sha, c.author, signer.key)
+        authors.set(c.sha, c.author)
+      } catch (e) {
+        if (!(e instanceof C.Fail) || c === genesis || (e as {broken?: boolean}).broken || C.errno(e) === 'ETIMEDOUT') throw e
+        skipped.set(c.sha, reason(e))
+      }
+    }
+    return {genesis: genesis.sha, subject: genesis.text.split('\n')[0], ...roster, control, authors, skipped}
   })
   // A ref name is supplied by the replica; only the signed genesis names the room.
   if (data.subject !== `room ${name}`) C.fail(`room genesis subject must be "room ${name}"`)
-  if (expectedGenesis && data.genesis !== expectedGenesis) C.fail('room control changed its genesis')
+  if (expectedGenesis && data.genesis !== expectedGenesis) C.fail('room changed its genesis')
   return data
 }
-export const verifyRoom = (H: Handle, R: Room): VerifiedRoom => {
+// The room's branch verified up to `tip`; a quarantined room is not read.
+export const branch = (H: Handle, R: Pick<Room, 'name' | 'ref' | 'genesis'>, tip: string): Branch => {
   if (!isRemote(H)) C.fail('room verification requires a signed hub')
-  if (H.remoteAlarms?.[R.control]) C.fail(`ALARM ${H.remoteAlarms[R.control]}; room is quarantined`)
-  return roomData(H, R.name, R.head, R.genesis)
+  if (H.remoteAlarms?.[R.ref]) C.fail(`ALARM ${H.remoteAlarms[R.ref]}; room is quarantined`)
+  return branchData(H, R.name, tip, R.genesis)
 }
-const verifyLog = (H: Handle, R: Pick<Room, 'name' | 'head' | 'genesis'>, who: string, head: string): Set<string> => memo(H, `log/${R.name}/${R.head}/${R.genesis}/${who}/${head}`, () => {
-  const room = roomData(H, R.name, R.head, R.genesis)
-  const signer = room.entries.find(e => e.principal === who) ?? C.fail(`unadmitted key/principal ${who}`)
-  if (!ancestor(H, R.genesis, head)) C.fail('log does not descend from the room genesis')
-  const commits = chain(H, head, R.genesis)
-  linear(commits, R.genesis, sha => checkSignature(H, sha, who, signer.key))
-  return new Set(commits.map(c => c.sha))
-})
+// The roster in effect at the room's latest control record.
+export const verifyRoom = (H: Handle, R: Room): VerifiedRoom => branch(H, R, R.head)
+// Why `head` is not a valid message of `who`, or null.
 export const verify = (H: Handle, R: Room, who: string, head: string): string | null => {
   if (!isRemote(H)) return null
-  const alarm = H.remoteAlarms?.[R.log(who)]
-  if (alarm) return alarm
-  try { verifyRoom(H, R); verifyLog(H, R, who, head); return null } catch (e) { return reason(e) }
+  try {
+    const b = branch(H, R, head)
+    return b.authors.get(head) === who ? null : b.skipped.get(head) ?? `${head.slice(0, 12)} is not a message of ${who}`
+  } catch (e) { return reason(e) }
 }
 
 const signalName = (ref: string): {genesis: string, actor: string, message: string, signal: string} => {
@@ -312,32 +360,13 @@ const checkSignal = (H: Handle, R: Room, ref: string, sha: string): void => {
   if (target[1] !== s.message || target[2] !== ref.slice('refs/tags/'.length) || target[3].trim() !== s.actor) C.fail('signal tag name, actor or target disagrees')
   const body = rest.join('\n\n').split('-----BEGIN SSH SIGNATURE-----')[0].trimEnd()
   if (body !== `${s.signal}\n\nRoom: ${R.name}\nGenesis: ${R.genesis}\nActor: ${s.actor}\nMessage: ${s.message}\nSignal: ${s.signal}`) C.fail('signal tag trailers disagree with its namespace or target')
-  const roster = verifyRoom(H, R)
-  const signer = roster.entries.find(e => e.principal === s.actor) ?? C.fail(`unadmitted signal principal ${s.actor}`)
+  const b = branch(H, R, rev(H, R.ref) ?? C.fail('signal room has no branch here'))
+  const signer = b.entries.find(e => e.principal === s.actor) ?? C.fail(`unadmitted signal principal ${s.actor}`)
   checkSignature(H, sha, s.actor, signer.key, 'tag')
   const mark = s.signal === 'read' || s.signal === 'taken'
   if (s.message === R.genesis) C.fail('signal points at no message of this room')
-  const heads = refs(H, `refs/heads/${R.name}/log/`)
-  const snapshot = [...heads].map(([ref, head]) => [ref, head, H.remoteAlarms?.[ref] ?? null])
-  const authors = memo(H, `authors/${R.name}/${R.head}/${R.genesis}/${JSON.stringify(snapshot)}`, () => {
-    const by = new Map<string, Set<string>>()
-    for (const {principal: who} of roster.entries) {
-      const head = heads.get(R.log(who))
-      if (!head || H.remoteAlarms?.[R.log(who)]) continue
-      try {
-        for (const sha of verifyLog(H, R, who, head)) {
-          const owners = by.get(sha) ?? new Set<string>()
-          owners.add(who)
-          by.set(sha, owners)
-        }
-      } catch (e) {
-        if (C.errno(e) === 'ETIMEDOUT') throw e
-        // A quarantined or invalid log cannot supply a signal target.
-      }
-    }
-    return by
-  }).get(s.message)
-  if (!(mark ? authors?.size : authors?.has(s.actor))) C.fail(`signal points at no accepted message ${mark ? 'of this room' : 'of its actor'}`)
+  const author = b.authors.get(s.message)
+  if (!(mark ? author : author === s.actor)) C.fail(`signal points at no accepted message ${mark ? 'of this room' : 'of its actor'}`)
 }
 export const verifySignal = (H: Handle, R: Room, ref: string, sha: string): string | null => {
   if (!isRemote(H)) return null
@@ -390,34 +419,20 @@ const syncUnlocked = (H: Handle): Handle => {
   const main = fetched.get(TRACK + 'main') || C.fail('ALARM remote main was deleted or is missing; refusing authority from the hub')
   try { verifyMain(H, main); promote(H, 'refs/heads/main', main) } catch (e) { C.fail(`ALARM hub ${H.name}: ${reason(e)}; nothing is delivered`) }
   H.main = rev(H, 'refs/heads/main')!
-  const controls = new Set([...fetched.keys(), ...refs(H, ACCEPT).keys()].map(r => r.slice(r.startsWith(TRACK) ? TRACK.length : ACCEPT.length)).filter(r => /^[^/]+\/control$/.test(r)))
-  const rooms = new Map<string, Room>()
+  // Every other branch is a room. Branches of ringi 0.1 (`<room>/control`, `<room>/log/<agent>`) are not read.
+  const names = new Set([...fetched.keys(), ...refs(H, ACCEPT).keys()].map(r => r.slice(r.startsWith(TRACK) ? TRACK.length : ACCEPT.length)).filter(r => r !== 'main' && !r.includes('/')))
   const byGenesis = new Map<string, Room>()
-  for (const ctl of controls) {
-    const name = ctl.split('/')[0]
-    const ref = 'refs/heads/' + ctl
+  for (const name of names) {
+    const ref = 'refs/heads/' + name
     try {
       if (!P.ID_RE.test(name)) C.fail('invalid room name')
-      const sha = fetched.get(TRACK + ctl) ?? C.fail(`${ctl} was deleted on the remote`)
-      const data = roomData(H, name, sha)
+      const sha = fetched.get(TRACK + name) ?? C.fail(`${name} was deleted on the remote`)
+      const data = branchData(H, name, sha)
       if (byGenesis.has(data.genesis)) C.fail('room genesis is already bound to another room')
       promote(H, ref, sha)
-      const head = rev(H, ref)!
-      const R: Room = {name, head, genesis: data.genesis, control: ref, log: who => `refs/heads/${name}/log/${who}`}
-      rooms.set(name, R)
-      byGenesis.set(data.genesis, R)
-    } catch (e) { H.remoteAlarms[ref] = reason(e) }
-  }
-  const logs = new Set([...fetched.keys(), ...refs(H, ACCEPT).keys()].map(r => r.slice(r.startsWith(TRACK) ? TRACK.length : ACCEPT.length)).filter(r => /^[^/]+\/log\/[^/]+$/.test(r)))
-  for (const log of logs) {
-    const [name, , who] = log.split('/')
-    const ref = 'refs/heads/' + log
-    try {
-      if (!P.ID_RE.test(who)) C.fail('invalid log principal')
-      const R = rooms.get(name) ?? C.fail(`${name}/control is missing or quarantined`)
-      const sha = fetched.get(TRACK + log) ?? C.fail(`${log} was deleted on the remote`)
-      verifyLog(H, R, who, sha)
-      promote(H, ref, sha)
+      // Local commits not yet published stay on top.
+      const local = branchData(H, name, rev(H, ref)!, data.genesis)
+      byGenesis.set(data.genesis, {name, ref, head: local.control.at(-1)!, genesis: data.genesis})
     } catch (e) { H.remoteAlarms[ref] = reason(e) }
   }
   const tags = refs(H, TAG_TRACK), pinned = refs(H, TAG_ACCEPT)
@@ -473,64 +488,62 @@ export const join = (H: Handle, R: Room, who: string, home: string) => {
   const admitted = !!room.entries.find(e => e.principal === who && e.key.line === key.line)
   return {publicKey: key.line, fingerprint: key.fp, admitted}
 }
-const treeWith = (H: Handle, head: string, patches: Record<string, string>): string => {
-  const files = new Map(git(H, ['ls-tree', head]).trim().split('\n').filter(Boolean).map(line => {
-    const m = /^(\d+) (\w+) ([0-9a-f]+)\t(.+)$/.exec(line) ?? C.fail('malformed control tree')
-    return [m[4], `${m[1]} ${m[2]} ${m[3]}\t${m[4]}`] as [string, string]
+// A tree from `base` with the control files as `control` has them, then `patches` on top.
+const treeWith = (H: Handle, base: string, control: string, patches: Record<string, string>): string => {
+  const entries = (sha: string) => new Map(git(H, ['ls-tree', sha]).trim().split('\n').filter(Boolean).map(line => {
+    const m = /^(\d+) (\w+) ([0-9a-f]+)\t(.+)$/.exec(line) ?? C.fail('malformed room tree')
+    return [m[4], line] as [string, string]
   }))
+  const files = entries(base), kept = entries(control)
+  for (const name of CONTROL_FILES) { files.delete(name); if (kept.has(name)) files.set(name, kept.get(name)!) }
   for (const [name, content] of Object.entries(patches)) files.set(name, `100644 blob ${git(H, ['hash-object', '-w', '--stdin'], {input: content}).trim()}\t${name}`)
   return git(H, ['mktree'], {input: [...files].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([, line]) => line).join('\n') + '\n'}).trim()
 }
+// The root's control record admitting a member, on top of the room's branch: the key and the member go in together.
 export const roomAdmit = (H: Handle, R: Room, who: string, publicKey: string, home: string): string => {
   id(who)
   if (!isRemote(H)) C.fail('room admit is for signed hubs; local membership is added by join')
   if (who === ROOT) C.fail('the root is already pinned; root replacement requires a separate trust transition')
   if (R.archived) C.fail('cannot admit into an archived room')
-  const room = verifyRoom(H, R)
   const key = keyInput(publicKey)
-  if (room.entries.some(e => e.principal === who || e.key.fp === key.fp)) C.fail('principal or key is already admitted; key rotation is not implemented')
-  const head = rev(H, R.control) ?? C.fail('room control is missing')
-  if (head !== R.head) C.fail('room control moved while admitting; retry')
-  const members = {...room.members, [who]: {role: 'member', since: new Date().toISOString()}}
-  const roster = [...room.entries.map(e => signerLine(e.principal, e.key)), signerLine(who, key)].join('')
-  const tree = treeWith(H, head, {'members.json': JSON.stringify(members, null, 2) + '\n', allowed_signers: roster})
-  const sha = git(H, ['commit-tree', ...sign(H, ROOT, home), tree, '-p', head], {
-    input: P.compose(`admit ${who}`, [['To', '*'], ['Kind', 'room'], ['Key', key.fp]]), env: ident(ROOT),
-  }).trim()
-  git(H, ['update-ref', R.control, sha, head])
-  R.head = sha; R.members = members
-  push(H, R.control)
-  return sha
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const tip = rev(H, R.ref) ?? C.fail('room branch is missing')
+    const room = branch(H, R, tip), head = room.control.at(-1)!
+    if (room.entries.some(e => e.principal === who || e.key.fp === key.fp)) C.fail('principal or key is already admitted; key rotation is not implemented')
+    const members = {...room.members, [who]: {role: 'member', since: new Date().toISOString()}}
+    const roster = [...room.entries.map(e => signerLine(e.principal, e.key)), signerLine(who, key)].join('')
+    const tree = treeWith(H, tip, head, {'members.json': JSON.stringify(members, null, 2) + '\n', allowed_signers: roster})
+    const sha = git(H, ['commit-tree', ...sign(H, ROOT, home), tree, '-p', tip], {
+      input: P.compose(`admit ${who}`, [['To', '*'], ['Kind', 'room'], ['Key', key.fp]]), env: ident(ROOT),
+    }).trim()
+    if (git(H, ['update-ref', R.ref, sha, tip], {ok: true}).status !== 0) continue
+    if (!push(H, R.ref, {behind: true})) continue
+    R.head = sha; R.members = members
+    return sha
+  }
+  return C.fail('room kept moving while admitting; retry')
 }
 const validateRef = (H: Handle, ref: string, sha: string): void => {
   if (ref.startsWith(TAGS)) {
     const s = signalName(ref)
-    const name = refs(H, 'refs/heads/').keys()
-    for (const ctl of name) {
-      if (!ctl.endsWith('/control')) continue
-      const roomName = ctl.slice('refs/heads/'.length, -'/control'.length)
-      const head = rev(H, ctl)!
-      if (!ancestor(H, s.genesis, head)) continue
-      const R = roomData(H, roomName, head)
-      if (R.genesis === s.genesis) {
-        checkSignal(H, {name: roomName, head, genesis: R.genesis, control: ctl, log: who => `refs/heads/${roomName}/log/${who}`}, ref, sha)
-        return
-      }
+    for (const [branchRef, head] of refs(H, 'refs/heads/')) {
+      const name = branchRef.slice('refs/heads/'.length)
+      if (name === 'main' || name.includes('/') || !ancestor(H, s.genesis, head)) continue
+      const b = branchData(H, name, head)
+      if (b.genesis === s.genesis) { checkSignal(H, {name, ref: branchRef, head: b.control.at(-1)!, genesis: b.genesis}, ref, sha); return }
     }
     return C.fail('signal points at no verified room')
   }
   if (ref === 'refs/heads/main') { verifyMain(H, sha); return }
-  const ctl = /^refs\/heads\/([^/]+)\/control$/.exec(ref)
-  if (ctl && P.ID_RE.test(ctl[1])) { roomData(H, ctl[1], sha); return }
-  const log = /^refs\/heads\/([^/]+)\/log\/([^/]+)$/.exec(ref) ?? C.fail('only explicit main, control or own log refs may be pushed')
-  if (!P.ID_RE.test(log[1]) || !P.ID_RE.test(log[2])) C.fail('only explicit main, control or own log refs may be pushed')
-  const control = `refs/heads/${log[1]}/control`
-  const head = rev(H, control) || C.fail('no room control for this log')
-  const room = roomData(H, log[1], head)
-  verifyLog(H, {name: log[1], head, genesis: room.genesis}, log[2], sha)
+  const room = /^refs\/heads\/([^/]+)$/.exec(ref) ?? C.fail('only explicit main, room or signal refs may be pushed')
+  if (!P.ID_RE.test(room[1])) C.fail('only explicit main, room or signal refs may be pushed')
+  const why = branchData(H, room[1], sha).skipped.get(sha)
+  if (why) C.fail(`${sha.slice(0, 12)} is no valid commit of room ${room[1]}: ${why}`)
 }
-export const push = (H: Handle, ref: string): void => {
-  if (!isRemote(H)) return
+// Publish one ref. With `behind`, a room's branch the remote has moved on is not an alarm: push returns false and the
+// caller makes its commit again on the new tip.
+export const push = (H: Handle, ref: string, {behind = false}: {behind?: boolean} = {}): boolean => {
+  if (!isRemote(H)) return true
   return locked(H, () => {
     const alarms = pushAlarms(H)
     // Read the current head after taking the transport lock: an earlier append may have waited behind a newer one.
@@ -540,37 +553,65 @@ export const push = (H: Handle, ref: string): void => {
     const sha = (tag ? object(H, ref) : rev(H, ref)) || C.fail(`no ${ref} to publish`)
     validateRef(H, ref, sha)
     const url = origin(H)
-    if (!url) return // signed source may be provisioned before a remote is attached
+    if (!url) return true // signed source may be provisioned before a remote is attached
     checkUrl(url)
     const acc = tag ? object(H, pin) : rev(H, pin)
     if (acc && (tag ? acc !== sha : !ancestor(H, acc, sha))) C.fail('ref to publish does not extend its accepted transport history')
     const r = git(H, ['push', '-q', '--porcelain', url, `${sha}:${ref}`], {ok: true})
     if (r.status !== 0) {
-      alarms[ref] = `push rejected for ${suffix(ref)}; local commit ${sha.slice(0, 12)} retained; resolve the remote conflict before continuing`
+      let why = ''
+      if (behind && !tag && ref !== 'refs/heads/main') {
+        try {
+          git(H, ['-c', 'fetch.fsckObjects=true', 'fetch', '-q', '--no-tags', url, `+${ref}:${track}`])
+          const incoming = rev(H, track) ?? C.fail('remote room branch is missing')
+          const data = branchData(H, suffix(ref), sha)
+          branchData(H, suffix(ref), incoming, data.genesis)
+          if (acc && !ancestor(H, acc, incoming)) C.fail('remote room was rewritten or rolled back; retry refused')
+          if (ancestor(H, sha, incoming)) {
+            // The remote received the message but its acknowledgement was lost.
+            promote(H, ref, incoming)
+            delete alarms[ref]; savePushAlarms(H, alarms)
+            return true
+          }
+          const parents = git(H, ['show', '-s', '--format=%P', sha]).trim().split(' ')
+          if (/\[rejected\].*\((?:fetch first|non-fast-forward)\)/.test(String(r.stdout)) && acc && parents.length === 1 && parents[0] === acc) {
+            // Only one unpublished message may be retried. Its caller has not returned an id yet.
+            git(H, ['update-ref', `refs/ringi/unpublished/${sha}`, sha])
+            git(H, ['update-ref', ref, incoming, sha])
+            git(H, ['update-ref', pin, incoming, acc])
+            delete alarms[ref]; savePushAlarms(H, alarms)
+            if (H.remoteAlarms) delete H.remoteAlarms[ref]
+            return false
+          }
+        } catch (e) { why = `; ${reason(e)}` }
+      }
+      alarms[ref] = `push rejected for ${suffix(ref)}; local commit ${sha.slice(0, 12)} retained; resolve the remote conflict before continuing${why}`
       savePushAlarms(H, alarms)
       C.fail(`ALARM ${alarms[ref]}`)
     }
     delete alarms[ref]; savePushAlarms(H, alarms)
     git(H, ['update-ref', pin, sha, acc || zero(H)])
     git(H, ['update-ref', track, sha])
+    return true
   })
 }
 
-// Only the operator command calls this after reviewing an alarm. Signature checks are never waived.
-export const forget = (H: Handle, R: Room, who: string): void => {
+// Only the operator command calls this after reviewing a room's transport alarm: the room's branch as the remote has
+// it becomes the accepted baseline, and the displaced local branch is kept as evidence. Nothing is waived: the branch
+// must verify, and its invalid commits stay skipped.
+export const forget = (H: Handle, R: Room): void => {
   if (!isRemote(H)) return
-  id(who)
-  const ref = R.log(who)
   return locked(H, () => {
     const alarms = pushAlarms(H)
-    const sha = rev(H, tracking(ref))
-    if (sha) verifyLog(H, R, who, sha)
-    const old = rev(H, ref)
-    if (old) git(H, ['update-ref', `refs/ringi/quarantine/${R.genesis}/${who}/${old}`, old])
-    git(H, ['update-ref', '-d', accepted(ref)])
-    if (sha) git(H, ['update-ref', ref, sha, old || zero(H)])
-    else if (old) git(H, ['update-ref', '-d', ref, old])
-    delete alarms[ref]; savePushAlarms(H, alarms)
-    if (H.remoteAlarms) delete H.remoteAlarms[ref]
+    if (!alarms[R.ref] && !H.remoteAlarms?.[R.ref]) return
+    const sha = rev(H, tracking(R.ref))
+    if (sha) branchData(H, R.name, sha, R.genesis)
+    const old = rev(H, R.ref)
+    if (old) git(H, ['update-ref', `refs/ringi/quarantine/${R.genesis}/${old}`, old])
+    git(H, ['update-ref', '-d', accepted(R.ref)])
+    if (sha) git(H, ['update-ref', R.ref, sha, old || zero(H)])
+    else if (old) git(H, ['update-ref', '-d', R.ref, old])
+    delete alarms[R.ref]; savePushAlarms(H, alarms)
+    if (H.remoteAlarms) delete H.remoteAlarms[R.ref]
   })
 }

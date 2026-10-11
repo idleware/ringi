@@ -56,6 +56,10 @@ export const use = (H: Hub, name: string): Room => {
   setConfig({hub: H.name, room: R.name})
   return R
 }
+export const migrate = (H: Hub, name: string): string => {
+  if (!H.store.migrateRoom) fail(`store ${H.store.type} cannot migrate rooms`)
+  return locked(`hub-${H.name}`, () => H.store.migrateRoom!(name))
+}
 // Removing, archiving or deleting in a signed hub needs revocation published to every replica: not in this version.
 const notSigned = (H: Hub, what: string) => { if (H.signed) fail(`room ${what} is not supported on signed hubs yet: a local change would come back with the next fetch`) }
 export const admit = (H: Hub, R: Room, who: string, key: string): void => {

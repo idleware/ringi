@@ -11,6 +11,7 @@ One table. **operator**: the human in a terminal, in the current hub and room. *
 | `ringi hub amend -m <subject> [--set <key>=<value>]... [--authority <file>] [--attach <file>:profiles/<name>.json]...` | operator | refine the shared contract: version, capabilities, default profile, authority table, profiles |
 | `ringi room list [--archived]` | operator | rooms of the current hub |
 | `ringi room create <id> [--profile <name>]` | operator | a room for one piece of work, following a profile; becomes the current room |
+| `ringi room migrate <id>` | operator | local hubs: join the old room branches without changing message ids or sessions |
 | `ringi room switch <id>` | operator | change the terminal's current room; agents stay where they are |
 | `ringi room admit <agent> <public key\|file>` | operator | signed hubs: admit the key an agent made on its own machine |
 | `ringi room remove <agent>` | operator | local hubs: take an agent out of the current room |

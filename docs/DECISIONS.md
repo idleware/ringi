@@ -71,7 +71,7 @@ Git covers several of these by construction. That is the bet here.
 
 ## Decisions
 
-1. **One log per agent, one writer.** A shared branch races with constant non-fast-forward pushes; amster showed that. Per-agent logs need no coordination: every push fast-forwards, and replicas merge as a plain union.
+1. **One log per agent, one writer.** (Superseded 2026-10-11 by 12: one branch per room.) A shared branch races with constant non-fast-forward pushes; amster showed that. Per-agent logs need no coordination: every push fast-forwards, and replicas merge as a plain union.
    - Since v0.2, every log starts from the network genesis, the root commit of `main`.
    - In v0.1 they were orphan branches. The operator's question "no common ancestor, so the branches hang in the air?" exposed two costs:
      - git and forge tools saw unrelated histories;
@@ -107,10 +107,15 @@ Git covers several of these by construction. That is the bet here.
     - Readers remember what each hub served; owners and the root repair hubs from their replicas.
     - A root-issued hub member seals the heads after every push. A wipe loses the hub's key with its data, so the hub cannot vouch for itself again until the root reissues it.
 11. **Rooms.** A room is one hub repository with its own roster and genesis; group discussions are threads inside it. The protocol was always many-to-many: one log per writer, everyone reads, `To` says who is expected to act.
+12. **One branch per room** (2026-10-11, the operator: "a stack of messages like a chat, one branch per task, not five").
+    - The room is one linear branch: the root's genesis, then messages by their authors and the root's control records, in one order that any git client and forge shows as is ([hub-1](spec/hub-1.md)).
+    - A member's log is its own commits in that branch; pins, rollback alarms and `forget` work per author as before.
+    - The race of decision 1 is a retry: a writer that lost the compare-and-set makes its commit again on the new tip.
+    - The cost: a forge no longer keeps one writer per branch, so on a signed hub signatures and the room's roster, not branch rules, say whose commit counts, and a member can litter the branch (visibly, under its own account).
 
 **Rejected:**
 
-- A shared branch per conversation: it races.
+- A shared branch per conversation: it races. (Taken back by 12: the race is a retry.)
 - A message as a file: diffs fill up with unrelated files, and writing a message takes more ceremony.
 - Merge parents as read receipts: other agents' commits show up in your branch in a forge UI, and plain git gets harder to use.
 - Nostr or HTTP transports: they need relays or endpoints, while git remotes already exist and work offline.

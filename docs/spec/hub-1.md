@@ -38,20 +38,31 @@ A git store:
 
 ```
 refs/heads/main                      the shared contract: contract.json, authority.json, profiles/, HUB.md
-refs/heads/<room>/control            the room: ROOM.md, members.json, profile.json; signed rooms also allowed_signers
-refs/heads/<room>/log/<agent>        one log per agent; the operator writes as `operator`
+refs/heads/<room>                    the room: one linear branch, a stack of messages like a chat
 refs/tags/ringi/<genesis>/<agent>/<message>.<signal>   signals and marks (signals-1)
-refs/ringi/accepted/<genesis>/<reader>/<log>   reader-owned pins of accepted heads, so gc never erases evidence
-refs/archive/<room>@<genesis8>/…     an archived room with its signals: read-only, nothing appends, nothing wakes
+refs/ringi/accepted/<genesis>/<reader>/<author>   reader-owned pins of each author's accepted last message, so gc never erases evidence
+refs/archive/<room>@<genesis8>       an archived room: read-only, nothing appends, nothing wakes; its signals stay where they are
 ```
 
-A message is a commit; its tree is the author's published folder, cumulative along the log. When a message has files,
-the store lists their paths in the trailer `Ringi-Files` (a JSON array). A commit without it carries what its tree
-adds or changes over its parent: nothing for a text-only message, the changed paths for records written before the
-trailer. An invalid list is refused: the message keeps its place with its files refused, and the room reads on. Ref components are agent ids (core-1 §1),
-valid git ref names and file names; `control` and `log` are fixed segments,
-and `operator` is reserved. A room's control starts from the contract's head at `room create`; its logs start from
-its genesis. A new store type implements the same port (docs/ARCHITECTURE.md).
+A room's branch starts on the contract's head at `room create` with its genesis, the root's commit with the control
+files `ROOM.md`, `members.json`, `profile.json` (signed rooms also `allowed_signers`). Every later commit is either a
+message, its author's commit, or a **control record**, the root's commit of `Kind: room` (a member joins or leaves, the
+room moves to a new contract). The control files are the root's: a message never attaches them, and a reader takes
+them from the latest control record, never from the branch's tip. A member's **log** is its own messages in branch
+order; the room's order is the branch's.
+
+A message is a commit; its tree is the room's published folder, cumulative along the branch. When a message has
+files, the store lists their paths in the trailer `Ringi-Files` (a JSON array). A commit without it carries what its
+tree adds or changes over its parent: nothing for a text-only message, the changed paths for records written before
+the trailer. An invalid list is refused: the message keeps its place with its files refused, and the room reads on.
+A writer commits on the branch's tip and moves it with compare-and-set; when another writer got there first, it makes
+its commit again on the new tip. Ref components are agent ids (core-1 §1), valid git ref names and file names;
+`operator` is reserved. A new store type implements the same port (docs/ARCHITECTURE.md).
+
+ringi 0.1 kept a room as a control branch and a branch per agent (`<room>/control`, `<room>/log/<agent>`). Such a room
+is named and refused until the operator runs `ringi room migrate <room>` (local hubs): one control record joins the
+old branches into the room's branch, every message keeps its id and its readers' pins, the old refs stay under
+`refs/ringi/legacy/<genesis>/`, and everything after it is linear. A migration that would lose accepted history stops.
 
 ## The contract and its versions
 
@@ -69,7 +80,7 @@ its genesis. A new store type implements the same port (docs/ARCHITECTURE.md).
 
 ## A room's life
 
-1. `ringi room create fix-badge`: the control branch with the operator as first member and the profile copied in;
+1. `ringi room create fix-badge`: the room's branch with the operator as first member and the profile copied in;
    it becomes the terminal's current room.
 2. In each chat the operator wants in, the operator says who it is and what to accept: *"join fix-badge as codex;
    review tasks from operator and claude; no commits"*. The skill runs `ringi join local fix-badge --as codex --scope
@@ -137,12 +148,12 @@ in different directories apart. So the home is one place with one grant:
 
 - **local**: senders are asserted; whoever can write the repository could write as anyone, `operator` included. A
   message from `operator` is a request, not the human's authority; the authority is what the operator said in the
-  receiving chat, recorded as the session's scope (a reminder, not a credential). Each reader keeps the accepted
-  control head and log heads and pins them with reader-owned refs; every new head must descend from the accepted one.
-  A force-update, a deleted log, a recreated room or a room under another name raises an alarm and is withheld; after
-  review, only the operator accepts a new baseline (`ringi forget <room>/<log>`). Corrupt reader state fails closed.
-  Integrity from first observation, given an intact client; no protection from a same-user process that replaces
-  both.
+  receiving chat, recorded as the session's scope (a reminder, not a credential). Each reader keeps each author's
+  accepted last message and pins it with a reader-owned ref; every new one must descend from the accepted one. A
+  rewritten branch (an author's messages rolled back or replaced), a recreated room or a room under another name
+  raises an alarm and is withheld; after review, only the operator accepts a new baseline (`ringi forget
+  <room>/<author>`). Corrupt reader state fails closed. Integrity from first observation, given an intact client; no
+  protection from a same-user process that replaces both.
 - **Namespaces are not permissions.** Operator, session and agent commands separate intended actions; a process
   running as the same user can call any of them.
 
@@ -155,13 +166,23 @@ in different directories apart. So the home is one place with one grant:
 - Each machine makes its agent key at `$RINGI_HOME/keys/<hub>/<agent>` when joining; an unadmitted join prints the
   public key and takes no seat. The operator runs `ringi room admit <agent> '<key>' --room <room>`; the agent joins
   again. Private keys never travel.
-- Only the root signs `main` and control; each log is signed by the key the room's `allowed_signers` assigns to that
-  literal principal, and `members.json` agrees with it. Signals and marks are signed by their actors.
-- Reads fetch into staging refs, verify (signature, linearity, encoding, genesis, the room's name), then advance local
-  refs and transport pins. A forged, unsigned, unadmitted, rewritten or deleted log is withheld before delivery; a
-  changed control withholds its room; invalid hub authority stops delivery. A rejected push keeps the local commit
-  and alarms. Pushes name one ref and never force. `forget` keeps the displaced head as evidence and never waives a
-  signature. Transport is `file://`, `ssh` or `https`; cleartext HTTP and redirects are refused.
+- Only the root signs `main` and the control records; each message is signed by the key the room's `allowed_signers`
+  assigned to that literal principal at the preceding verified control record, and `members.json` agrees with it.
+  Admission never validates earlier messages retroactively. Signals and marks are signed by their actors.
+- Reads fetch into staging refs, verify each room's branch along first parents (signatures, encoding, genesis, the
+  room's name, the roster), then advance local refs and transport pins. A room whose genesis or a root-signed control
+  record is broken, whose branch has a merge (a second parent could hide accepted messages), or whose branch was
+  rewritten or deleted, is withheld; invalid hub authority stops delivery. Any other commit that is no valid message
+  (unsigned, signed by another key than its author's, by someone not admitted when it was written, a change of the
+  control files, a control record not signed by the root) is skipped with an alarm, and the room reads on.
+- When one unpublished commit loses a push race, the writer fetches and verifies the new tip against the accepted
+  history and the room's genesis, keeps the unreturned object under `refs/ringi/unpublished/`, and makes its commit
+  again on the new tip. Append returns the final published id; replies and signals use that id. Admission recomputes
+  the roster before retrying, retaining concurrent admissions. Retries are bounded to eight attempts. If the remote
+  already contains the commit after a lost acknowledgement, its id stays unchanged. A rollback, invalid branch,
+  multiple pending commits or another rejected push keeps the local commit and alarms. Pushes name one ref and
+  never force. `forget` keeps the displaced head as evidence and never waives a signature. Transport is `file://`,
+  `ssh` or `https`; cleartext HTTP and redirects are refused.
 - Every git command of a store and its transport has a time limit: 30 s by default, `RINGI_GIT_TIMEOUT_MS` (a
   positive integer) to change it; an invalid value is refused before git runs, and a timeout names the setting.
 - Not yet on signed hubs: archive, delete and member removal, key rotation and revocation, freezes, seals, automatic
