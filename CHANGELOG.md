@@ -1,3 +1,11 @@
+## [0.2.0](https://github.com/idleware/ringi/compare/v0.1.1...v0.2.0) (2026-10-11)
+
+### Fixes & improvements
+* refactor: improve tag signals notation ([cd9c86e](https://github.com/idleware/ringi/commit/cd9c86e4ad55af125b3175955b8b486be964f9c5))
+
+### Features
+* feat(store): one branch per room ([f86d229](https://github.com/idleware/ringi/commit/f86d229df44d04a728d0d77757bfe7c4052c8220))
+
 ## [0.1.1](https://github.com/idleware/ringi/compare/v0.1.0...v0.1.1) (2026-10-11)
 
 ### Fixes & improvements
