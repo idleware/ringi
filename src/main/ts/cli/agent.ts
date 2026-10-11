@@ -5,6 +5,7 @@ import {fail, short, when} from '../lib/index.ts'
 import {dump, flag, list, opt, out, textOf} from './args.ts'
 import type {Opts} from './args.ts'
 import type {Ctx} from './context.ts'
+import {scopeLine, waiting} from './shared.ts'
 
 const options = (o: Opts) => ({peek: flag(o, 'peek'), limit: opt(o, 'limit') ? Number(opt(o, 'limit')) : undefined})
 export const showInbox = ({R, me, s}: Ctx, res: Agent.Inbox, o: Opts) => {
@@ -14,14 +15,18 @@ export const showInbox = ({R, me, s}: Ctx, res: Agent.Inbox, o: Opts) => {
   for (const m of res.msgs) out(`\n${render(res.all, m, {max: 4000})}`)
   if (res.rest) out(`\n(${res.rest} more: run ringi agent inbox again)`)
 }
-export const inbox = (a: Ctx, o: Opts) => showInbox(a, Agent.inbox(a, options(o)), o)
+export const inbox = (a: Ctx, o: Opts) => {
+  const st = Agent.started(a)
+  if (!st.started) return out(waiting(a.R.name, st))
+  showInbox(a, Agent.inbox(a, options(o)), o)
+}
 export const take = (a: Ctx, o: Opts) => {
   const {m, made} = Agent.take(a, o._[0] ?? fail('usage: ringi agent take <work>'))
   out(`${made ? 'took' : 'already took'} ${short(m.id)}: ${m.subject}`)
 }
 export const whoami = (a: Ctx) => {
   const {session: s, profile, members} = Agent.whoami(a)
-  out(`${s.agent} in ${s.hub}/${s.room} (genesis ${short(s.genesis)}, profile ${profile}), session ${s.handle}, ${s.state}\nscope: ${s.scope ?? 'none recorded; ask the operator what to accept'}\nmembers: ${members.join(', ')}`)
+  out(`${s.agent} in ${s.hub}/${s.room} (genesis ${short(s.genesis)}, profile ${profile}), session ${s.handle}, ${s.state}\nscope: ${scopeLine(s, a.R.quorum !== null)}\nmembers: ${members.join(', ')}`)
 }
 export const card = (a: Ctx, o: Opts) => out(`card ${short(Agent.card(a, textOf(o)))}`)
 export const ping = (a: Ctx, o: Opts) => {

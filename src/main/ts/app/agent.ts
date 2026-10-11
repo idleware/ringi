@@ -1,5 +1,5 @@
 // Agent operations return data; the runtime owns readers, seats and headless turns.
-import {HIDDEN, append, pongText, withSizes} from '../hub/index.ts'
+import {HIDDEN, append, pongText, start, withSizes} from '../hub/index.ts'
 import * as Signals from '../hub/signals.ts'
 import {fail, sleep} from '../lib/index.ts'
 import {ID_RE, checkOutgoing, compose, link, lookup, unread} from '../protocol/index.ts'
@@ -14,6 +14,8 @@ export {watch} from '../runtime/watch.ts'
 export type {WatchOptions} from '../runtime/watch.ts'
 
 export type InboxOptions = {peek?: boolean, limit?: number}
+// Whether the agent's room has its quorum and started its work; a room that has not is not read.
+export const started = ({R}: Actor) => start(R)
 export const inbox = ({R, me}: Actor, {peek = false, limit = 20}: InboxOptions = {}) => {
   if (!Number.isSafeInteger(limit) || limit < 1) fail('inbox limit must be a positive integer')
   const res = readerLock(R, me, () => {

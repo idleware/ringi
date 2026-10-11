@@ -97,6 +97,39 @@ describe('rooms', () => {
     w.no(['inbox'], /agent command: ringi agent inbox/)
   })
 
+  it('starts at once at a quorum of one and asks without one what to accept', (t) => {
+    const w = world(t)
+    w.ok(['room', 'create', 'plain'])
+    assert.match(w.ok(['join', 'local', 'plain', '--as', 'codex'], {as: 'C'}), /scope: none recorded; ask the operator what to accept/)
+    w.ok(['room', 'create', 'r', '--quorum', '1'])
+    w.ok(['send', '--task', '--assign', 'codex', '-m', 'Job'])
+    const joined = w.ok(['join', 'local', 'r', '--as', 'codex'], {as: 'C'})
+    assert.match(joined, /scope: none recorded; the room's work for you/)
+    assert.match(joined, /^started: room r has its quorum \(1 of 1 agents\); your first turn starts now[\s\S]*Subject: Job/m)
+    assert.match(w.ok(['agent', 'whoami'], {as: 'C'}), /scope: none recorded; the room's work for you/)
+    w.ok(['stop'], {as: 'C'})
+    assert.match(w.ok(['continue'], {as: 'C'}), /^started: room r has its quorum/m)
+  })
+
+  it('waits for its quorum of agents and starts by itself', (t) => {
+    const w = world(t)
+    w.no(['room', 'create', 'r', '--quorum', '0'], /--quorum takes a number of agents/)
+    assert.match(w.ok(['room', 'create', 'r', '--quorum', '2']), /starts by itself at a quorum of 2 agent/)
+    w.ok(['send', '--task', '--assign', 'codex', '-m', 'Job'])
+    const first = w.ok(['join', 'local', 'r', '--as', 'codex'], {as: 'C'})
+    assert.match(first, /^waiting: room r waits for a quorum of 2 agents and has 1; nothing to do yet/m)
+    assert.doesNotMatch(first, /Job|inbox:/)
+    assert.match(w.ok(['agent', 'inbox'], {as: 'C'}), /^waiting: room r waits for a quorum of 2 agents and has 1/m)
+    assert.match(w.ok(['where']), /waiting for a quorum of 2 agents, has 1/)
+    // Nothing was read while it waited.
+    assert.equal(w.json(['signals']).filter(s => s.signal === 'read').length, 0)
+    const second = w.ok(['join', 'local', 'r', '--as', 'claude'], {as: 'L'})
+    assert.match(second, /^started: room r has its quorum \(2 of 2 agents\); your first turn starts now/m)
+    assert.match(second, /scope: none recorded; the room's work for you/)
+    assert.match(w.ok(['agent', 'inbox'], {as: 'C'}), /Subject: Job/)
+    assert.match(w.ok(['where']), /started at its quorum of 2 agents/)
+  })
+
   it('keeps agents bound when the operator switches rooms', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'one'])
@@ -126,9 +159,11 @@ describe('rooms', () => {
     w.ok(['send', '--to', 'codex', '-m', 'new room'])
     // codex left the archived room on its own: the new room is not bound to it.
     w.no(['agent', 'inbox'], /this session is not in a room/, {as: 'C'})
-    w.no(['room', 'delete', 'r'], /--yes/)
-    assert.match(w.ok(['room', 'delete', 'r', '--yes']), /deleted room r/)
+    // Without an id, delete takes the room of the current context, and says which before it erases anything.
+    w.no(['room', 'delete'], /deleting r in hub local erases it .*--yes/)
+    assert.match(w.ok(['room', 'delete', '--yes']), /deleted room r/)
     assert.equal(w.git('for-each-ref', 'refs/heads/r'), '')
+    w.no(['room', 'delete', '--yes'], /no room/)
   })
 
   it('erases a room and everything kept for it, and its sessions leave on their own', (t) => {
@@ -340,6 +375,34 @@ describe('journals and attachments', () => {
     // Older commits retain changed-path semantics, including a carried tree on a text-only record.
     const old = w.forge('operator', 'old plain\n\nTo: *')
     assert.deepEqual(w.json(['log']).find(m => m.id === old)!.files, [])
+  })
+
+  it('stages files like git add: their content then, carried by the next message', t => {
+    const w = world(t)
+    w.ok(['room', 'create', 'r'])
+    w.ok(['join', 'local', 'r', '--as', 'codex'], {as: 'C'})
+    const dir = fs.mkdtempSync(path.join(w.home, 'work-'))
+    const file = (name: string, text: string) => { const f = path.join(dir, name); fs.writeFileSync(f, text); return f }
+    const a = file('a.txt', 'first\n')
+    assert.match(w.ok(['add', `${a}:out/a.txt`]), /staged for your next message:\n  out\/a\.txt \(6 B\)/)
+    fs.writeFileSync(a, 'changed after add\n')
+    assert.match(w.ok(['add']), /out\/a\.txt/)
+    const sent = w.lastId(['send', '--to', 'codex', '-m', 'with staged'])
+    assert.equal(w.ok(['cat', sent, 'out/a.txt']), 'first\n')
+    assert.equal(w.ok(['add']).trim(), 'nothing staged')
+    // Drop one, clear all; an explicit attachment of the same path wins over the staged one.
+    w.ok(['add', `${file('x.txt', 'x')}:x`, `${file('y.txt', 'y')}:y`])
+    assert.match(w.ok(['add', '--drop', 'x']), /staged for your next message:\n  y \(1 B\)$/m)
+    w.no(['add', '--drop', 'nope'], /not staged: nope/)
+    assert.equal(w.ok(['add', '--clear']).trim(), 'nothing staged')
+    w.ok(['add', `${file('p.txt', 'staged')}:p`])
+    const explicit = w.lastId(['send', '--to', 'codex', '-m', 'explicit wins', '--attach', `${file('q.txt', 'explicit')}:p`])
+    assert.equal(w.ok(['cat', explicit, 'p']), 'explicit')
+    assert.equal(w.ok(['add']).trim(), 'nothing staged')
+    // An agent stages the same way, and its reply carries it.
+    w.ok(['agent', 'add', `${file('r.md', 'report')}:report.md`], {as: 'C'})
+    const reply = w.lastId(['agent', 'reply', sent, '-m', 'done'], {as: 'C'})
+    assert.equal(w.ok(['cat', reply, 'report.md']), 'report')
   })
 
   it('quarantines rewritten, deleted and foreign histories', (t) => {
@@ -587,6 +650,18 @@ describe('watchers', () => {
     w.ok(['room', 'delete', 'r', '--yes'])
     assert.equal(await exited, 0)
     assert.deepEqual(w.json(['sessions', '--all']).filter(s => s.product === 'watch'), [])
+  })
+
+  it('runs no turn in a room still waiting for its quorum', (t) => {
+    const w = world(t)
+    w.ok(['room', 'create', 'r', '--quorum', '2'])
+    w.ok(['join', 'local', 'r', '--as', 'codex'], {as: 'C'})
+    w.ok(['leave'], {as: 'C'})
+    w.ok(['send', '--to', 'codex', '-m', 'wake up'])
+    const r = w.run(['watch', 'r/codex', '--once', '--exec', 'echo RUN'])
+    assert.equal(r.code, 0, r.err)
+    assert.match(r.err + r.out, /r waits for a quorum of 2 agents and has 1; nothing to do yet/)
+    assert.doesNotMatch(r.out, /RUN/)
   })
 
   it('checks stop and revocation between planned turns', async (t) => {

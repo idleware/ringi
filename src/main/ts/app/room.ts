@@ -1,6 +1,7 @@
 // room: what any participant (the operator or an agent) does in a room: write messages and read them, follow work,
 // check signals. Each operation takes who acts and typed input, and returns data; interfaces print it.
 
+import fs from 'node:fs'
 import * as D from '../domain/decisions.ts'
 import {isOpen, tasksIn} from '../domain/profiles.ts'
 import type {Task} from '../domain/profiles.ts'
@@ -15,6 +16,7 @@ import type {Entry} from '../protocol/files.ts'
 import {ID_RE, TOKEN_RE, checkOutgoing, compose, link, lookup, ordered, rootOf, under} from '../protocol/index.ts'
 import type {All, Message} from '../protocol/index.ts'
 import {linked, loadRoomUnlocked, loadState, readerLock, saveState} from '../runtime/reader.ts'
+import type {Staged} from '../runtime/reader.ts'
 import {taskView} from './view.ts'
 import type {TaskView} from './view.ts'
 
@@ -39,6 +41,31 @@ export type SendInput = {
   files?: Entry[]
 }
 export type Sent = {id: string, to: string[], files: number}
+// Staging, like git's index: add takes a file's content into the store now, and the actor's next message carries it,
+// whatever happens to the file meanwhile. Results and state travel only so, never through a shared directory.
+export const staged = ({R, me}: Actor): Staged[] => loadState(R, me).staged ?? []
+export const stage = ({R, me}: Actor, files: Entry[]): Staged[] => {
+  const taken = files.map(e => ({path: e.path, blob: R.hub.store.blob(e.file ?? fail(`${e.path}: add takes files`)), mode: e.mode,
+    size: fs.statSync(e.file!).size}))
+  return readerLock(R, me, () => {
+    const st = loadState(R, me)
+    const next = new Map((st.staged ?? []).map(s => [s.path, s]))
+    for (const s of taken) next.set(s.path, s)
+    const all = [...next.values()]
+    checkCollisions(all.map(s => s.path))
+    saveState(R, me, {...st, staged: all})
+    return all
+  })
+}
+// Unstages the given paths, or everything.
+export const unstage = ({R, me}: Actor, paths: string[] | null): Staged[] => readerLock(R, me, () => {
+  const st = loadState(R, me)
+  const missing = (paths ?? []).filter(p => !(st.staged ?? []).some(s => s.path === p))
+  if (missing.length) fail(`not staged: ${missing.join(', ')}`)
+  const left = paths ? (st.staged ?? []).filter(s => !paths.includes(s.path)) : []
+  saveState(R, me, {...st, staged: left})
+  return left
+})
 // A message from the actor. The operator may omit `to`: the room, or the assignees when there are any.
 export const send = ({R, me}: Actor, x: SendInput): Sent => {
   const P = R.profile
@@ -65,7 +92,10 @@ export const send = ({R, me}: Actor, x: SendInput): Sent => {
     if (g.revoked) fail(`grant ${short(g.id)} was revoked`)
     grant = g.id
   }
-  const entries = x.files ?? []
+  // What the actor staged goes along, an explicit attachment of the same path in its place.
+  const stagedNow = staged({R, me}), explicit = x.files ?? []
+  const named = new Set(explicit.map(e => e.path))
+  const entries: Entry[] = [...stagedNow.filter(s => !named.has(s.path)).map(s => ({path: s.path, blob: s.blob, mode: s.mode})), ...explicit]
   checkCollisions(entries.map(e => e.path))
   const text = compose(x.text, [
     ['To', to.join(', ')], ['Re', re?.id], ['Kind', x.task && P.opens], ['State', x.state], ['Assign', assign?.join(', ')],
@@ -73,6 +103,10 @@ export const send = ({R, me}: Actor, x: SendInput): Sent => {
   ])
   checkOutgoing(text, isRef(R))
   const id = append(R, me, text, entries)
+  if (stagedNow.length) readerLock(R, me, () => {
+    const st = loadState(R, me)
+    saveState(R, me, {...st, staged: (st.staged ?? []).filter(s => !stagedNow.some(t => t.path === s.path && t.blob === s.blob))})
+  })
   if (to.length === 1 && to[0] === '*') note(`addressed to the whole room: this ${x.task ? P.opens : 'message'} wakes nobody; name recipients (--to or --assign) to start work`)
   return {id, to, files: entries.length}
 }

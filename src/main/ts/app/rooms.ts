@@ -36,8 +36,10 @@ export const rooms = (H: Hub, {archived = false}: {archived?: boolean} = {}): Ro
   return [...live, ...gone]
 }
 // A room carries its profile from the start: later changes to the hub's profiles do not reach it.
-export const create = (H: Hub, name: string, {profile}: {profile?: string} = {}): {profile: string} => {
-  if (!ID_RE.test(name) || RESERVED_ROOMS.has(name)) fail(`usage: ringi room create <id> [--profile <name>] (an id like fix-badge; not ${[...RESERVED_ROOMS].join(', ')})`)
+// `quorum`: the room's work starts by itself once it has that many agents; until then a join waits.
+export const create = (H: Hub, name: string, {profile, quorum}: {profile?: string, quorum?: number} = {}): {profile: string} => {
+  if (!ID_RE.test(name) || RESERVED_ROOMS.has(name)) fail(`usage: ringi room create <id> [--profile <name>] [--quorum <agents>] (an id like fix-badge; not ${[...RESERVED_ROOMS].join(', ')})`)
+  if (quorum !== undefined && !(Number.isSafeInteger(quorum) && quorum >= 1 && quorum <= 99)) fail('--quorum takes a number of agents, 1 to 99')
   const p = profile ?? H.contract.profile ?? DEFAULT_PROFILE
   const text = profileText(H, p) ?? fail(`hub ${H.name} carries no profile ${p}; add it with ringi hub amend -m "<why>" --attach <file>:profiles/${p}.json`)
   parseProfile(text, `profile ${p}`)
@@ -46,7 +48,8 @@ export const create = (H: Hub, name: string, {profile}: {profile?: string} = {})
     // A signed room's roster: who may sign its logs, starting with the root.
     if (H.signed) files.allowed_signers = H.store.rootRoster?.() ?? fail(`hub ${H.name}: its store cannot start a signed roster`)
     // The genesis names the room; a random id makes it unique, so a room deleted and created again is a different room.
-    H.store.createRoom(name, OPERATOR, compose(`room ${name}`, [['To', '*'], ['Kind', 'room'], ['Room-Id', crypto.randomBytes(16).toString('hex')]]), files)
+    H.store.createRoom(name, OPERATOR, compose(`room ${name}`, [['To', '*'], ['Kind', 'room'], ['Room-Id', crypto.randomBytes(16).toString('hex')],
+      ...(quorum ? [['Quorum', String(quorum)] as [string, string]] : [])]), files)
   })
   setConfig({hub: H.name, room: name})
   return {profile: p}

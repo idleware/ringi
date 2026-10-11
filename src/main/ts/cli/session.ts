@@ -4,15 +4,18 @@ import {fail} from '../lib/index.ts'
 import {opt, out} from './args.ts'
 import type {Opts} from './args.ts'
 import {showInbox} from './agent.ts'
-import {taskLine} from './shared.ts'
+import {scopeLine, taskLine, waiting} from './shared.ts'
 
 export const briefing = (s: Session.Session) => {
   const r = Session.briefing(s)
-  out(`${s.agent} in ${s.hub}/${s.room}; scope: ${s.scope ?? 'none recorded; ask the operator what to accept'}`)
+  const auto = r.start.quorum !== null
+  out(`${s.agent} in ${s.hub}/${s.room}; scope: ${scopeLine(s, auto)}`)
   out('agent commands: ringi agent inbox | reply <id> … | send … | tasks | proposals | whoami. A turn: inbox, your part, replies, end the turn. Never block on a peer.')
+  if (!r.start.started) return out(waiting(s.room, r.start))
+  if (auto) out(`started: room ${s.room} has its quorum (${r.start.agents} of ${r.start.quorum} agents); your first turn starts now, on the work and inbox below; nothing to confirm with the operator`)
   if (!r.tasks.length) out(`no open work (profile ${r.actor.R.profile.name}; tasks --all for everything)`)
   for (const task of r.tasks) out(taskLine(task))
-  showInbox(r.actor, r.inbox, {_: []})
+  showInbox(r.actor, r.inbox!, {_: []})
 }
 export const join = (o: Opts) => {
   const [hub, room] = o._

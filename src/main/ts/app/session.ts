@@ -1,6 +1,6 @@
 // Session use cases preserve the operator's identity, seat and delegated scope.
 import {OPERATOR, ensureHome, locked} from '../home/index.ts'
-import {controlChange, openHub, room as roomOf} from '../hub/index.ts'
+import {controlChange, openHub, room as roomOf, start} from '../hub/index.ts'
 import {AGENT_RE} from '../protocol/index.ts'
 import {allSessions, bound, dropSession, liveness, ownSession, parseSelector, pidAlive, readSession, saveSession, seatHolder, whoAmI} from '../runtime/session.ts'
 import type {Session} from '../runtime/session.ts'
@@ -11,9 +11,11 @@ import {tasks} from './room.ts'
 
 export {bound} from '../runtime/session.ts'
 export type {Session} from '../runtime/session.ts'
+// A room still waiting for its agents is not read: nothing is marked seen before its work starts.
 export const briefing = (s: Session) => {
   const actor = bound()
-  return {session: s, actor, tasks: tasks(actor).views, inbox: inbox(actor)}
+  const st = start(actor.R)
+  return {session: s, actor, start: st, tasks: st.started ? tasks(actor).views : [], inbox: st.started ? inbox(actor) : null}
 }
 export type JoinInput = {hub: string, room: string, agent?: string, scope?: string}
 export type JoinResult = {agent: string, hub: string, room: string} & ({session: Session, key: null} | {session: null, key: JoinKey})

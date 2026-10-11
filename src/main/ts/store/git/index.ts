@@ -108,7 +108,7 @@ export class GitStore implements Store {
       this.git(['read-tree', ...(base ? [base] : ['--empty'])], {env})
       if (drop.length) this.git(['update-index', '--index-info'], {env, input: drop.map(p => `0 ${ZERO}\t${p}\n`).join('')})
       for (const e of entries) {
-        const sha = this.git(['hash-object', '-w', ...(e.file ? ['--', e.file] : ['--stdin'])], {input: e.content}).trim()
+        const sha = e.blob ?? this.git(['hash-object', '-w', ...(e.file ? ['--', e.file] : ['--stdin'])], {input: e.content}).trim()
         this.git(['update-index', '--add', '--cacheinfo', `${e.mode},${sha},${e.path}`], {env})
       }
       return this.git(['write-tree'], {env}).trim()
@@ -481,6 +481,7 @@ export class GitStore implements Store {
         files: files.filter(f => REGULAR.has(f.mode)), refused: [...refused, ...files.filter(f => !REGULAR.has(f.mode))]}]
     })
   }
+  blob(file: string): string { return this.git(['hash-object', '-w', '--', file]).trim() }
   // One message on top of the room's branch.
   append(room: StoredRoom, who: string, text: string, entries: Entry[]): string {
     if (room.archived) fail(`room ${room.name} is archived: read-only`)

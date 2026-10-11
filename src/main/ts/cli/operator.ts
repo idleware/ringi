@@ -24,7 +24,9 @@ export const where = async (o: Opts) => {
   out(`hub ${H.name}: ${H.d.store.type} store, ${H.contract.trust} senders, contract ${H.contract.version}, protocol ${H.contract.protocol}${H.contract.capabilities?.length ? `, ${H.contract.capabilities.join(' ')}` : ''}`)
   const R = w.room
   if (!R) return out('no current room: ringi room create <id> | ringi room switch <id>')
-  out(`room ${R.name}${R.archived ? ' (archived, read-only)' : ''}, genesis ${short(R.genesis)}, profile ${R.profile.name}; members: ${Object.entries(R.members).map(([id, i]) => i.role === 'root' ? `${id} (root)` : id).join(', ')}`)
+  const agents = Object.values(R.members).filter(m => m.role !== 'root').length
+  out(`room ${R.name}${R.archived ? ' (archived, read-only)' : ''}, genesis ${short(R.genesis)}, profile ${R.profile.name}; members: ${Object.entries(R.members).map(([id, i]) => i.role === 'root' ? `${id} (root)` : id).join(', ')}`
+    + (R.quorum === null ? '' : agents >= R.quorum ? `; started at its quorum of ${R.quorum} agents` : `; waiting for a quorum of ${R.quorum} agents, has ${agents}`))
   out(w.sessions.length ? `sessions:\n${w.sessions.map(s => `  ${sessionLine(s)}`).join('\n')}` : 'sessions: none joined')
   out(w.work.length ? `open work:\n${w.work.map(t => `  ${taskLine(t)}`).join('\n')}` : 'open work: none')
   if (w.proposals.length) out(`open proposals:\n${w.proposals.map(x => `  ${short(x.proposal.id)} ${x.state} → ${x.decider}  ${x.proposal.subject}`).join('\n')}`)
@@ -102,7 +104,9 @@ export const roomCmd = (o: Opts) => {
     return
   }
   if (sub === 'create') {
-    const r = Rooms.create(H, arg ?? '', {profile: opt(o, 'profile')})
+    const quorum = opt(o, 'quorum')
+    const r = Rooms.create(H, arg ?? '', {profile: opt(o, 'profile'), quorum: quorum === undefined ? undefined : Number(quorum)})
+    if (quorum !== undefined) return out(`created room ${arg} in hub ${H.name} with profile ${r.profile}; it is the current room. Its work starts by itself at a quorum of ${quorum} agent(s): in each chat that should take part, say "join ${arg} as <id>"`)
     return out(`created room ${arg} in hub ${H.name} with profile ${r.profile}; it is the current room. In each chat that should take part, say: "join ${arg} as <id>; <what to accept>"`)
   }
   if (sub === 'migrate') {
@@ -124,13 +128,14 @@ export const roomCmd = (o: Opts) => {
     return out(`removed ${arg} from ${R.name}: it can no longer write or be woken there; returning needs a fresh join`)
   }
   if (sub === 'archive') {
-    const R = Rooms.roomIn(H, arg ?? fail('usage: ringi room archive <id>'))
+    // Without an id, the room of the current context.
+    const R = Rooms.roomIn(H, arg ?? opt(o, 'room'))
     const name = Rooms.archive(H, R)
     return out(`archived ${R.name} as ${name}: read-only, wakes nobody; its sessions end. Read it with --room ${name}`)
   }
   if (sub === 'delete') {
-    const R = Rooms.roomIn(H, arg ?? fail('usage: ringi room delete <id> --yes'))
-    if (!flag(o, 'yes')) fail(`deleting ${R.name} removes its history from the hub for good. Run again with --yes, or archive it instead`)
+    const R = Rooms.roomIn(H, arg ?? opt(o, 'room'))
+    if (!flag(o, 'yes')) fail(`deleting ${R.name} in hub ${H.name} erases it and everything kept for it, for good. Run again with --yes, or archive it instead`)
     Rooms.erase(H, R)
     return out(`deleted room ${R.name}: its branch, signals, pins, evidence and readers' state. Sessions bound to it leave it on their next turn`)
   }

@@ -69,6 +69,8 @@ export interface Store {
   // One member's messages after the room's genesis up to `head`, oldest first.
   messages(room: StoredRoom, id: string, head: Rev): StoredMessage[]
   append(room: StoredRoom, who: string, text: string, entries: Entry[]): Rev
+  // A file's content stored now, for an attachment that names it later (`Entry.blob`).
+  blob(file: string): Rev
   // What the store skipped while reading the room (a signed hub: commits that are no valid message), as alarms.
   alarms?(room: StoredRoom): string[]
   // Why a log may not be accepted (signature, roster, transport), or null.

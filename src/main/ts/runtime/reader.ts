@@ -24,7 +24,10 @@ export type ReaderState = {
   exhausted?: Record<string, boolean>
   // Stored objects of the signals this reader accepted (signals.ts).
   signals?: Record<string, string>
+  // Files this member staged for its next message (app/room.ts add).
+  staged?: Staged[]
 }
+export type Staged = {path: string, blob: string, mode: string, size: number}
 export const readerFile = (R: Room, reader: string): string => path.join(HOME, 'readers', R.hub.name, R.genesis, `${reader}.json`)
 export const readerLock = <T>(R: Room, reader: string, fn: () => T): T => locked(`reader-${R.hub.name}-${R.genesis.slice(0, 12)}-${reader}`, fn)
 export const loadState = (R: Room, reader: string): ReaderState => readJson<ReaderState>(readerFile(R, reader), {})

@@ -4,7 +4,8 @@ import {fail} from '../lib/index.ts'
 
 
 export const CC_RE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/
-export type Entry = {path: string, file?: string, content?: string, mode: string}
+// An attachment: its content from a file, from text, or already in the store (`blob`, staged with add).
+export type Entry = {path: string, file?: string, content?: string, blob?: string, mode: string}
 const COMPONENT_BAD = (c: string) => !c || c === '.' || c === '..' || c === '.git' || Buffer.byteLength(c) > 255 || CC_RE.test(c) || /[\n\t]/.test(c)
 export const checkPath = (p: string): string => {
   if (p.startsWith('/') || p.split('/').some(COMPONENT_BAD)) fail(`bad file path ${p}`)

@@ -5,7 +5,7 @@
 import {spawn} from 'node:child_process'
 import * as D from '../domain/decisions.ts'
 import {HOME, OPERATOR, config, locked} from '../home/index.ts'
-import {HIDDEN, append, openHub, openRoom, pongText} from '../hub/index.ts'
+import {HIDDEN, append, openHub, openRoom, pongText, start} from '../hub/index.ts'
 import {loadRoomUnlocked, loadState, readerLock, saveState} from './reader.ts'
 import type {Room} from '../hub/index.ts'
 import {isOpen, taskFor, taskOf} from '../domain/profiles.ts'
@@ -123,6 +123,13 @@ export const watch = async (w: WatchOptions, log: (line: string) => void = note)
       return 0
     }
     if (!R.members[me]) { log(`watch: ${me} was removed from ${R0.name}; stopping`); return 0 }
+    // A room waiting for its quorum runs no turn yet.
+    const st = start(R)
+    if (!st.started) {
+      if (w.once) { log(`watch: ${R0.name} waits for a quorum of ${st.quorum} agents and has ${st.agents}; nothing to do yet`); return 0 }
+      await sleep(interval)
+      continue
+    }
     const P = R.profile
     // Lock order throughout planning and dispatch: grant, reader, sessions (then the store's own writes).
     const plan = locked(`grant-${H.name}`, () => readerLock(R, me, () => {

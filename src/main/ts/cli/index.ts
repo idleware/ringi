@@ -11,7 +11,7 @@ import {card, inbox, ping, take, wait, whoami} from './agent.ts'
 import {operatorCtx} from './context.ts'
 import {forget, hub, roomCmd, sessions, where} from './operator.ts'
 import {join, leave, resume, stop} from './session.ts'
-import {cat, decide, get, grants, log, profileCmd, proposals, propose, read, reply, send, signals, stamp_, tasks, thread, who} from './shared.ts'
+import {add, cat, decide, get, grants, log, profileCmd, proposals, propose, read, reply, send, signals, stamp_, tasks, thread, who} from './shared.ts'
 import {skill} from './skill.ts'
 import type {Ctx} from './context.ts'
 
@@ -26,13 +26,13 @@ export const TABLE: Array<[string, 'operator' | 'session' | 'agent' | 'both', st
   ['hub switch <name>', 'operator', 'change the terminal\'s current hub; agents stay where they are'],
   ['hub amend -m <subject> [--set <key>=<value>]... [--authority <file>] [--attach <file>:profiles/<name>.json]...', 'operator', 'refine the shared contract: version, capabilities, default profile, authority table, profiles'],
   ['room list [--archived]', 'operator', 'rooms of the current hub'],
-  ['room create <id> [--profile <name>]', 'operator', 'a room for one piece of work, following a profile; becomes the current room'],
+  ['room create <id> [--profile <name>] [--quorum <agents>]', 'operator', 'a room for one piece of work, following a profile; becomes the current room; --quorum: its work starts by itself once that many agents joined (1: at once)'],
   ['room migrate <id>', 'operator', 'local hubs: join the old room branches without changing message ids or sessions'],
   ['room switch <id>', 'operator', 'change the terminal\'s current room; agents stay where they are'],
   ['room admit <agent> <public key|file>', 'operator', 'signed hubs: admit the key an agent made on its own machine'],
   ['room remove <agent>', 'operator', 'local hubs: take an agent out of the current room'],
-  ['room archive <id>', 'operator', 'local hubs: read-only from now on; wakes nobody; its sessions end'],
-  ['room delete <id> --yes', 'operator', 'local hubs: erase a room and everything kept for it; its sessions leave on their own'],
+  ['room archive [<id>]', 'operator', 'local hubs: a room (default: the current one) is read-only from now on, wakes nobody; its sessions leave on their own'],
+  ['room delete [<id>] --yes', 'operator', 'local hubs: erase a room (default: the current one) and everything kept for it; its sessions leave on their own'],
   ['room rebase-contract <id>', 'operator', 'move a room onto the hub\'s current contract'],
   ['where [-n n] [--short] [--follow]', 'operator', 'hub, room, sessions (active, stopped, gone), open work and proposals, latest messages'],
   ['send -m <subject> [-m <body>]... [--to <ids>] [--task] [--re <msg>] [--state <s>] [--assign <ids>] [--roles <id>=<label>,...] [--grant <decision>] [--attach <src>[:<dest>]]...', 'operator', 'a message as operator; without --to it goes to the room and wakes nobody; --task opens work of the room\'s profile'],
@@ -40,6 +40,7 @@ export const TABLE: Array<[string, 'operator' | 'session' | 'agent' | 'both', st
   ['stamp <proposal> approve|object|abstain -m <reason>', 'both', 'a named reviewer\'s stamp on that exact revision'],
   ['decide <proposal> approved|rejected|revoked -m <reason>', 'both', 'the named decider, with authority; an approval with a budget is a grant'],
   ['proposals [--all] | grants', 'both', 'open proposals with their stamps; grants with their usage'],
+  ['add <src>[:<dest>]... | add [--drop <path>]... [--clear]', 'both', 'stage files for your next message, like git add: their content is taken now; results and state travel only as attachments'],
   ['tasks [--all] | log [-n n] | read <msg> | thread <msg> | cat <msg> [<path>] | get <msg> [-o <dir>] | who', 'both', 'reading the room (agents: ringi agent …)'],
   ['signals [--all] [--repair]', 'both', 'what happened (signals) and where attention is (read and taken marks), each checked; --repair restores your missing signals'],
   ['profile', 'both', 'the room\'s profile: what a piece of work is, its states, who may move it'],
@@ -74,7 +75,7 @@ export const helpMarkdown = (): string => ['# ringi commands', '',
   'Message ids are store revisions (git: commit shas), any unique prefix of 4+ characters. States and roles come from the room\'s profile (`ringi profile`).', ''].join('\n')
 
 type Cmd = (ctx: Ctx, o: Opts) => void | Promise<void>
-const SHARED: Record<string, Cmd> = {send, reply, read, thread, tasks, log, cat, get, who, signals, profile: profileCmd, propose, stamp: stamp_, decide, proposals, grants}
+const SHARED: Record<string, Cmd> = {add, send, reply, read, thread, tasks, log, cat, get, who, signals, profile: profileCmd, propose, stamp: stamp_, decide, proposals, grants}
 const AGENT: Record<string, Cmd> = {...SHARED, inbox, whoami, status: whoami, card, ping, wait, take}
 
 // A reader that stops early (`ringi log | head`) closes the pipe: that ends the output, not the command's work.

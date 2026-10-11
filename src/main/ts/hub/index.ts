@@ -47,6 +47,13 @@ export type Room = {
   authorityAt: D.AuthorityAt
   profile: Profile
   members: Record<string, Member>
+  // The quorum: how many agents (members besides the root) the room waits for before its work starts, or null.
+  quorum: number | null
+}
+// Whether the room's work has started: it has the quorum of agents its genesis asked for (`Quorum`), or asked for none.
+export const start = (R: Pick<Room, 'members' | 'quorum'>): {quorum: number | null, agents: number, started: boolean} => {
+  const agents = Object.values(R.members).filter(m => m.role !== 'root').length
+  return {quorum: R.quorum, agents, started: R.quorum === null || agents >= R.quorum}
 }
 
 // --- hubs ---
@@ -162,8 +169,14 @@ export const openRoom = (H: Hub, name: string | null | undefined, {quiet = false
     ?? (baseProfile === DEFAULT_PROFILE ? readProfileResource(DEFAULT_PROFILE) : fail(`room ${name}: unknown profile ${baseProfile}`))
   const roster = H.store.roster(s)
   const members = roster?.members ?? strictJson<Record<string, Member>>(H.store.controlFile(s, 'members.json') ?? '{}', `room ${name}: members.json`)
+  // The root's control records set the quorum; the latest one counts.
+  let quorum: number | null = null
+  for (const rec of s.control) {
+    const m = /^Quorum: ([1-9][0-9]?)$/m.exec(rec.text)
+    if (m) quorum = Number(m[1])
+  }
   return {hub: H, s, name, archived: s.archived, head: s.head, genesis: s.genesis, contractRev: current, contract, authorityAt,
-    profile: parseProfile(profileText, `room ${name}: profile`), members}
+    profile: parseProfile(profileText, `room ${name}: profile`), members, quorum}
 }
 export const room = (H: Hub, name: string | null | undefined): Room => openRoom(H, name)!
 export const ROOM_MD = (name: string): string => `# room ${name}\n\nA ringi room: members.json lists who takes part; profile.json is what a piece of work is here, fixed when the room was made.\n`

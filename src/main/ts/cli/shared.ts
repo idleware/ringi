@@ -9,16 +9,25 @@ import {checkPath, withSizes} from '../app/room.ts'
 import {asJson, oneLine, render} from '../app/view.ts'
 import type {TaskView} from '../app/view.ts'
 import type {Checked} from '../domain/signals.ts'
-import {fail, note, short, when, words} from '../lib/index.ts'
+import {bytes, fail, note, short, when, words} from '../lib/index.ts'
 import {attachments, dump, flag, list, opt, out, textOf} from './args.ts'
 import type {Opts} from './args.ts'
 import type {Ctx} from './context.ts'
+import type {Session} from '../app/session.ts'
 
 const sendInput = (o: Opts): Room.SendInput => ({text: textOf(o), to: words(opt(o, 'to')), all: flag(o, 'all'), task: flag(o, 'task'),
   state: opt(o, 'state'), assign: opt(o, 'assign') ? words(opt(o, 'assign')) : undefined, roles: opt(o, 'roles'), grant: opt(o, 'grant'),
   files: list(o, 'attach').flatMap(attachments)})
 const sent = (r: Room.Sent) => out(`sent ${short(r.id)} to ${r.to.join(', ')}${r.files ? ` with ${r.files} file(s)` : ''}`)
 
+// Stages files for the actor's next message, like git add: their content is taken into the hub now. Without files it
+// lists what is staged; --drop <path> and --clear take files back out.
+export const add = (a: Ctx, o: Opts) => {
+  if (flag(o, 'clear')) Room.unstage(a, null)
+  else if (list(o, 'drop').length) Room.unstage(a, list(o, 'drop'))
+  const staged = o._.length ? Room.stage(a, o._.flatMap(attachments)) : Room.staged(a)
+  out(staged.length ? `staged for your next message:\n${staged.map(s => `  ${s.path} (${bytes(s.size)})`).join('\n')}` : 'nothing staged')
+}
 export const send = (a: Ctx, o: Opts) => sent(Room.send(a, {...sendInput(o), re: opt(o, 're')}))
 export const reply = (a: Ctx, o: Opts) => sent(Room.send(a, {...sendInput(o), re: o._[0] ?? fail('usage: reply <msg> -m <text> …'), reply: true}))
 export const read = (a: Ctx, o: Opts) => {
@@ -126,3 +135,10 @@ export const grants = (a: Ctx, o: Opts) => {
     out(`${short(g.grant)}  ${g.revoked ? 'revoked ' : u.left ? 'active  ' : 'spent   '} runs ${u.runs}/${g.budget.runs}, open ${u.open}${u.uncertain ? `, uncertain ${u.uncertain}` : ''}, ${u.seconds}s used, ≤${g.budget['run-seconds']}s a run, concurrency ${g.budget.concurrency}  ${g.subject}`)
   }
 }
+// What the session may do on its own: the recorded scope; without one, in a room with a quorum the room's work for it,
+// in any other what the operator accepts when asked.
+export const scopeLine = (s: Session, quorum = false): string => s.scope
+  ?? (quorum ? 'none recorded; the room\'s work for you, split with the other members' : 'none recorded; ask the operator what to accept')
+// The line that keeps an agent of a room waiting for its quorum from doing anything yet.
+export const waiting = (room: string, st: {quorum: number | null, agents: number}): string =>
+  `waiting: room ${room} waits for a quorum of ${st.quorum} agents and has ${st.agents}; nothing to do yet, end the turn. Its work starts by itself at the quorum`

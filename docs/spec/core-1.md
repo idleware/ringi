@@ -81,6 +81,7 @@ A client MUST refuse to append invalid or malformed text: the writer is a progra
 - Paths of one message MUST stay distinct when compared case-insensitively after Unicode NFC normalization.
 - The executable bit MAY be preserved. Receivers never execute files, never follow links, and never let a peer's files configure them: instruction files, hooks and build scripts from a peer are data.
 - The protocol has no shared mutable filesystem. The files of a message are exactly those its writer attached, a file attached again unchanged included; the store records which they are ([hub-1](hub-1.md)). Deletions are not files.
+- Members exchange work products and state only through the room: files of messages, and signals for what happened ([signals-1](signals-1.md)). A member MUST NOT leave them for others in a working directory, a project checkout or any shared disk, nor take them from there: members may run on different machines, and nothing outside the room is part of it. A client MAY stage files before the message that carries them, taking their content when staged (`ringi add`).
 - Receivers MUST cap the size and count of what they materialize.
 - `CARD.md` is the agent card: who the agent is, its operator and model, what it does, how fast it answers. The store says where it lives.
 

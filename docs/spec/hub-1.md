@@ -81,7 +81,10 @@ old branches into the room's branch, every message keeps its id and its readers'
 ## A room's life
 
 1. `ringi room create fix-badge`: the room's branch with the operator as first member and the profile copied in;
-   it becomes the terminal's current room.
+   it becomes the terminal's current room. With `--quorum <n>` (a `Quorum` trailer of the genesis) the room's work
+   starts by itself once it has n agents: until then a join or an inbox reads nothing and says it waits, and a watcher
+   runs no turn; from then on an agent takes its first turn without asking the operator, the room's work for it being
+   its scope when none is recorded. `--quorum 1` starts at once.
 2. In each chat the operator wants in, the operator says who it is and what to accept: *"join fix-badge as codex;
    review tasks from operator and claude; no commits"*. The skill runs `ringi join local fix-badge --as codex --scope
    "…"`: the agent enters the roster on the operator's word in that chat and the session is bound. A peer's message
@@ -101,7 +104,7 @@ old branches into the room's branch, every message keeps its id and its readers'
 8. End: `ringi room archive fix-badge` moves the room under `refs/archive/`, keeps it readable. `ringi room delete
    fix-badge --yes` erases it, irreversibly: its branch, every tag on its commits, every ref the store keeps under its
    genesis (pins, ringi 0.1's refs, evidence), its unpublished commits, its readers' state and a migration's backup;
-   git objects are left to the repository. Either way the room's branch is gone, and every session and watcher bound
+   git objects are left to the repository. Without an id both take the room of the current context. Either way the room's branch is gone, and every session and watcher bound
    to it, on this machine or another, leaves its seat on its own when it finds that. A hub that cannot be reached is
    not a gone room: it fails, and waiting or retrying is the orchestrator's concern.
 

@@ -10,13 +10,13 @@ One table. **operator**: the human in a terminal, in the current hub and room. *
 | `ringi hub switch <name>` | operator | change the terminal's current hub; agents stay where they are |
 | `ringi hub amend -m <subject> [--set <key>=<value>]... [--authority <file>] [--attach <file>:profiles/<name>.json]...` | operator | refine the shared contract: version, capabilities, default profile, authority table, profiles |
 | `ringi room list [--archived]` | operator | rooms of the current hub |
-| `ringi room create <id> [--profile <name>]` | operator | a room for one piece of work, following a profile; becomes the current room |
+| `ringi room create <id> [--profile <name>] [--quorum <agents>]` | operator | a room for one piece of work, following a profile; becomes the current room; --quorum: its work starts by itself once that many agents joined (1: at once) |
 | `ringi room migrate <id>` | operator | local hubs: join the old room branches without changing message ids or sessions |
 | `ringi room switch <id>` | operator | change the terminal's current room; agents stay where they are |
 | `ringi room admit <agent> <public key\|file>` | operator | signed hubs: admit the key an agent made on its own machine |
 | `ringi room remove <agent>` | operator | local hubs: take an agent out of the current room |
-| `ringi room archive <id>` | operator | local hubs: read-only from now on; wakes nobody; its sessions end |
-| `ringi room delete <id> --yes` | operator | local hubs: erase a room and everything kept for it; its sessions leave on their own |
+| `ringi room archive [<id>]` | operator | local hubs: a room (default: the current one) is read-only from now on, wakes nobody; its sessions leave on their own |
+| `ringi room delete [<id>] --yes` | operator | local hubs: erase a room (default: the current one) and everything kept for it; its sessions leave on their own |
 | `ringi room rebase-contract <id>` | operator | move a room onto the hub's current contract |
 | `ringi where [-n n] [--short] [--follow]` | operator | hub, room, sessions (active, stopped, gone), open work and proposals, latest messages |
 | `ringi send -m <subject> [-m <body>]... [--to <ids>] [--task] [--re <msg>] [--state <s>] [--assign <ids>] [--roles <id>=<label>,...] [--grant <decision>] [--attach <src>[:<dest>]]...` | operator | a message as operator; without --to it goes to the room and wakes nobody; --task opens work of the room's profile |
@@ -24,6 +24,7 @@ One table. **operator**: the human in a terminal, in the current hub and room. *
 | `ringi stamp <proposal> approve\|object\|abstain -m <reason>` | both | a named reviewer's stamp on that exact revision |
 | `ringi decide <proposal> approved\|rejected\|revoked -m <reason>` | both | the named decider, with authority; an approval with a budget is a grant |
 | `ringi proposals [--all] \| grants` | both | open proposals with their stamps; grants with their usage |
+| `ringi add <src>[:<dest>]... \| add [--drop <path>]... [--clear]` | both | stage files for your next message, like git add: their content is taken now; results and state travel only as attachments |
 | `ringi tasks [--all] \| log [-n n] \| read <msg> \| thread <msg> \| cat <msg> [<path>] \| get <msg> [-o <dir>] \| who` | both | reading the room (agents: ringi agent …) |
 | `ringi signals [--all] [--repair]` | both | what happened (signals) and where attention is (read and taken marks), each checked; --repair restores your missing signals |
 | `ringi profile` | both | the room's profile: what a piece of work is, its states, who may move it |
