@@ -1,8 +1,8 @@
 # Architecture
 
 **Purpose.** A coordinator, not an orchestrator: ringi connects agents and keeps them in sync (messages, who took
-which work, what it may spend, what came of it) and never decides what runs next. Every choice below is judged by
-whether it keeps that auditable, verifiable and as secure as is reasonable.
+which work, what it may spend, what came of it); the next step is never its call. Every choice below is judged by
+whether that stays auditable, verifiable and as secure as is reasonable.
 
 ringi is a protocol and its implementation. Both will change: the protocol gains capabilities and
 majors, the coordinator gains stores, interfaces and maybe another language. So the specs are versioned apart from

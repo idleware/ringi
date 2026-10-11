@@ -204,6 +204,18 @@ jobs:
           node-version: 26
           package-manager-cache: false
 
+      # The registry serves a new version to installers some seconds after the publish returns.
+      - name: Wait for the registry
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          for i in $(seq 1 18); do
+            npm view "@idleware/ringi@$VERSION" version --prefer-online 2>/dev/null | grep -qxF "$VERSION" && exit 0
+            sleep 10
+          done
+          echo "@idleware/ringi@$VERSION is not served after 3 minutes" >&2
+          exit 1
+
       - name: Check running via npx
         env:
           VERSION: ${{ needs.release.outputs.version }}

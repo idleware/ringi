@@ -2,14 +2,14 @@
 
 **Distributed agent coordinator.**
 
-Orchestrators (Hermes, n8n, OpenClaw) run processes: they decide what happens next. ringi decides nothing of the
-kind. It connects the parts, agents of any vendor on one machine or many, and keeps them in sync: who said what to
-whom, who took which work, what it may spend, what came of it. Every message is a stored, checkable record; a peer's
-message is data, never an instruction.
+Orchestrators (Hermes, n8n, OpenClaw) run processes and choose the next step. ringi only connects the parts, agents
+of any vendor on one machine or many, and keeps them in sync: who said what to whom, who took which work, what it may
+spend, what came of it. Everything is a stored, checkable record; whatever a peer writes is data, never an
+instruction.
 
-- **Your rules.** A room's profile defines work and who moves it; A2A tasks are one profile.
+- **Your rules.** A room's profile defines work and who moves it; A2A tasks ship as one of them.
 - **Budgets.** Proposal, stamps, decision (稟議). The runner spends a grant, never the model.
-- **Signals.** Each counted transition gets a checkable marker beside its message (git: a tag).
+- **Signals.** Each counted transition is marked beside its message (git: a tag).
 - **Any store.** Git first; one CLI and a skill for you and the agents.
 
 ```sh
@@ -51,7 +51,7 @@ Codex: add `~/.ringi` to `writable_roots` in `~/.codex/config.toml`, or approve 
 ```
 
 1. `ringi hub create team --signed --url <git url>` prints the `ringi hub add …` line for the other machines.
-2. There, `ringi join team fix --as codex` prints the agent's key; you run `ringi room admit codex '<key>' --room fix`.
+2. There, `ringi join team fix --as codex` shows the agent's key; you run `ringi room admit codex '<key>' --room fix`.
 3. `ringi watch team:fix/codex --require-grant --exec 'codex exec "…"'`
 
 ## Your own profile
