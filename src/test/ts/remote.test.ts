@@ -14,6 +14,7 @@ import childProcess, {spawn, spawnSync} from 'node:child_process'
 import {syncBuiltinESMExports} from 'node:module'
 import {fileURLToPath, pathToFileURL} from 'node:url'
 import * as Remote from '../../main/ts/store/git/remote.ts'
+import {GitStore, runGit} from '../../main/ts/store/git/index.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const CLI = path.join(HERE, '../../../target/esm/cli.js')
@@ -299,7 +300,92 @@ describe('signed remote hubs', () => {
     })
   })
 
+  describe('Git command limits', () => {
+    it('applies finite defaults and overrides to all Git paths, refusing invalid values before spawn', t => {
+      const w = world(t), store = new GitStore(path.join(w.opHome, 'hub', 'team'), w.op.d, w.opHome)
+      const before = process.env.RINGI_GIT_TIMEOUT_MS, original = childProcess.spawnSync, limits: number[] = []
+      const mock = t.mock.method(childProcess, 'spawnSync', (cmd: string, args: readonly string[], opt: SpawnSyncOptions) => {
+        if (cmd === 'git') limits.push(opt.timeout!)
+        return original(cmd, args, opt)
+      })
+      syncBuiltinESMExports()
+      try {
+        for (const value of [undefined, '12345']) {
+          if (value === undefined) delete process.env.RINGI_GIT_TIMEOUT_MS
+          else process.env.RINGI_GIT_TIMEOUT_MS = value
+          limits.length = 0
+          assert.equal(Remote.verifyHub(w.op)!.genesis, w.genesis)
+          assert.match(runGit(['--version']), /git version/)
+          assert.equal(store.contractFile(w.genesis, 'hub.json'), JSON.stringify(w.meta))
+          assert.equal(store.file(w.genesis, 'hub.json').toString(), JSON.stringify(w.meta))
+          assert.ok(limits.length > 3)
+          assert.ok(limits.every(ms => ms === (value ? 12345 : 30000)), JSON.stringify(limits))
+        }
+        for (const value of ['', '0', '-1', '1.5', 'NaN', 'Infinity', '9007199254740992']) {
+          process.env.RINGI_GIT_TIMEOUT_MS = value
+          const count = limits.length
+          assert.throws(() => Remote.verifyHub(w.op), /RINGI_GIT_TIMEOUT_MS must be a positive integer/, value)
+          assert.throws(() => runGit(['--version']), /RINGI_GIT_TIMEOUT_MS must be a positive integer/, value)
+          assert.equal(limits.length, count, 'invalid limits must not start Git')
+        }
+      } finally {
+        if (before === undefined) delete process.env.RINGI_GIT_TIMEOUT_MS
+        else process.env.RINGI_GIT_TIMEOUT_MS = before
+        mock.mock.restore(); syncBuiltinESMExports()
+      }
+    })
+
+    it('names the timeout setting even when Git probes ordinarily allow failure', t => {
+      const w = world(t), store = new GitStore(path.join(w.opHome, 'hub', 'team'), w.op.d, w.opHome)
+      const error = Object.assign(new Error('spawnSync git ETIMEDOUT'), {code: 'ETIMEDOUT'})
+      const mock = t.mock.method(childProcess, 'spawnSync', () => ({error, status: null, signal: 'SIGTERM', stdout: '', stderr: ''}))
+      syncBuiltinESMExports()
+      try {
+        for (const invoke of [() => Remote.verifyHub(w.op), () => runGit(['--version']),
+          () => store.contractFile(w.genesis, 'hub.json'), () => store.file(w.genesis, 'hub.json')]) {
+          assert.throws(invoke, {code: 'ETIMEDOUT', message: /git timed out.*RINGI_GIT_TIMEOUT_MS/})
+        }
+      } finally { mock.mock.restore(); syncBuiltinESMExports() }
+    })
+  })
+
   describe('replication and recovery', () => {
+    it('migrates legacy push alarms once and thereafter reads store state', t => {
+      const w = world(t), ref = room(w.op).log('operator'), file = path.join(w.op.dir, 'ringi', 'push-alarms.json')
+      const alarms = {[ref]: 'legacy publication awaiting recovery'}
+      fs.rmSync(file)
+      w.op.git(['config', 'ringi.pushAlarms', JSON.stringify(alarms)])
+      Remote.sync(w.op)
+      assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), alarms)
+      assert.deepEqual(w.op.remoteAlarms, alarms)
+      assert.equal(w.op.git(['config', '--get', 'ringi.pushAlarms'], {ok: true}).status, 1)
+      w.op.git(['config', 'ringi.pushAlarms', '{"ignored":"new config value"}'])
+      Remote.sync(w.op)
+      assert.deepEqual(w.op.remoteAlarms, alarms)
+      assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), alarms)
+    })
+
+    it('refuses corrupt push alarm state before publishing and preserves malformed legacy data', t => {
+      const w = world(t), sha = openTask(w.op, w.opHome, 'operator'), s = tag(w.op, w.opHome, 'operator', sha)
+      const file = path.join(w.op.dir, 'ringi', 'push-alarms.json')
+      const malformed = ['', 'null', '[]', '{"a":1}', '{"a":"first","a":"second"}']
+      w.op.git(['config', 'ringi.pushAlarms', '{}'])
+      for (const text of malformed) {
+        fs.writeFileSync(file, text)
+        assert.throws(() => Remote.sync(w.op), /push-alarms\.json/)
+        assert.throws(() => Remote.push(w.op, s.ref), /push-alarms\.json/)
+        assert.equal(fs.readFileSync(file, 'utf8'), text)
+        assert.equal(git(w.remote, ['rev-parse', '-q', '--verify', s.ref], {ok: true}).status, 1)
+      }
+      fs.rmSync(file)
+      for (const text of malformed) {
+        w.op.git(['config', 'ringi.pushAlarms', text])
+        assert.throws(() => Remote.sync(w.op), /legacy ringi\.pushAlarms/)
+        assert.equal(fs.existsSync(file), false)
+        assert.equal(w.op.git(['config', '--get', 'ringi.pushAlarms']).trim(), text)
+      }
+    })
+
     it('alarms on rewrites, rollbacks and deletions until restoration', t => {
       const w = world(t)
       const bob = w.agent('bob')
@@ -345,6 +431,14 @@ describe('signed remote hubs', () => {
       assert.equal(git(w.remote, ['rev-parse', R.log('bob')]).trim(), theirs)
       Remote.sync(bob.H)
       assert.match(bob.H.remoteAlarms?.[R.log('bob')] ?? '', /push rejected|diverges/)
+      const file = path.join(bob.H.dir, 'ringi', 'push-alarms.json')
+      assert.match(JSON.parse(fs.readFileSync(file, 'utf8'))[R.log('bob')], /push rejected/)
+      assert.equal(bob.H.git(['config', '--get', 'ringi.pushAlarms'], {ok: true}).status, 1)
+      publish(bob.H, R.log('bob'), ours, true)
+      Remote.push(bob.H, R.log('bob'))
+      Remote.sync(bob.H)
+      assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {})
+      assert.deepEqual(bob.H.remoteAlarms, {})
     })
 
     it('retains evidence without waiving signatures after baseline acceptance', t => {
@@ -371,6 +465,22 @@ describe('signed remote hubs', () => {
   })
 
   describe('signed signal tags', () => {
+    it('refreshes authors after log heads or alarms change within one verification scope', t => {
+      const w = world(t), bob = w.agent('bob'), R = room(bob.H)
+      const first = openTask(bob.H, bob.home, 'bob'), opened = tag(bob.H, bob.home, 'bob', first)
+      Remote.withVerification(bob.H, () => {
+        assert.equal(Remote.verifySignal(bob.H, R, opened.ref, opened.object), null)
+        const second = openTask(bob.H, bob.home, 'bob', 'next task'), next = tag(bob.H, bob.home, 'bob', second)
+        Remote.push(bob.H, next.ref)
+        assert.equal(Remote.verifySignal(bob.H, R, next.ref, next.object), null)
+        bob.H.remoteAlarms ??= {}
+        bob.H.remoteAlarms[R.log('bob')] = 'test quarantine'
+        assert.match(Remote.verifySignal(bob.H, R, opened.ref, opened.object)!, /no accepted message/)
+        delete bob.H.remoteAlarms[R.log('bob')]
+        assert.equal(Remote.verifySignal(bob.H, R, opened.ref, opened.object), null)
+      })
+    })
+
     it('publishes and pins the annotated object signed by its actor', t => {
       const w = world(t), bob = w.agent('bob')
       const sha = openTask(bob.H, bob.home, 'bob')

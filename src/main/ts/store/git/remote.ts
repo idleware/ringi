@@ -56,12 +56,21 @@ export const gitEnv = (extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
   ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(GIT_CONFIG_|GIT_DIR$|GIT_WORK_TREE$|GIT_INDEX_FILE$|GIT_OBJECT_DIRECTORY$|GIT_ALTERNATE_OBJECT_DIRECTORIES$|GIT_REPLACE_REF_BASE$)/.test(k))),
   ...ENV, ...extra,
 })
+export const gitTimeout = (): number => {
+  const ms = Number(process.env.RINGI_GIT_TIMEOUT_MS ?? 30000)
+  if (!Number.isSafeInteger(ms) || ms < 1) C.fail('RINGI_GIT_TIMEOUT_MS must be a positive integer (milliseconds)')
+  return ms
+}
+export const checkGitTimeout = (error?: NodeJS.ErrnoException): void => {
+  if (error?.code === 'ETIMEDOUT') throw Object.assign(new C.Fail('git timed out; increase RINGI_GIT_TIMEOUT_MS (positive integer milliseconds)'), {code: 'ETIMEDOUT'})
+}
 function command(cmd: string, args: string[], opt: CommandOpt & {ok: true}): SpawnSyncReturns<string>
 function command(cmd: string, args: string[], opt: CommandOpt & {raw: true}): Buffer
 function command(cmd: string, args: string[], opt?: CommandOpt): string
 function command(cmd: string, args: string[], opt: CommandOpt = {}): string | Buffer | SpawnSyncReturns<string | Buffer> {
   const r = spawnSync(cmd, args, {input: opt.input, encoding: opt.raw ? 'buffer' : 'utf8', env: gitEnv(opt.env),
-    maxBuffer: 64 * 1024 * 1024, timeout: 30000})
+    maxBuffer: 64 * 1024 * 1024, timeout: cmd === 'git' ? gitTimeout() : 30000})
+  if (cmd === 'git') checkGitTimeout(r.error)
   if (r.error && !opt.ok) C.fail(`${cmd}: ${r.error.message}`)
   if (r.status !== 0 && !opt.ok) C.fail(`${cmd}: ${String(r.stderr || r.error?.message || r.signal || 'failed').trim().split('\n').at(-1)}`)
   return opt.ok ? r : r.stdout
@@ -308,9 +317,10 @@ const checkSignal = (H: Handle, R: Room, ref: string, sha: string): void => {
   checkSignature(H, sha, s.actor, signer.key, 'tag')
   const mark = s.signal === 'read' || s.signal === 'taken'
   if (s.message === R.genesis) C.fail('signal points at no message of this room')
-  const authors = memo(H, `authors/${R.name}/${R.head}/${R.genesis}`, () => {
+  const heads = refs(H, `refs/heads/${R.name}/log/`)
+  const snapshot = [...heads].map(([ref, head]) => [ref, head, H.remoteAlarms?.[ref] ?? null])
+  const authors = memo(H, `authors/${R.name}/${R.head}/${R.genesis}/${JSON.stringify(snapshot)}`, () => {
     const by = new Map<string, Set<string>>()
-    const heads = refs(H, `refs/heads/${R.name}/log/`)
     for (const {principal: who} of roster.entries) {
       const head = heads.get(R.log(who))
       if (!head || H.remoteAlarms?.[R.log(who)]) continue
@@ -320,7 +330,10 @@ const checkSignal = (H: Handle, R: Room, ref: string, sha: string): void => {
           owners.add(who)
           by.set(sha, owners)
         }
-      } catch { /* a quarantined or invalid log cannot supply a signal target */ }
+      } catch (e) {
+        if (C.errno(e) === 'ETIMEDOUT') throw e
+        // A quarantined or invalid log cannot supply a signal target.
+      }
     }
     return by
   }).get(s.message)
@@ -334,7 +347,29 @@ export const verifySignal = (H: Handle, R: Room, ref: string, sha: string): stri
 }
 
 const refs = (H: Handle, prefix: string): Map<string, string> => new Map(git(H, ['for-each-ref', '--format=%(refname) %(objectname)', prefix]).trim().split('\n').filter(Boolean).map(s => s.split(' ') as [string, string]))
-const pushAlarms = (H: Handle): Record<string, string> => strictJson(config(H, 'ringi.pushAlarms') || '{}', 'local push alarm state')
+const pushAlarmsFile = (H: Handle): string => path.join(H.dir, 'ringi', 'push-alarms.json')
+const alarmState = (text: string, label: string): Record<string, string> => {
+  const value = strictJson<unknown>(text, label)
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !Object.values(value).every(v => typeof v === 'string')) C.fail(`${label}: expected an object of alarm strings`)
+  return value as Record<string, string>
+}
+const savePushAlarms = (H: Handle, alarms: Record<string, string>): void => {
+  const file = pushAlarmsFile(H)
+  mkdir(path.dirname(file))
+  C.writeJsonAtomic(file, alarms)
+}
+const pushAlarms = (H: Handle): Record<string, string> => {
+  const file = pushAlarmsFile(H)
+  try { return alarmState(fs.readFileSync(file, 'utf8'), file) } catch (e) {
+    if (C.errno(e) !== 'ENOENT') throw e
+  }
+  const old = git(H, ['config', '--get', 'ringi.pushAlarms'], {ok: true})
+  if (old.status !== 0 && old.status !== 1) C.fail(`cannot read legacy push alarm state: ${old.stderr.trim()}`)
+  const alarms = alarmState(old.status === 1 ? '{}' : old.stdout, 'legacy ringi.pushAlarms')
+  savePushAlarms(H, alarms)
+  if (old.status === 0) git(H, ['config', '--unset-all', 'ringi.pushAlarms'])
+  return alarms
+}
 // The local accepted transport refs survive reader resets and retain evidence of remote rewrites/deletions.
 const promote = (H: Handle, ref: string, sha: string): void => {
   const acc = rev(H, accepted(ref))
@@ -497,6 +532,7 @@ const validateRef = (H: Handle, ref: string, sha: string): void => {
 export const push = (H: Handle, ref: string): void => {
   if (!isRemote(H)) return
   return locked(H, () => {
+    const alarms = pushAlarms(H)
     // Read the current head after taking the transport lock: an earlier append may have waited behind a newer one.
     const tag = ref.startsWith(TAGS)
     const pin = tag ? TAG_ACCEPT + ref.slice(TAGS.length) : accepted(ref)
@@ -509,13 +545,12 @@ export const push = (H: Handle, ref: string): void => {
     const acc = tag ? object(H, pin) : rev(H, pin)
     if (acc && (tag ? acc !== sha : !ancestor(H, acc, sha))) C.fail('ref to publish does not extend its accepted transport history')
     const r = git(H, ['push', '-q', '--porcelain', url, `${sha}:${ref}`], {ok: true})
-    const alarms = pushAlarms(H)
     if (r.status !== 0) {
       alarms[ref] = `push rejected for ${suffix(ref)}; local commit ${sha.slice(0, 12)} retained; resolve the remote conflict before continuing`
-      config(H, 'ringi.pushAlarms', JSON.stringify(alarms))
+      savePushAlarms(H, alarms)
       C.fail(`ALARM ${alarms[ref]}`)
     }
-    delete alarms[ref]; config(H, 'ringi.pushAlarms', JSON.stringify(alarms))
+    delete alarms[ref]; savePushAlarms(H, alarms)
     git(H, ['update-ref', pin, sha, acc || zero(H)])
     git(H, ['update-ref', track, sha])
   })
@@ -527,6 +562,7 @@ export const forget = (H: Handle, R: Room, who: string): void => {
   id(who)
   const ref = R.log(who)
   return locked(H, () => {
+    const alarms = pushAlarms(H)
     const sha = rev(H, tracking(ref))
     if (sha) verifyLog(H, R, who, sha)
     const old = rev(H, ref)
@@ -534,7 +570,7 @@ export const forget = (H: Handle, R: Room, who: string): void => {
     git(H, ['update-ref', '-d', accepted(ref)])
     if (sha) git(H, ['update-ref', ref, sha, old || zero(H)])
     else if (old) git(H, ['update-ref', '-d', ref, old])
-    const alarms = pushAlarms(H); delete alarms[ref]; config(H, 'ringi.pushAlarms', JSON.stringify(alarms))
+    delete alarms[ref]; savePushAlarms(H, alarms)
     if (H.remoteAlarms) delete H.remoteAlarms[ref]
   })
 }

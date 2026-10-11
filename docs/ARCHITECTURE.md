@@ -72,6 +72,20 @@ signed hub's keys.
 - **Migrations are code with a test.** Local state migrates on first use; shared state moves only by an explicit
   operator command (`hub amend`, `room rebase-contract`).
 
+## Portability
+
+ringi will likely be rewritten in Go or Rust, so as not to need Node. It stays small enough to port by reading it.
+
+- Behaviour lives in [spec/](spec/); the code mirrors it. Whatever exists only in code is a gap to close.
+- No runtime dependencies: Node's standard library, the `git` binary and the OS. Nothing in the home or a hub depends
+  on Node.
+- Formats are message text with trailers and small JSON files; no protobuf, gRPC or binary encodings in the core.
+  Anything heavier is an optional adapter.
+- Tests that go through the command line (`flow`, `ringi`, `model`) are a conformance suite for any implementation:
+  `RINGI_BIN=<executable> npm run test:conformance` runs them against it (`src/test/ts/cli.ts`). `node.test.ts`, `remote.test.ts` and
+  `layers.test.ts` test this implementation.
+- What a port would still have to read from the code is listed in [DECISIONS.md](DECISIONS.md) (Porting gaps).
+
 ## Documentation
 
 | File | Reader | Holds |

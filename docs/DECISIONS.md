@@ -2,7 +2,7 @@
 
 Why ringi is the way it is: the problem, what others do, what we tried, what we decided and rejected, what is open,
 and the dated log of experiments and corrections. Normative text lives in [spec/](spec/); the shape of the code in
-[ARCHITECTURE.md](ARCHITECTURE.md); earlier drafts, kept whole, in [history/](history/).
+[ARCHITECTURE.md](ARCHITECTURE.md); earlier drafts are kept in `docs/history/` in the source checkout.
 
 ## The problem
 
@@ -207,6 +207,57 @@ Git covers several of these by construction. That is the bet here.
 
 ## Open questions
 
+- **Porting gaps** (codex's audit, 2026-10-11). Behaviour a Go or Rust port would still have to read from the code,
+  in the order to specify it: (1) the CLI's JSON shapes and exit codes (wait 3, held budget 4, a cancelled dispatch
+  settled with Exit 125); (2) session records (fields, file naming, the 60-minute lease, handle prefixes, watcher
+  liveness by pid) and reader state (heads, cursors, pending and inflight checkpoints, heartbeats, run times, signal
+  pins); (3) lock files (owner token, recovery gate) if homes are shared across implementations; (4) the watcher's
+  environment (`RINGI_HOME`, `RINGI_SESSION`, `RINGI_MSGS`, `RINGI_GRANT`), its `sh` process group, 5 s grace,
+  defaults (interval 5 s, window 86400 s, 10 runs) and grouping by grant; (5) rendering (12-character ids, UTC
+  times, sizes) where tests read prose rather than JSON; (6) old home layouts and which JSON files reject duplicate
+  keys; (7) the signed transport's recovery state (`push-alarms.json`).
+
+- **Observability: is the agent working, and what does it spend** (proposal of claude and codex, 2026-10-11, awaiting
+  the operator). Research: Claude Code, Codex, DeepSeek, vLLM, Ollama, llama.cpp, LM Studio, NVML.
+  - *Four things kept apart:* the collector is alive; the agent is active (tools, tokens flowing); semantic progress (a
+    stage done); usage (resources measured). A keep-alive or a collector tick proves activity of the transport, not
+    progress; an overdue `Next` means a suspected stall or lost telemetry, never a finished or failed run.
+  - *Reports* (`reports/1`, its own capability, non-waking kind): Re <work>, Stage, an opaque Run with host
+    session/turn/request ids as correlation, Seq per reporter and run, a receipt id, Phase, Source and adapter version,
+    Next, and resource values each with its provenance (measured, provider-reported, estimated, unknown) and the scope
+    of its counter. Only normalized deltas enter accounting; raw provider usage rides as evidence. A model's stage report
+    carries no numbers. Git: a commit in the reporter's log plus a derived immutable tag; Telegram: a message; Kafka: an
+    event. Counting reports against grants belongs to decisions/2.
+  - *Who writes, no model tokens:* the watcher reads the host's JSON (`codex exec --json`, `claude -p --output-format
+    json`); an optional proxy reads API usage (DeepSeek and OpenAI-compatible local servers); host OTLP and GPU meters
+    are later adapters. One canonical source per resource and run, or reconciliation by a shared request id.
+  - *Presence* (busy, waiting on approval/input/tool, idle, unknown) is a later, optional live view outside history,
+    with its own rules: bounded signed payload, sequence, expiry, one writer per seat.
+  - *First lesson:* one empty-inbox poll by a model in this room reported 268,011 input tokens, 266,624 of them cached
+    (1,387 uncached), and 281 output: a single sample, but it says to poll in code and wake a model only on actionable
+    input.
+- **Budgets as coordination, not enforcement** (proposal of claude and codex, 2026-10-11, awaiting the operator).
+  The operator: enforcement is an orchestrator's job (Hermes, OpenClaw); ringi carries budget instructions and keeps
+  the books, and tokens are only one of the resources work may need. Proposed as `decisions/2`:
+  - *Boundary.* An executor (orchestrator, provider adapter, runner, person) enforces. ringi establishes authorized
+    allowances, who reported what, the declared totals and what remains, revocation, overruns and missing reports, and
+    tampering. It does not prove consumption, compel reports or prevent off-ledger work; totals read as reported.
+  - *Resources.* Ids from a catalogue in the hub contract (`resources.json`: id, fixed unit, meaning), integer
+    quantities (`usd-cent`, not float dollars). Cumulative consumption, occupied capacity and a per-run deadline are
+    different things; the first version keeps cumulative amounts and visible reservations, capacity later.
+  - *Placement.* Vocabulary: the contract. Who may allow how much of what: `authority.json`, per resource. Request and
+    allowance: proposal and decision (`Budget`, `Reporters`). Binding to work: `Grant`. Consumption: usage receipts with
+    resource, quantity, receipt id, phase and an optional evidence attachment. Views: signals. Execution policy: the
+    executor's own, outside ringi. Profiles stay about work.
+  - *Reporting.* Only reporters the grant names count; the CLI writes the proposer when none is given, the decision
+    confirms or narrows. Others' receipts stay visible, excluded and alarmed. An authorized overrun counts and alarms;
+    a settlement after revocation still counts for earlier work. Missing reporters mean unaccounted, not zero
+    consumption; receipts are deduplicated by grant, resource, reporter and receipt id.
+  - *Watcher.* Keeps coordinating turns (seats, stop, handoff, retries); its run limits become the reference
+    executor's settings, not a protocol promise.
+  - *Versions.* Version dispatch first; `decisions/2` in its own file; every existing proposal and grant keeps the
+    version it was made under, so no rebase reinterprets old records.
+
 - **Budget signals** (settled 2026-10-11, kept for the reasoning). The `Kind: usage` journal remains authoritative. Each counted receipt derives an author-bound `usage.reserve` or `usage.settle` tag on that receipt, signed on a signed hub, for tools and webhooks. Tags carry no additional spending: a missing tag changes no accounting, an accepted tag's deletion alarms, and `signals --repair` restores missing tags from the journal. An authoritative tag ledger would need a durable, complete reservation inventory and a fenced owner or trusted checkpoint for successor readers; private pins cannot reveal reservations deleted before a reader arrived. It would also need stable run identities, settlement bindings, explicit clock and executor trust, and a required accounting capability for older clients. The journal already supplies the inventory and ordering; retaining it avoids a second ledger and migration fold. Across machines the reservation stays non-atomic: one enforcing watcher per grant.
 
 
@@ -271,4 +322,7 @@ Git covers several of these by construction. That is the bet here.
   A walk through the README by hand found two more that the tests had not: piping a command into `head` crashed with
   EPIPE, and reading an archived room alarmed on every signal, because the archive moves signal refs while readers
   pinned them by full ref; pins are now keyed by `<actor>/<message>.<signal>`.
+- **Portable by design.** The operator: ringi will likely be rewritten in Go or Rust; porting must be a snap. So: specs
+  first, no runtime dependencies, text and small JSON formats, optional adapters for anything heavy, and the CLI tests
+  as a conformance suite (`RINGI_BIN`).
 

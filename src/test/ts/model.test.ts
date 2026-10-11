@@ -11,11 +11,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {spawnSync} from 'node:child_process'
-import {fileURLToPath, pathToFileURL} from 'node:url'
+import {fileURLToPath} from 'node:url'
+import {BASE, BIN, FIXTURE_GIT, shellBin} from './cli.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const CLI = path.join(HERE, '../../../target/esm/cli.js')
-const BASE = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CLAUDE|CODEX|CURSOR|RINGI_|GIT_)/.test(k)))
+// These cases go through the command line only (RINGI_BIN, see cli.ts), so they are a conformance suite for a port.
 
 type RunOpt = {as?: string}
 const find = <T>(xs: T[], hit: (x: T) => boolean): T => xs.find(hit) ?? assert.fail('the expected entry is listed')
@@ -27,7 +27,7 @@ const world = (t: TestContext) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ringi-model-'))
   t.after(() => fs.rmSync(home, {recursive: true, force: true}))
   const run = (args: string[], {as}: RunOpt = {}) => {
-    const r = spawnSync(process.execPath, [CLI, ...args], {encoding: 'utf8', env: {...BASE, RINGI_HOME: home, ...(as ? {RINGI_SESSION: as} : {})}})
+    const r = spawnSync(BIN[0], [...BIN.slice(1), ...args], {encoding: 'utf8', env: {...BASE, RINGI_HOME: home, ...(as ? {RINGI_SESSION: as} : {})}})
     return {code: r.status, out: r.stdout, err: r.stderr}
   }
   const ok = (args: string[], opt?: RunOpt) => {
@@ -47,7 +47,7 @@ const world = (t: TestContext) => {
   function json(args: ['grants', ...string[]], opt?: RunOpt): GrantView[]
   function json(args: string[], opt?: RunOpt): unknown { return JSON.parse(ok([...args, '--json'], opt)) }
   const store = path.join(home, 'hub', 'local', 'store', '.git')
-  const git = (...args: string[]) => spawnSync('git', ['--git-dir', store, ...args], {encoding: 'utf8'}).stdout.trim()
+  const git = (...args: string[]) => spawnSync('git', ['--git-dir', store, ...args], {encoding: 'utf8', env: FIXTURE_GIT}).stdout.trim()
   const id = (out: string) => /(?:sent|proposed) ([0-9a-f]{12})/.exec(out)![1]
   const file = (name: string, v: unknown) => {
     const f = path.join(home, name)
@@ -188,7 +188,7 @@ describe('signals: what happened, beside the messages', () => {
     const genesis = w.json(['sessions'])[0].genesis
     assert.equal(w.run(['signals']).err, '')
     // A forged signal: alice claims a completion her message never made.
-    const env = {...process.env, GIT_COMMITTER_NAME: 'alice', GIT_COMMITTER_EMAIL: 'alice@ringi'}
+    const env = {...FIXTURE_GIT, GIT_COMMITTER_NAME: 'alice', GIT_COMMITTER_EMAIL: 'alice@ringi'}
     spawnSync('git', ['--git-dir', path.join(w.home, 'hub', 'local', 'store', '.git'), 'tag', '-a', '-m', 'forged', `ringi/${genesis}/alice/${full}.state.completed`, full], {env})
     assert.match(w.run(['signals']).err, /ALARM signal .*alice.*points at a message of operator/)
     w.git('tag', '-d', `ringi/${genesis}/alice/${full}.state.completed`)
@@ -212,7 +212,7 @@ describe('signals: what happened, beside the messages', () => {
     const full = (short: string) => find(w.json(['log', '--all']), m => m.id.startsWith(short)).id
     // Receipts written past ringi: one naming a note, a run settled twice, a settlement before its reservation, and
     // claude's run under the same Run id as codex's.
-    const env = (who: string) => ({...process.env, GIT_AUTHOR_NAME: who, GIT_AUTHOR_EMAIL: `${who}@ringi`, GIT_COMMITTER_NAME: who, GIT_COMMITTER_EMAIL: `${who}@ringi`})
+    const env = (who: string) => ({...FIXTURE_GIT, GIT_AUTHOR_NAME: who, GIT_AUTHOR_EMAIL: `${who}@ringi`, GIT_COMMITTER_NAME: who, GIT_COMMITTER_EMAIL: `${who}@ringi`})
     const store = path.join(w.home, 'hub', 'local', 'store', '.git')
     const receipt = (subject: string, trailers: string, who = 'codex') => {
       const ref = `refs/heads/r/log/${who}`
@@ -325,7 +325,7 @@ describe('marks: the second layer, where attention is', () => {
     const full = find(w.json(['log']), m => m.id.startsWith(note)).id
     const genesis = w.json(['sessions'])[0].genesis
     // bob marks as read a message addressed to alice only.
-    const env = {...process.env, GIT_COMMITTER_NAME: 'bob', GIT_COMMITTER_EMAIL: 'bob@ringi'}
+    const env = {...FIXTURE_GIT, GIT_COMMITTER_NAME: 'bob', GIT_COMMITTER_EMAIL: 'bob@ringi'}
     const body = `read\n\nRoom: r\nGenesis: ${genesis}\nActor: bob\nMessage: ${full}\nSignal: read\n`
     spawnSync('git', ['--git-dir', path.join(w.home, 'hub', 'local', 'store', '.git'), 'tag', '-a', '-F', '-', `ringi/${genesis}/bob/${full}.read`, full], {env, input: body})
     assert.match(w.run(['signals']).err, /ALARM signal .*bob.*not delivered to bob/)
@@ -335,13 +335,9 @@ describe('marks: the second layer, where attention is', () => {
 describe('hubs: a descriptor beside a store', () => {
   it('ends quietly when its reader closes the pipe early', () => {
     // `true` exits without reading, so every write of ringi meets a closed pipe.
-    // Both ways in: the executable, and a program that imports main (the launcher in the package root does).
-    const viaMain = `--input-type=module -e "const {main} = await import('${pathToFileURL(CLI).href}'); await main(['help'])"`
-    for (const run of [`'${CLI}' help`, viaMain]) {
-      const r = spawnSync('sh', ['-c', `'${process.execPath}' ${run} | true`], {encoding: 'utf8', env: BASE})
-      assert.equal(r.status, 0)
-      assert.doesNotMatch(r.stderr, /EPIPE|Unhandled/, run)
-    }
+    const r = spawnSync('sh', ['-c', `${shellBin} help | true`], {encoding: 'utf8', env: BASE})
+    assert.equal(r.status, 0)
+    assert.doesNotMatch(r.stderr, /EPIPE|Unhandled/)
   })
 
   it('enforces one major of each capability a contract selects', (t) => {

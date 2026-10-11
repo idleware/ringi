@@ -26,16 +26,20 @@ const ident = (id: string) => ({GIT_AUTHOR_NAME: id, GIT_AUTHOR_EMAIL: `${id}@ri
 type GitOpt = {input?: string | Buffer, env?: Record<string, string>, where?: string}
 
 export const runGit = (args: string[], o: GitOpt = {}): string => {
-  const r = spawnSync('git', args, {input: o.input, encoding: 'utf8', env: Remote.gitEnv(o.env), maxBuffer: 1 << 30})
+  const r = spawnSync('git', args, {input: o.input, encoding: 'utf8', env: Remote.gitEnv(o.env), maxBuffer: 1 << 30, timeout: Remote.gitTimeout()})
   return check(args, r, o.where).stdout
 }
-const runGitOk = (args: string[], o: GitOpt = {}): SpawnSyncReturns<string> =>
-  spawnSync('git', args, {input: o.input, encoding: 'utf8', env: Remote.gitEnv(o.env), maxBuffer: 1 << 30})
+const runGitOk = (args: string[], o: GitOpt = {}): SpawnSyncReturns<string> => {
+  const r = spawnSync('git', args, {input: o.input, encoding: 'utf8', env: Remote.gitEnv(o.env), maxBuffer: 1 << 30, timeout: Remote.gitTimeout()})
+  Remote.checkGitTimeout(r.error)
+  return r
+}
 const runGitRaw = (args: string[], where?: string): Buffer => {
-  const r = spawnSync('git', args, {encoding: 'buffer', env: Remote.gitEnv(), maxBuffer: 1 << 30})
+  const r = spawnSync('git', args, {encoding: 'buffer', env: Remote.gitEnv(), maxBuffer: 1 << 30, timeout: Remote.gitTimeout()})
   return check(args, r, where).stdout
 }
 function check<T extends string | Buffer>(args: string[], r: SpawnSyncReturns<T>, where = 'the hub store'): SpawnSyncReturns<T> {
+  Remote.checkGitTimeout(r.error)
   if (r.error) throw r.error
   if (r.status !== 0) {
     const err = String(r.stderr ?? '').trim()

@@ -162,6 +162,8 @@ in different directories apart. So the home is one place with one grant:
   changed control withholds its room; invalid hub authority stops delivery. A rejected push keeps the local commit
   and alarms. Pushes name one ref and never force. `forget` keeps the displaced head as evidence and never waives a
   signature. Transport is `file://`, `ssh` or `https`; cleartext HTTP and redirects are refused.
+- Every git command of a store and its transport has a time limit: 30 s by default, `RINGI_GIT_TIMEOUT_MS` (a
+  positive integer) to change it; an invalid value is refused before git runs, and a timeout names the setting.
 - Not yet on signed hubs: archive, delete and member removal, key rotation and revocation, freezes, seals, automatic
   repair. A remote can still withhold valid data: signatures give authorship and integrity, not completeness,
   availability or confidentiality. Budgets across machines: one enforcing watcher per grant ([decisions-1](decisions-1.md)).

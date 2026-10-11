@@ -1,4 +1,4 @@
-// ringi 0.2: the acceptance cases of docs/spec/hub-1.md, end to end through the command line.
+// The acceptance cases of docs/spec/hub-1.md, through the CLI and Git/home format fixtures.
 import {describe, it} from 'node:test'
 import type {TestContext} from 'node:test'
 import type {Session} from '../../main/ts/runtime/session.ts'
@@ -10,14 +10,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {spawn, spawnSync} from 'node:child_process'
-import {fileURLToPath, pathToFileURL} from 'node:url'
-import {bytes, locked} from '../../main/ts/lib/index.ts'
+import {fileURLToPath} from 'node:url'
+import {BASE, BIN, FIXTURE_GIT, shellBin} from './cli.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const CLI = path.join(HERE, '../../../target/esm/cli.js')
-const NODE = process.execPath
-// The tests must not see the developer's own chat: no host session variables leak in.
-const BASE = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CLAUDE|CODEX|CURSOR|RINGI_|GIT_)/.test(k)))
 const until = async (ready: () => boolean) => {
   const end = Date.now() + 10000
   while (!ready() && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 20))
@@ -29,13 +25,16 @@ type TaskView = {id: string, subject: string, state: string, by: string}
 type ProposalView = Pick<Proposal, 'state' | 'stamps'> & {id: string, subject: string}
 
 const world = (t: TestContext) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ringi-'))
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'ringi-'))
+  const home = path.join(base, 'home'), fixture = path.join(base, 'attachment.txt')
+  fs.mkdirSync(home)
+  fs.writeFileSync(fixture, 'attached\n')
   t.after(() => {
-    spawnSync('chmod', ['-R', 'u+w', home])
-    fs.rmSync(home, {recursive: true, force: true})
+    spawnSync('chmod', ['-R', 'u+w', base])
+    fs.rmSync(base, {recursive: true, force: true})
   })
   const run = (args: string[], {as, env}: RunOpt = {}) => {
-    const r = spawnSync(NODE, [CLI, ...args], {encoding: 'utf8', env: {...BASE, RINGI_HOME: home, ...(as ? {RINGI_SESSION: as} : {}), ...env}})
+    const r = spawnSync(BIN[0], [...BIN.slice(1), ...args], {encoding: 'utf8', env: {...BASE, RINGI_HOME: home, ...(as ? {RINGI_SESSION: as} : {}), ...env}})
     return {code: r.status, out: r.stdout, err: r.stderr}
   }
   const ok = (args: string[], opt?: RunOpt) => {
@@ -55,9 +54,14 @@ const world = (t: TestContext) => {
   function json(args: ['proposals', ...string[]], opt?: RunOpt): ProposalView[]
   function json(args: ['signals', ...string[]], opt?: RunOpt): Checked[]
   function json(args: string[], opt?: RunOpt): unknown { return JSON.parse(ok([...args, '--json'], opt)) }
-  const git = (...args: string[]) => spawnSync('git', ['--git-dir', path.join(home, 'hub', 'local', 'store', '.git'), ...args], {encoding: 'utf8'}).stdout.trim()
+  const git = (...args: string[]) => {
+    const r = spawnSync('git', ['--git-dir', path.join(home, 'hub', 'local', 'store', '.git'), ...args], {encoding: 'utf8', env: FIXTURE_GIT})
+    assert.ok(r.status === 0 || (args[0] === 'rev-parse' && args.includes('--verify') && r.status === 1),
+      `git ${args.join(' ')}: ${r.stderr}`)
+    return r.stdout.trim()
+  }
   const lastId = (args: string[], opt?: RunOpt): string => /(?:sent|proposed|approved \S+:|stamped \S+ \S+:) ([0-9a-f]{12})/.exec(ok(args, opt))?.[1] ?? assert.fail('CLI returned no message id')
-  return {home, run, ok, no, json, git, lastId}
+  return {home, fixture, run, ok, no, json, git, lastId}
 }
 
 describe('rooms', () => {
@@ -71,14 +75,14 @@ describe('rooms', () => {
     assert.match(inbox, /your scope: implement tasks from operator/)
     assert.match(w.ok(['agent', 'inbox'], {as: 'chat-codex'}), /nothing new/)
     const [task] = w.json(['tasks'])
-    w.ok(['agent', 'reply', task.id.slice(0, 8), '--state', 'completed', '-m', 'Done', '--attach', `${CLI}:files/cli.js`], {as: 'chat-codex'})
+    w.ok(['agent', 'reply', task.id.slice(0, 8), '--state', 'completed', '-m', 'Done', '--attach', `${w.fixture}:files/attachment.txt`], {as: 'chat-codex'})
     assert.equal(w.json(['tasks', '--all'])[0].state, 'completed')
     const where = w.ok(['where', '--short'])
     assert.match(where, /room fix-badge, genesis \w+, profile a2a-1; members: operator \(root\), codex/)
     assert.match(where, /codex +active .*env:chat-codex/)
     assert.match(where, /codex → operator +\[completed\] Done/)
     const reply = w.json(['log']).at(-1)!
-    assert.equal(w.ok(['cat', reply.id, 'files/cli.js']), fs.readFileSync(CLI, 'utf8'))
+    assert.equal(w.ok(['cat', reply.id, 'files/attachment.txt']), fs.readFileSync(w.fixture, 'utf8'))
     w.no(['inbox'], /agent command: ringi agent inbox/)
   })
 
@@ -136,8 +140,10 @@ describe('sessions', () => {
     w.no(watch, /stopped.*continue/, {as: 'A'})
     w.ok(['continue'], {as: 'A'})
     w.ok(['send', '--task', '--assign', 'claude', '-m', 'Review'])
-    const marker = path.join(w.home, 'running')
-    const child = spawn(NODE, [CLI, ...watch.slice(0, -1), `touch '${marker}'; sleep 2`], {env: {...BASE, RINGI_HOME: w.home, RINGI_SESSION: 'A'}, stdio: 'ignore'})
+    const marker = path.join(w.home, 'running'), release = path.join(w.home, 'release')
+    const child = spawn(BIN[0], [...BIN.slice(1), ...watch.slice(0, -1),
+      `touch '${marker}'; while [ -d '${w.home}' ] && [ ! -f '${release}' ]; do sleep 0.05; done`],
+    {env: {...BASE, RINGI_HOME: w.home, RINGI_SESSION: 'A'}, stdio: 'ignore'})
     const exit = new Promise(resolve => child.once('exit', resolve))
     t.after(() => { if (child.exitCode === null) child.kill('SIGKILL') })
     await until(() => fs.existsSync(marker))
@@ -147,6 +153,7 @@ describe('sessions', () => {
     w.no(['join', 'local', 'other', '--as', 'claude'], /handed its seat to a live watcher/, {as: 'A'})
     w.ok(['stop'], {as: 'A'})
     w.no(['continue', 'r/claude'], /held by a live session/, {as: 'B'})
+    fs.writeFileSync(release, '')
     assert.equal(await exit, 0)
     assert.match(w.ok(['continue'], {as: 'A'}), /claude in local\/r; scope: review only/)
     assert.match(w.ok(['agent', 'whoami'], {as: 'A'}), /session env:A, active/)
@@ -160,7 +167,7 @@ describe('sessions', () => {
     w.no(['continue'], /nothing to continue/, {as: 'B'})
     w.no(['continue', 'fix/claude'], /held by a live session/, {as: 'B'})
     // A restart of the same chat: the lease lapsed, the handle is the same.
-    const f = fs.readdirSync(path.join(w.home, 'sessions')).find(x => x.startsWith('env_A-'))!
+    const f = fs.readdirSync(path.join(w.home, 'sessions')).find(x => JSON.parse(fs.readFileSync(path.join(w.home, 'sessions', x), 'utf8')).handle === 'env:A')!
     const rec = JSON.parse(fs.readFileSync(path.join(w.home, 'sessions', f), 'utf8'))
     fs.writeFileSync(path.join(w.home, 'sessions', f), JSON.stringify({...rec, lastSeen: '2020-01-01T00:00:00Z'}))
     assert.match(w.ok(['where']), /claude +gone/)
@@ -223,7 +230,7 @@ describe('agent inbox and waiting', () => {
     w.ok(['room', 'create', 'r'])
     w.ok(['join', 'local', 'r', '--as', 'codex'], {as: 'C'})
     const before = w.json(['sessions'])[0].lastSeen
-    const child = spawn(NODE, [CLI, 'agent', 'wait', '--max', '5'], {env: {...BASE, RINGI_HOME: w.home, RINGI_SESSION: 'C'}})
+    const child = spawn(BIN[0], [...BIN.slice(1), 'agent', 'wait', '--max', '30'], {env: {...BASE, RINGI_HOME: w.home, RINGI_SESSION: 'C'}})
     let error = ''
     child.stderr.on('data', b => { error += b })
     const exit = new Promise(resolve => child.once('exit', resolve))
@@ -260,7 +267,7 @@ describe('journals and attachments', () => {
   it('reads many declared paths and explains an oversized attachment list', t => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
-    const first = w.lastId(['send', '-m', 'first', '--attach', `${CLI}:present`])
+    const first = w.lastId(['send', '-m', 'first', '--attach', `${w.fixture}:present`])
     const head = w.git('rev-parse', 'refs/heads/r/log/operator')
     const names = ['present', ...Array.from({length: 8000}, (_, i) => `p${i.toString(36)}`)]
     const text = `many paths\n\nTo: *\nRingi-Files: ${JSON.stringify(names)}`
@@ -271,7 +278,7 @@ describe('journals and attachments', () => {
     assert.equal(record.refused.length, 8000)
     assert.equal(w.ok(['cat', first, 'present']), w.ok(['cat', id, 'present']))
     const long = Array(270).fill('x'.repeat(250)).join('/')
-    w.no(['send', '-m', 'oversized', '--attach', `${CLI}:${long}`], /attachment list.*64 KiB/)
+    w.no(['send', '-m', 'oversized', '--attach', `${w.fixture}:${long}`], /attachment list.*64 KiB/)
     assert.equal(w.git('rev-parse', 'refs/heads/r/log/operator'), id)
   })
 
@@ -279,11 +286,11 @@ describe('journals and attachments', () => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
     const name = 'files/a "quoted" ü.txt'
-    const first = w.lastId(['send', '-m', 'first', '--attach', `${CLI}:${name}`])
-    const again = w.lastId(['send', '-m', 'again', '--attach', `${CLI}:${name}`])
+    const first = w.lastId(['send', '-m', 'first', '--attach', `${w.fixture}:${name}`])
+    const again = w.lastId(['send', '-m', 'again', '--attach', `${w.fixture}:${name}`])
     const plain = w.lastId(['send', '-m', 'plain'])
-    for (const id of [first, again]) assert.equal(w.ok(['cat', id, name]), fs.readFileSync(CLI, 'utf8'))
-    assert.ok(w.ok(['read', again]).includes(`${name} (${bytes(fs.statSync(CLI).size)})`))
+    for (const id of [first, again]) assert.equal(w.ok(['cat', id, name]), fs.readFileSync(w.fixture, 'utf8'))
+    assert.ok(w.ok(['read', again]).includes(`${name} (9 B)`))
     assert.deepEqual(w.json(['log']).find(m => m.id.startsWith(plain))!.files, [])
     assert.doesNotMatch(w.ok(['read', again]), /Ringi-Files:/i)
     // Older commits retain changed-path semantics, including a carried tree on a text-only record.
@@ -326,8 +333,8 @@ describe('journals and attachments', () => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
     w.ok(['join', 'local', 'r', '--as', 'codex'], {as: 'C'})
-    w.ok(['send', '--to', 'codex', '-m', 'file', '--attach', `${CLI}:files/cli.js`])
-    assert.match(w.ok(['agent', 'inbox'], {as: 'C'}), new RegExp(`Files: files/cli\\.js \\(${bytes(fs.statSync(CLI).size).replace('.', '\\.')}\\)`))
+    w.ok(['send', '--to', 'codex', '-m', 'file', '--attach', `${w.fixture}:files/attachment.txt`])
+    assert.match(w.ok(['agent', 'inbox'], {as: 'C'}), /Files: files\/attachment\.txt \(9 B\)/)
   })
 })
 
@@ -472,7 +479,7 @@ describe('watchers', () => {
     const p = w.lastId(['propose', '-m', 'two attempts', '--decider', 'operator', '--budget', 'runs=2,run-seconds=10'])
     const grant = /grant (\w+)/.exec(w.ok(['decide', p, 'approved', '-m', 'go']))![1]
     w.ok(['send', '--task', '--assign', 'codex', '--grant', grant, '-m', 'retry this work'])
-    const inbox = `'${NODE}' '${CLI}' agent inbox --json`
+    const inbox = `${shellBin} agent inbox --json`
     const watch = ['watch', 'r/codex', '--once', '--require-grant']
     assert.equal(w.run([...watch, '--exec', `${inbox}; exit 7`]).code, 7)
     assert.match(w.ok(['grants']), /runs 1\/2, open 0/)
@@ -483,43 +490,6 @@ describe('watchers', () => {
     assert.deepEqual(receipts.map(m => m.trailers.usage[0]), ['reserve', 'settle', 'reserve', 'settle'])
     assert.equal(receipts[1].trailers.exit[0], '7')
     assert.equal(receipts[3].trailers.exit[0], '0')
-  })
-
-  it('honors stop during the last grant read before dispatch', async (t) => {
-    const w = world(t)
-    w.ok(['room', 'create', 'r'])
-    w.ok(['join', 'local', 'r', '--as', 'codex'], {as: 'C'})
-    w.ok(['leave'], {as: 'C'})
-    const p = w.lastId(['propose', '-m', 'one turn', '--decider', 'operator', '--budget', 'runs=1,run-seconds=10'])
-    const g = /grant (\w+)/.exec(w.ok(['decide', p, 'approved', '-m', 'go']))![1]
-    w.ok(['send', '--task', '--assign', 'codex', '--grant', g, '-m', 'work'])
-    const ready = path.join(w.home, 'ready'), resume = path.join(w.home, 'resume'), marker = path.join(w.home, 'started')
-    const wrapper = path.join(w.home, 'watch.mjs')
-    // Pause after the plan is saved, while dispatch rereads its grant. Stop must still win before spawn.
-    fs.writeFileSync(wrapper, `import fs from 'node:fs';
-      const read = fs.readFileSync; let paused = false;
-      fs.readFileSync = function(file, ...args) {
-        const data = read.call(fs, file, ...args);
-        if (!paused && String(file).endsWith('/codex.json') && String(file).includes('/readers/') && JSON.parse(data).watched) {
-          paused = true; fs.writeFileSync(${JSON.stringify(ready)}, 'ready');
-          const end = Date.now() + 10000;
-          while (!fs.existsSync(${JSON.stringify(resume)}) && Date.now() < end) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
-        }
-        return data;
-      };
-      const {main} = await import(${JSON.stringify(pathToFileURL(CLI).href)}); await main(process.argv.slice(2));`)
-    const child = spawn(NODE, [wrapper, 'watch', 'r/codex', '--once', '--require-grant', '--exec', `touch '${marker}'`], {env: {...BASE, RINGI_HOME: w.home}, stdio: 'ignore'})
-    const exit = new Promise(resolve => child.once('exit', resolve))
-    t.after(() => { if (child.exitCode === null) child.kill('SIGKILL') })
-    await until(() => fs.existsSync(ready))
-    const session = w.json(['sessions']).find(s => s.product === 'watch')!
-    w.ok(['stop'], {as: session.handle.slice(4)})
-    fs.writeFileSync(resume, 'resume')
-    assert.equal(await exit, 0)
-    assert.equal(fs.existsSync(marker), false)
-    const receipt = w.json(['log', '--all', '-n', '100']).find(m => m.kind === 'usage' && m.trailers.usage[0] === 'settle')!
-    assert.equal(receipt.trailers.seconds[0], '0')
-    assert.equal(receipt.trailers.exit[0], '125')
   })
 
   it('ends every descendant with its turn', async (t) => {
@@ -552,7 +522,8 @@ describe('watchers', () => {
     w.ok(['room', 'create', 'r'])
     w.ok(['join', 'local', 'r', '--as', 'codex'], {as: 'C'})
     w.ok(['leave'], {as: 'C'})
-    const first = spawn(NODE, [CLI, 'watch', 'r/codex', '--exec', 'true', '--interval', '1'], {env: {...BASE, RINGI_HOME: w.home}, stdio: 'ignore'})
+    const first = spawn(BIN[0], [...BIN.slice(1), 'watch', 'r/codex', '--exec', 'true', '--interval', '1'], {env: {...BASE, RINGI_HOME: w.home}, stdio: 'ignore'})
+    const exited = new Promise(resolve => first.once('exit', resolve))
     t.after(() => first.kill('SIGKILL'))
     let rec: Session | undefined
     for (let i = 0; i < 100 && !rec; i++) {
@@ -564,7 +535,7 @@ describe('watchers', () => {
     fs.writeFileSync(f, JSON.stringify({...rec, lastSeen: '2020-01-01T00:00:00Z'}))
     w.no(['watch', 'r/codex', '--once', '--exec', 'true'], /held by session env:watch-local-\w+-codex-\d+ \(active\)/)
     first.kill('SIGKILL')
-    await new Promise<void>(res => first.on('exit', () => res()))
+    await exited
     assert.equal(w.run(['watch', 'r/codex', '--once', '--exec', 'true']).code, 0)
   })
 
@@ -577,29 +548,38 @@ describe('watchers', () => {
       const p = w.lastId(['propose', '-m', `grant ${n}`, '--decider', 'operator', '--budget', 'runs=1,run-seconds=10'])
       return /grant (\w+)/.exec(w.ok(['decide', p, 'approved', '-m', 'go']))![1]
     }
-    const runs = path.join(w.home, 'runs')
-    const watcher = () => spawn(NODE, [CLI, 'watch', 'r/codex', '--once', '--require-grant', '--exec', `echo RUN >> '${runs}'; sleep 1.5`], {env: {...BASE, RINGI_HOME: w.home}, stdio: 'ignore'})
+    const runs = path.join(w.home, 'runs'), release = path.join(w.home, 'release')
+    const watcher = () => {
+      const child = spawn(BIN[0], [...BIN.slice(1), 'watch', 'r/codex', '--once', '--require-grant', '--exec',
+        `echo RUN >> '${runs}'; while [ -d '${w.home}' ] && [ ! -f '${release}' ]; do sleep 0.05; done`],
+      {env: {...BASE, RINGI_HOME: w.home}, stdio: 'ignore'})
+      t.after(() => { if (child.exitCode === null) child.kill('SIGTERM') })
+      return new Promise(resolve => child.once('exit', resolve))
+    }
     const started = () => fs.existsSync(runs) ? fs.readFileSync(runs, 'utf8').split('\n').filter(Boolean).length : 0
     // A stop during the first turn: the second does not start.
     for (const n of [1, 2]) w.ok(['send', '--task', '--assign', 'codex', '--grant', grant(n), '-m', `task ${n}`])
-    let wt = watcher()
+    let exited = watcher()
     await until(() => started() === 1)
     const handle = w.json(['sessions']).find(s => s.product === 'watch')!.handle
     w.ok(['stop'], {as: handle.replace(/^env:/, '')})
-    await new Promise(res => wt.on('exit', res))
+    fs.writeFileSync(release, '')
+    assert.equal(await exited, 0)
     assert.equal(started(), 1)
     assert.match(w.ok(['log', '--all', '-n', '100']), /not started: the watcher was stopped/)
     // A revocation during the first turn: the second does not start either.
     w.ok(['sessions', 'forget', handle])
     fs.rmSync(runs, {force: true})
+    fs.rmSync(release)
     const g4 = grant(4)
     const p4 = w.json(['proposals', '--all']).find(x => x.subject === 'grant 4')!.id
     w.ok(['send', '--task', '--assign', 'codex', '--grant', grant(3), '-m', 'task 3'])
     w.ok(['send', '--task', '--assign', 'codex', '--grant', g4, '-m', 'task 4'])
-    wt = watcher()
+    exited = watcher()
     await until(() => started() === 1)
     w.ok(['decide', p4, 'revoked', '-m', 'no'])
-    await new Promise(res => wt.on('exit', res))
+    fs.writeFileSync(release, '')
+    assert.equal(await exited, 0)
     assert.equal(started(), 1)
     assert.match(w.ok(['log', '--all', '-n', '100']), /not started: its grant was revoked/)
   })
@@ -613,7 +593,7 @@ describe('watchers', () => {
     const g = /grant (\w+)/.exec(w.ok(['decide', p, 'approved', '-m', 'go']))![1]
     w.ok(['send', '--task', '--assign', 'codex', '--grant', g, '-m', 'Port it'])
     const task = w.json(['tasks'])[0].id
-    const exec = `'${NODE}' '${CLI}' agent whoami; echo "RUN grant=$RINGI_GRANT"`
+    const exec = `${shellBin} agent whoami; echo "RUN grant=$RINGI_GRANT"`
     const watch = (more: string[] = []) => w.run(['watch', 'r/codex', '--exec', exec, '--once', ...more])
     let r = watch()
     assert.equal(r.code, 0, r.err)
@@ -691,39 +671,6 @@ describe('watchers', () => {
 })
 
 describe('state and locks', () => {
-  it('serializes competing processes after recovering a dead owner', async (t) => {
-    const w = world(t)
-    const file = path.join(w.home, 'shared.lock'), count = path.join(w.home, 'count')
-    fs.writeFileSync(file, '999999.dead')
-    fs.writeFileSync(count, '0')
-    const code = `import fs from 'node:fs';
-      import {locked} from ${JSON.stringify(pathToFileURL(path.join(HERE, '../../../target/esm/lib/index.js')).href)};
-      for (let i = 0; i < 10; i++) locked(${JSON.stringify(file)}, () => {
-        const n = Number(fs.readFileSync(${JSON.stringify(count)}, 'utf8'));
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2);
-        fs.writeFileSync(${JSON.stringify(count)}, String(n + 1));
-      });`
-    const children = Array.from({length: 4}, () => spawn(NODE, ['--input-type=module', '-e', code], {env: BASE, stdio: 'ignore', timeout: 10000}))
-    t.after(() => children.forEach(child => { if (child.exitCode === null) child.kill('SIGKILL') }))
-    const codes = await Promise.all(children.map(child => new Promise(resolve => child.once('exit', resolve))))
-    assert.deepEqual(codes, [0, 0, 0, 0])
-    assert.equal(fs.readFileSync(count, 'utf8'), '40')
-    assert.equal(fs.existsSync(file), false)
-    assert.equal(fs.existsSync(file + '.recover'), false)
-  })
-
-  it('preserves abandoned, live and unknown recovery gates', (t) => {
-    const w = world(t)
-    const file = path.join(w.home, 'shared.lock'), gate = file + '.recover'
-    fs.writeFileSync(file, '999999.dead')
-    for (const token of ['999998.dead', `${process.pid}.live`, '']) {
-      fs.writeFileSync(gate, token)
-      assert.throws(() => locked(file, () => assert.fail('entered a blocked lock'), 25), /abandoned|held/)
-      assert.equal(fs.readFileSync(gate, 'utf8'), token)
-      assert.equal(fs.readFileSync(file, 'utf8'), '999999.dead')
-    }
-  })
-
   for (const [owner, token] of [['live', `${process.pid}.test`], ['unknown', '']]) {
     it(`preserves ${owner} owners regardless of lock age`, (t) => {
       const w = world(t)
@@ -732,7 +679,7 @@ describe('state and locks', () => {
       const lock = path.join(w.home, 'locks', 'sessions.lock')
       fs.writeFileSync(lock, token)
       fs.utimesSync(lock, new Date(0), new Date(0))
-      const r = spawnSync(NODE, [CLI, 'agent', 'whoami'], {encoding: 'utf8', timeout: 2000, env: {...BASE, RINGI_HOME: w.home, RINGI_SESSION: 'C'}})
+      const r = spawnSync(BIN[0], [...BIN.slice(1), 'agent', 'whoami'], {encoding: 'utf8', timeout: 2000, env: {...BASE, RINGI_HOME: w.home, RINGI_SESSION: 'C'}})
       assert.equal(r.signal, 'SIGTERM', `waited for ${owner} owner: ${r.stderr}`)
       assert.equal(fs.readFileSync(lock, 'utf8'), token)
     })
@@ -761,7 +708,7 @@ describe('state and locks', () => {
 
 describe('CLI reference', () => {
   it('generates COMMANDS.md from the command table', () => {
-    const md = spawnSync(NODE, [CLI, 'help', '--md'], {encoding: 'utf8', env: BASE}).stdout
+    const md = spawnSync(BIN[0], [...BIN.slice(1), 'help', '--md'], {encoding: 'utf8', env: BASE}).stdout
     assert.equal(fs.readFileSync(path.join(HERE, '../../../COMMANDS.md'), 'utf8'), md, 'run: npm run commands')
     for (const c of ['join <hub> <room>', 'continue', 'stop', 'leave', 'where', 'agent inbox', 'propose', 'watch']) assert.ok(md.includes(`ringi ${c}`), c)
   })

@@ -5,11 +5,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {spawnSync} from 'node:child_process'
-import {fileURLToPath} from 'node:url'
+import {BASE, BIN, quote, shellBin} from './cli.ts'
 
-const CLI = fileURLToPath(new URL('../../../target/esm/cli.js', import.meta.url))
-const BASE = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CLAUDE|CODEX|CURSOR|RINGI_|GIT_)/.test(k)))
-const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`
 type Result = {code: number | null, out: string, err: string}
 type Message = {id: string, from: string, subject: string, kind: string | null, state: string | null, trust: string, files: {path: string}[]}
 type Task = {id: string, subject: string, state: string, by: string, taken: string[]}
@@ -25,7 +22,7 @@ describe('local flow: operator, chat agent and headless reviewer', () => {
       fs.rmSync(base, {recursive: true, force: true})
     })
     const run = (args: string[], session?: string): Result => {
-      const r = spawnSync(process.execPath, [CLI, ...args], {encoding: 'utf8', timeout: 60000,
+      const r = spawnSync(BIN[0], [...BIN.slice(1), ...args], {encoding: 'utf8', timeout: 60000,
         env: {...BASE, RINGI_HOME: home, ...(session ? {RINGI_SESSION: session} : {})}})
       const result = {code: r.status, out: r.stdout ?? '', err: r.error?.message ?? r.stderr ?? ''}
       transcript.push(`${session ?? 'operator'}: ringi ${args.join(' ')}\nexit ${result.code}\n${result.out}${result.err}`)
@@ -81,8 +78,8 @@ describe('local flow: operator, chat agent and headless reviewer', () => {
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import {spawnSync} from 'node:child_process'
-const [cli, report] = process.argv.slice(2)
-const run = (...args) => spawnSync(process.execPath, [cli, ...args], {encoding: 'utf8', env: process.env, timeout: 30000})
+const [report, ...bin] = process.argv.slice(2)
+const run = (...args) => spawnSync(bin[0], [...bin.slice(1), ...args], {encoding: 'utf8', env: process.env, timeout: 30000})
 const call = (...args) => {
   const r = run(...args)
   assert.equal(r.status, 0, r.stderr)
@@ -98,13 +95,13 @@ assert.equal(call('agent', 'cat', task.id, 'files/badge.diff'), ${JSON.stringify
 fs.writeFileSync(report, 'Reviewed the patch: badge is visible.\\n')
 call('agent', 'reply', working, '--state', 'completed', '-m', 'Review complete', '--attach', report + ':files/review.md')
 `)
-    const command = [process.execPath, runner, CLI, report].map(quote).join(' ')
+    const command = [process.execPath, runner, report, ...BIN].map(quote).join(' ')
     const watch = (exec: string, session?: string, handoff = false) =>
       run(['watch', 'fix-badge/claude', '--once', '--exec', exec, ...(handoff ? ['--handoff'] : [])], session)
     const refused = watch('true', claude)
     assert.notEqual(refused.code, 0, 'headless turns require an explicit handoff from a chat')
     assert.match(refused.err, /held by session.*chat-claude/)
-    const failed = watch(`${quote(process.execPath)} ${quote(CLI)} agent inbox --json >/dev/null; exit 7`, claude, true)
+    const failed = watch(`${shellBin} agent inbox --json >/dev/null; exit 7`, claude, true)
     assert.match(failed.err, /watch: exit 7/, 'the reviewer fails after reading its inbox')
     assert.equal(failed.code, 7)
     const delivered = watch(command)
