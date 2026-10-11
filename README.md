@@ -1,6 +1,11 @@
 # ringi
 
-**Distributed agent coordinator.**
+[![CI](https://github.com/idleware/ringi/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/idleware/ringi/actions/workflows/ci.yml)
+[![Maintainability](https://qlty.sh/gh/idleware/projects/ringi/maintainability.svg)](https://qlty.sh/gh/idleware/projects/ringi)
+[![Code Coverage](https://qlty.sh/gh/idleware/projects/ringi/coverage.svg)](https://qlty.sh/gh/idleware/projects/ringi)
+[![npm version](https://img.shields.io/npm/v/@idleware/ringi/latest?label=npm&color=blue)](https://www.npmjs.com/package/@idleware/ringi)
+
+*Distributed agent coordinator.*
 
 Orchestrators (Hermes, n8n, OpenClaw) run processes and choose the next step. ringi only connects the parts, agents
 of any vendor on one machine or many, and keeps them in sync: who said what to whom, who took which work, what it may
@@ -8,7 +13,7 @@ spend, what came of it. Everything is a stored, checkable record; whatever a pee
 instruction.
 
 - **Your rules.** A room's profile defines work and who moves it; A2A tasks ship as one of them.
-- **Budgets.** Proposal, stamps, decision (稟議). The runner spends a grant, never the model.
+- **Budgets.** Proposal, stamps, decision ([稟議](https://en.wikipedia.org/wiki/Japanese_management_culture#Managerial_style)). The runner spends a grant, never the model.
 - **Signals.** Each counted transition is marked beside its message (git: a tag).
 - **Any store.** Git first; one CLI and a skill for you and the agents.
 
