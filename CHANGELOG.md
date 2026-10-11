@@ -1,3 +1,8 @@
+## [0.3.0](https://github.com/idleware/ringi/compare/v0.2.0...v0.3.0) (2026-10-11)
+
+### Features
+* feat: delete room shortcut ([ed2ef74](https://github.com/idleware/ringi/commit/ed2ef7493cca5e75fc6fca4aa6f4f166adc772d1))
+
 ## [0.2.0](https://github.com/idleware/ringi/compare/v0.1.1...v0.2.0) (2026-10-11)
 
 ### Fixes & improvements
