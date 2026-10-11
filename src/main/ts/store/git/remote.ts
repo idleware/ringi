@@ -11,7 +11,7 @@ import * as C from '../../lib/index.ts'
 import * as P from '../../protocol/index.ts'
 import type {Descriptor, Member} from '../index.ts'
 
-export type Handle = {name: string, dir: string, d: Descriptor, main?: string, remoteAlarms?: Record<string, string>, bootstrap?: boolean}
+export type Handle = {name: string, dir: string, d: Descriptor, main?: string, remoteAlarms?: Record<string, string>, heartbeatErrors?: Record<string, string>, bootstrap?: boolean}
 // A room: its one branch (`ref`), its latest control record (`head`) and its genesis.
 export type Room = {name: string, ref: string, head: string, genesis: string, archived?: boolean, members?: Record<string, Member>}
 type Key = {line: string, fp: string}
@@ -340,8 +340,85 @@ export const verify = (H: Handle, R: Room, who: string, head: string): string | 
   } catch (e) { return reason(e) }
 }
 
+// Heartbeats deliberately share the tag transport, but never the immutable signal acceptance.
+// Only this exact namespace is mutable; e.g. `actor.opened.heartbeat.<id>` is still a signal.
+const HEARTBEAT_NAME = /^([a-z0-9]+(?:[_-][a-z0-9]+)*)\.heartbeat\.([0-9a-f]{12})$/
+export const heartbeatName = (ref: string): {actor: string, genesis12: string} | null => {
+  const m = ref.startsWith(TAGS) && HEARTBEAT_NAME.exec(ref.slice(TAGS.length))
+  return m ? {actor: m[1], genesis12: m[2]} : null
+}
+export const heartbeatRef = (who: string, genesis: string): string => {
+  if (!SHA.test(genesis)) C.fail('heartbeat requires a full room genesis')
+  const ref = `${TAGS}${who}.heartbeat.${genesis.slice(0, 12)}`
+  if (!heartbeatName(ref)) C.fail('malformed heartbeat actor')
+  return ref
+}
+const heartbeatBody = (text: string): string => {
+  if (Buffer.byteLength(text) > 16384) C.fail('heartbeat body exceeds 16 KiB')
+  const decoded = P.decodeText(Buffer.from(text))
+  if (decoded.invalid) C.fail(`heartbeat body is ${decoded.invalid}`)
+  const lines = decoded.text!.trimEnd().split('\n')
+  const fields = new Map<string, string>()
+  for (const line of lines) {
+    const m = /^([A-Z][A-Za-z]*): (.+)$/.exec(line) ?? C.fail('heartbeat body must contain only facts as trailers')
+    if (fields.has(m[1])) C.fail(`duplicate heartbeat field ${m[1]}`)
+    fields.set(m[1], m[2])
+  }
+  const genesis = fields.get('Room') ?? C.fail('heartbeat must name its full room genesis')
+  if (!SHA.test(genesis)) C.fail('heartbeat must name its full room genesis')
+  if (!/^(working|waiting|gone)$/.test(fields.get('State') ?? '')) C.fail('invalid heartbeat State')
+  if (!/^(yes|no|unknown)$/.test(fields.get('Alive') ?? '')) C.fail('invalid heartbeat Alive')
+  const next = Number(fields.get('Next'))
+  if (!Number.isFinite(next) || next <= 0) C.fail('heartbeat Next must be positive seconds')
+  return genesis
+}
+const heartbeatObject = (H: Handle, ref: string, sha: string) => {
+  const s = heartbeatName(ref) ?? C.fail('malformed heartbeat namespace')
+  if (!SHA.test(sha) || git(H, ['cat-file', '-t', sha]).trim() !== 'tag') C.fail('heartbeat must be an annotated tag')
+  if (Number(git(H, ['cat-file', '-s', sha])) > 32768) C.fail('heartbeat object exceeds 32 KiB')
+  const decoded = P.decodeText(git(H, ['cat-file', 'tag', sha], {raw: true}))
+  if (decoded.invalid) C.fail(`heartbeat tag is ${decoded.invalid}`)
+  const [header, ...rest] = decoded.text!.split('\n\n')
+  const target = /^object ([0-9a-f]+)\ntype commit\ntag ([^\n]+)\ntagger ([^<\n]+) <[^\n]*> (\d+) [+-]\d{4}\n?$/.exec(header) ?? C.fail('malformed heartbeat tag headers')
+  if (!SHA.test(target[1]) || target[2] !== ref.slice(TAGS.length) || target[3].trim() !== s.actor) C.fail('heartbeat tag name or actor disagrees')
+  const text = rest.join('\n\n').split('-----BEGIN SSH SIGNATURE-----')[0]
+  const genesis = heartbeatBody(text)
+  if (!genesis.startsWith(s.genesis12)) C.fail('heartbeat tag name and room genesis disagree')
+  return {...s, genesis, target: target[1], time: Number(target[4]), text}
+}
+const checkHeartbeat = (H: Handle, R: Room, ref: string, sha: string): void => {
+  const s = heartbeatObject(H, ref, sha)
+  if (s.genesis !== R.genesis) C.fail('heartbeat belongs to another room genesis')
+  const b = branch(H, R, rev(H, R.ref) ?? C.fail('heartbeat room has no branch here'))
+  // It is a replica's sync position, not a claim to author or execute the target message.
+  if (!b.control.includes(s.target) && !b.authors.has(s.target) && !b.skipped.has(s.target)) C.fail('heartbeat target is not on this room branch')
+  const signer = b.entries.find(e => e.principal === s.actor) ?? C.fail(`unadmitted heartbeat principal ${s.actor}`)
+  checkSignature(H, sha, s.actor, signer.key, 'tag')
+}
+export const verifyHeartbeat = (H: Handle, R: Room, ref: string, sha: string): string | null => {
+  if (!isRemote(H)) return null
+  if (H.remoteAlarms?.[ref]) return H.remoteAlarms[ref]
+  if (H.heartbeatErrors?.[ref]) return H.heartbeatErrors[ref]
+  try { checkHeartbeat(H, R, ref, sha); return null } catch (e) { return reason(e) }
+}
+// Make an object without moving its ref. The caller performs local CAS before publishing with the same old OID.
+export const makeHeartbeat = (H: Handle, R: Room, who: string, target: string, text: string, home: string): string => {
+  const ref = heartbeatRef(who, R.genesis)
+  if (!SHA.test(target)) C.fail('heartbeat target must be a full commit id')
+  if (/^Room:/m.test(text)) C.fail('heartbeat Room is transport metadata')
+  const body = `Room: ${R.genesis}\n${text.trimEnd()}\n`
+  heartbeatBody(body)
+  const raw = `object ${target}\ntype commit\ntag ${ref.slice(TAGS.length)}\ntagger ${who} <${who}@ringi> ${Math.floor(Date.now() / 1000)} +0000\n\n${body}`
+  const key = sign(H, who, home)[0]?.slice(2)
+  const signature = key ? command('ssh-keygen', ['-Y', 'sign', '-n', 'git', '-f', key], {input: raw}) : ''
+  const sha = git(H, ['mktag'], {input: raw + signature}).trim()
+  if (isRemote(H)) checkHeartbeat(H, R, ref, sha)
+  return sha
+}
+
 const SIGNAL_NAME = /^([a-z0-9]+(?:[_-][a-z0-9]+)*)\.([a-z][a-z0-9.-]*)\.([0-9a-f]{12})$/
 const signalName = (ref: string): {actor: string, id: string, signal: string} => {
+  if (heartbeatName(ref)) C.fail('heartbeat is not an immutable signal')
   const m = ref.startsWith(TAGS) && SIGNAL_NAME.exec(ref.slice(TAGS.length))
   if (!m) return C.fail('malformed signal tag namespace')
   return {actor: m[1], id: m[3], signal: m[2]}
@@ -413,6 +490,7 @@ const promote = (H: Handle, ref: string, sha: string): void => {
 }
 const syncUnlocked = (H: Handle): Handle => {
   H.remoteAlarms = {...pushAlarms(H)}
+  H.heartbeatErrors = {}
   const url = origin(H)
   if (!url) { if (rev(H, 'refs/heads/main')) verifyHub(H); return H }
   checkUrl(url)
@@ -441,7 +519,31 @@ const syncUnlocked = (H: Handle): Handle => {
     } catch (e) { H.remoteAlarms[ref] = reason(e) }
   }
   const tags = refs(H, TAG_TRACK), pinned = refs(H, TAG_ACCEPT)
+  // Include local beats to remove disappeared remote telemetry; unlike signals, nothing is pinned.
+  for (const ref of refs(H, TAGS).keys()) if (heartbeatName(ref) && !tags.has(TAG_TRACK + ref.slice(TAGS.length))) {
+    if (pinned.has(TAG_ACCEPT + ref.slice(TAGS.length))) continue // never waive previously accepted history
+    git(H, ['update-ref', '-d', ref])
+  }
   for (const name of new Set([...tags.keys()].map(r => r.slice(TAG_TRACK.length)).concat([...pinned.keys()].map(r => r.slice(TAG_ACCEPT.length))))) {
+    const beatRef = TAGS + name
+    if (heartbeatName(beatRef)) {
+      if (pinned.has(TAG_ACCEPT + name)) {
+        H.remoteAlarms[beatRef] = 'heartbeat namespace overlaps a previously accepted signal; operator review required'
+        continue
+      }
+      try {
+        const sha = tags.get(TAG_TRACK + name) ?? C.fail('heartbeat is absent from the remote')
+        const b = heartbeatObject(H, beatRef, sha)
+        const R = byGenesis.get(b.genesis) ?? C.fail('heartbeat room is missing or quarantined')
+        checkHeartbeat(H, R, beatRef, sha)
+        git(H, ['update-ref', beatRef, sha])
+      } catch (e) {
+        H.heartbeatErrors[beatRef] = reason(e)
+        git(H, ['update-ref', '-d', beatRef])
+        note(`heartbeat ${name}: ${reason(e)}; withheld`)
+      }
+      continue
+    }
     // Other tags, including the old room-scoped namespace, are not signals.
     if (!SIGNAL_NAME.test(name)) continue
     const ref = TAGS + name
@@ -550,6 +652,7 @@ const validateRef = (H: Handle, ref: string, sha: string): void => {
 // Publish one ref. With `behind`, a room's branch the remote has moved on is not an alarm: push returns false and the
 // caller makes its commit again on the new tip.
 export const push = (H: Handle, ref: string, {behind = false}: {behind?: boolean} = {}): boolean => {
+  if (heartbeatName(ref)) C.fail('heartbeat publication requires its actor and expected object id (pushHeartbeat)')
   if (!isRemote(H)) return true
   return locked(H, () => {
     const alarms = pushAlarms(H)
@@ -599,6 +702,35 @@ export const push = (H: Handle, ref: string, {behind = false}: {behind?: boolean
     delete alarms[ref]; savePushAlarms(H, alarms)
     git(H, ['update-ref', pin, sha, acc || zero(H)])
     git(H, ['update-ref', track, sha])
+    return true
+  })
+}
+
+// Publish only the actor's exact heartbeat with an explicit old OID. A racing beat is ordinary contention, never a
+// signal rewrite alarm. Neither success nor failure changes immutable acceptance pins or budget/history state.
+export const pushHeartbeat = (H: Handle, R: Room, who: string, sha: string, expected: string | null): boolean => {
+  const ref = heartbeatRef(who, R.genesis)
+  if (!SHA.test(sha) || (expected !== null && !SHA.test(expected))) C.fail('heartbeat publication requires full object ids')
+  if (!isRemote(H)) return true
+  return locked(H, () => {
+    if (object(H, ref) !== sha) return false // a newer local beat already won
+    if (object(H, TAG_ACCEPT + ref.slice(TAGS.length))) C.fail('heartbeat namespace overlaps previously accepted signal history')
+    checkHeartbeat(H, R, ref, sha)
+    const url = origin(H)
+    if (!url) return true
+    checkUrl(url)
+    const r = git(H, ['push', '-q', '--porcelain', `--force-with-lease=${ref}:${expected ?? ''}`, url, `${sha}:${ref}`], {ok: true})
+    if (r.status !== 0) {
+      // A lost acknowledgement is safe to reconcile: equality proves no second beat is needed.
+      const observed = git(H, ['ls-remote', '--refs', url, ref], {ok: true})
+      const got = observed.status === 0 ? observed.stdout.trim().split(/\s+/) : []
+      if (got[0] !== sha || got[1] !== ref) {
+        if (/\[rejected\].*\(stale info\)/.test(r.stdout)) return false
+        C.fail(`heartbeat push failed for ${ref.slice(TAGS.length)}: ${String(r.stderr || r.stdout || 'transport error').trim().split('\n').at(-1)}`)
+      }
+    }
+    git(H, ['update-ref', TAG_TRACK + ref.slice(TAGS.length), sha])
+    if (H.heartbeatErrors) delete H.heartbeatErrors[ref]
     return true
   })
 }

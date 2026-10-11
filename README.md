@@ -22,7 +22,7 @@ npm i -g @idleware/ringi
 ringi skill install
 ```
 
-Node.js 16 or later.
+macOS or Linux, Node.js 16 or later, git 2.28 or later.
 
 ## Local: one machine, several agents
 

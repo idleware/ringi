@@ -8,7 +8,7 @@ import path from 'node:path'
 import {spawn} from 'node:child_process'
 import {body, judge, probe} from '../../main/ts/heartbeat/index.ts'
 import type {Facts} from '../../main/ts/heartbeat/index.ts'
-import {SUPPORTED, seconds, table, treeCpu} from '../../main/ts/heartbeat/platform.ts'
+import {SUPPORTED, procStat, seconds, table, treeCpu} from '../../main/ts/heartbeat/platform.ts'
 import {toolOf, traceTime} from '../../main/ts/heartbeat/tools.ts'
 
 const facts = (o: Partial<Facts> = {}): Facts => ({at: 1000, alive: true, cpu: null, trace: null, seen: 0, stopped: false, waits: null, ...o})
@@ -33,16 +33,19 @@ describe('heartbeat', () => {
     assert.equal(body(judge(facts({alive: null}))), 'State: waiting\nWaits: inbox\nAlive: unknown\nQuiet: 1000\nNext: 30\n')
   })
 
-  it('reads ps CPU time in the forms macOS and Linux print', () => {
+  it('reads ps CPU time in the forms macOS and Linux print, and /proc/<pid>/stat', () => {
+    assert.deepEqual(procStat('4242 (node --test (x)) S 4100 4242 4100 0 -1 4194560 1234 0 0 0 150 37 0 0 20 0 7 0'), {ppid: 4100, cpu: 1.87})
     assert.equal(seconds('30:05.27'), 1805.27)
     assert.equal(seconds('01:02:03'), 3723)
     assert.equal(seconds('2-01:00:00'), 176400)
   })
 
-  it('sums the CPU of a process tree on this machine', {skip: !SUPPORTED}, async t => {
-    const child = spawn(process.execPath, ['-e', 'const t = Date.now(); while (Date.now() - t < 400); setTimeout(() => {}, 5000)'])
+  // A sandbox may deny ps; the probe then says nothing, and there is nothing to sum.
+  it('sums the CPU of a process tree on this machine', {skip: !SUPPORTED || !table()}, async t => {
+    // Busy for more than a second: some `ps` count only whole seconds.
+    const child = spawn(process.execPath, ['-e', 'const t = Date.now(); while (Date.now() - t < 1300); setTimeout(() => {}, 5000)'])
     t.after(() => child.kill('SIGKILL'))
-    await new Promise(r => setTimeout(r, 600))
+    await new Promise(r => setTimeout(r, 1600))
     const rows = table()!
     assert.ok(rows.has(process.pid))
     assert.ok(treeCpu(process.pid, rows)! >= treeCpu(child.pid!, rows)!, 'the tree includes the child')

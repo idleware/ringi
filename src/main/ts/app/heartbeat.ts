@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import * as HB from '../heartbeat/index.ts'
 import {alive, table} from '../heartbeat/platform.ts'
-import {HOME} from '../home/index.ts'
+import {HOME, locked} from '../home/index.ts'
 import {openHub, openRoom, start} from '../hub/index.ts'
 import type {Room} from '../hub/index.ts'
 import {sleep} from '../lib/index.ts'
@@ -66,9 +66,13 @@ export const beatAll = (prev: Map<string, HB.Facts>, next: number): Beaten[] => 
 }
 // The loop: one pulse per home, beating every `every` seconds until no session is left or the home is gone.
 export const pulse = async ({every = 30, once = false, log}: {every?: number, once?: boolean, log: (s: string) => void}): Promise<number> => {
-  const other = running()
+  // Claimed under the home's lock, so two starts at once leave one pulse.
+  const other = locked('pulse', () => {
+    const pid = running()
+    if (!pid) fs.writeFileSync(PIDFILE(), String(process.pid))
+    return pid
+  })
   if (other) { log(`pulse: already running (pid ${other})`); return 0 }
-  fs.writeFileSync(PIDFILE(), String(process.pid))
   const prev = new Map<string, HB.Facts>()
   try {
     for (let idle = 0; idle < 2;) {

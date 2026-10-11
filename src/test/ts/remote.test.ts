@@ -993,3 +993,154 @@ describe('signed remote hubs', () => {
     })
   })
 })
+
+describe('signed remote heartbeats', () => {
+  const facts = (state = 'working') => `State: ${state}\nAlive: unknown\nQuiet: 0\nNext: 30\n`
+  const put = (a: {H: Hub, home: string}, who: string, text = facts(), target?: string) => {
+    const R = room(a.H), ref = Remote.heartbeatRef(who, R.genesis)
+    const prev = a.H.git(['rev-parse', '-q', '--verify', ref], {ok: true})
+    const old = prev.status === 0 ? prev.stdout.trim() : null
+    const object = Remote.makeHeartbeat(a.H, R, who, target ?? a.H.rev(R.ref)!, text, a.home)
+    a.H.git(['update-ref', ref, object, old ?? '0'.repeat(40)])
+    return {R, ref, object, old}
+  }
+
+  it('publishes a signed beat on the pulled tip and replaces it without acceptance pins', t => {
+    const w = world(t), bob = w.agent('bob'), R = room(bob.H)
+    const before = w.op.rev(R.ref)
+    const first = put(bob, 'bob')
+    assert.equal(Remote.pushHeartbeat(bob.H, first.R, 'bob', first.object, first.old), true)
+    Remote.sync(w.op)
+    assert.equal(w.op.git(['rev-parse', first.ref]).trim(), first.object)
+    assert.equal(w.op.git(['rev-parse', `${first.ref}^{commit}`]).trim(), before)
+    assert.equal(Remote.verifyHeartbeat(w.op, room(w.op), first.ref, first.object), null)
+    assert.match(w.op.git(['cat-file', 'tag', first.object]), new RegExp(`Room: ${R.genesis}\\n`))
+    const second = put(bob, 'bob', facts('waiting'), R.genesis)
+    assert.equal(second.old, first.object)
+    assert.equal(Remote.pushHeartbeat(bob.H, second.R, 'bob', second.object, second.old), true)
+    Remote.sync(w.op)
+    assert.equal(w.op.git(['rev-parse', second.ref]).trim(), second.object)
+    assert.notEqual(first.object, second.object)
+    assert.equal(w.op.rev(R.ref), before, 'beats never append work or budget receipts')
+    assert.equal(w.op.git(['for-each-ref', '--format=%(refname)', 'refs/ringi/remote-accepted-tags/']).trim(), '')
+    assert.deepEqual(w.op.remoteAlarms, {})
+    assert.throws(() => Remote.push(bob.H, second.ref), /expected object id/)
+  })
+
+  it('publishes through pulse and exposes verified facts on another machine without renewing the session', t => {
+    const w = world(t)
+    w.agent('bob')
+    w.ok('bob', ['join', 'team', 'r', '--as', 'bob'], 'heartbeat-bob')
+    const before = JSON.parse(w.ok('bob', ['sessions', '--json']))[0].lastSeen
+    const first = w.run('bob', ['pulse', '--once'])
+    assert.equal(first.code, 0, first.err)
+    assert.equal(first.err, '')
+    const beats = JSON.parse(w.ok('root', ['heartbeats', '--published', '--json', '--hub', 'team', '--room', 'r']))
+    assert.equal(beats.length, 1)
+    assert.deepEqual([beats[0].agent, beats[0].state, beats[0].target], ['bob', 'working', w.op.rev('refs/heads/r')])
+    assert.match(beats[0].text, /^Room: [0-9a-f]{40}\n/)
+    assert.equal(JSON.parse(w.ok('bob', ['sessions', '--json']))[0].lastSeen, before)
+    const signals = JSON.parse(w.ok('root', ['signals', '--all', '--json', '--hub', 'team', '--room', 'r']))
+    assert.ok(!signals.some((s: {ref: string}) => Remote.heartbeatName(s.ref)))
+  })
+
+  it('rejects lightweight, unsigned, foreign-key, wrong-room and off-branch telemetry', t => {
+    const w = world(t), bob = w.agent('bob'), alice = w.agent('alice')
+    Remote.sync(bob.H)
+    const R = room(bob.H), ref = Remote.heartbeatRef('bob', R.genesis), name = ref.slice('refs/tags/'.length)
+    const body = `Room: ${R.genesis}\n${facts()}`
+    const tip = bob.H.rev(R.ref)!
+    const other = R.genesis.slice(0, 12) + (R.genesis.slice(12) === '0'.repeat(28) ? '1' : '0').repeat(28)
+    for (const [opts, expected] of [
+      [{signed: false}, /signature/],
+      [{signer: 'alice'}, /signature/],
+      [{target: w.genesis}, /not on this room branch/],
+      [{text: body.replace(R.genesis, other)}, /another room genesis/],
+      [{text: facts()}, /full room genesis/],
+      [{text: body + 'State: waiting\n'}, /duplicate heartbeat field/],
+    ] as const) {
+      // Both agents' fixture keys are known locally to forge exactly the wrong signer.
+      if (opts.signer) {
+        fs.mkdirSync(path.join(bob.home, 'keys', 'team'), {recursive: true})
+        fs.copyFileSync(path.join(alice.home, 'keys', 'team', 'alice'), path.join(bob.home, 'keys', 'team', 'alice'))
+      }
+      const bad = tag(bob.H, bob.home, 'bob', tip, {name, text: body, ...opts})
+      assert.match(Remote.verifyHeartbeat(bob.H, R, ref, bad.object)!, expected)
+    }
+    bob.H.git(['update-ref', ref, tip])
+    assert.match(Remote.verifyHeartbeat(bob.H, R, ref, tip)!, /annotated tag/)
+    const valid = put(bob, 'bob')
+    assert.match(Remote.verifyHeartbeat(bob.H, {...R, genesis: other}, ref, valid.object)!, /another room genesis/)
+    const eve = w.replica('eve')
+    Remote.join(eve.H, room(eve.H), 'eve', eve.home) // a key exists, but has never been admitted
+    assert.throws(() => Remote.makeHeartbeat(eve.H, room(eve.H), 'eve', eve.H.rev(R.ref)!, facts(), eve.home), /unadmitted/)
+  })
+
+  it('uses explicit creation and replacement leases and refuses a superseded local beat', t => {
+    const w = world(t), bob = w.agent('bob')
+    const first = put(bob, 'bob')
+    assert.equal(Remote.pushHeartbeat(bob.H, first.R, 'bob', first.object, null), true)
+    const second = put(bob, 'bob', facts('waiting'))
+    assert.equal(Remote.pushHeartbeat(bob.H, second.R, 'bob', second.object, null), false, 'create must not replace an existing beat')
+    assert.equal(w.op.git(['ls-remote', '--refs', w.url, second.ref]).trim().split(/\s+/)[0], first.object)
+    assert.equal(Remote.pushHeartbeat(bob.H, second.R, 'bob', second.object, first.object), true)
+    const third = put(bob, 'bob', facts('gone'))
+    assert.equal(Remote.pushHeartbeat(bob.H, second.R, 'bob', second.object, first.object), false, 'an older local writer cannot publish over a newer one')
+    assert.equal(Remote.pushHeartbeat(bob.H, third.R, 'bob', third.object, first.object), false, 'stale replacement does not overwrite the remote')
+    assert.equal(Remote.pushHeartbeat(bob.H, third.R, 'bob', third.object, second.object), true)
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(bob.H.dir, 'ringi', 'push-alarms.json'), 'utf8')), {})
+  })
+
+  it('withholds forged replacements and recovers valid telemetry without poisoning room history', t => {
+    const w = world(t), bob = w.agent('bob')
+    const good = put(bob, 'bob')
+    assert.equal(Remote.pushHeartbeat(bob.H, good.R, 'bob', good.object, null), true)
+    Remote.sync(w.op)
+    const fake = tag(bob.H, bob.home, 'bob', bob.H.rev(good.R.ref)!, {
+      name: good.ref.slice('refs/tags/'.length), signed: false, text: `Room: ${good.R.genesis}\n${facts('waiting')}`,
+    })
+    publish(bob.H, fake.ref, fake.object, true)
+    Remote.sync(w.op)
+    assert.equal(w.op.git(['rev-parse', '-q', '--verify', good.ref], {ok: true}).status, 1)
+    assert.match(w.op.heartbeatErrors?.[good.ref]!, /signature/)
+    assert.deepEqual(w.op.remoteAlarms, {})
+    assert.equal(Remote.verifyRoom(w.op, room(w.op))!.genesis, good.R.genesis)
+    const restored = put(bob, 'bob', facts('waiting'))
+    assert.equal(Remote.pushHeartbeat(bob.H, restored.R, 'bob', restored.object, fake.object), true)
+    Remote.sync(w.op)
+    assert.equal(Remote.verifyHeartbeat(w.op, room(w.op), restored.ref, restored.object), null)
+    assert.deepEqual(w.op.heartbeatErrors, {})
+  })
+
+  it('treats heartbeat deletion as missing telemetry while ordinary signal replacement still alarms', t => {
+    const w = world(t), bob = w.agent('bob'), task = openTask(bob.H, bob.home, 'bob')
+    const signal = tag(bob.H, bob.home, 'bob', task, {signal: 'heartbeat.extra'})
+    assert.equal(Remote.heartbeatName(signal.ref), null, 'only the exact class is mutable')
+    Remote.push(bob.H, signal.ref)
+    const beat = put(bob, 'bob')
+    Remote.pushHeartbeat(bob.H, beat.R, 'bob', beat.object, null)
+    Remote.sync(w.op)
+    bob.H.git(['push', '-q', 'origin', `:${beat.ref}`])
+    Remote.sync(w.op)
+    assert.equal(w.op.git(['rev-parse', '-q', '--verify', beat.ref], {ok: true}).status, 1)
+    assert.deepEqual(w.op.remoteAlarms, {})
+    const replacement = tag(bob.H, bob.home, 'bob', task, {signal: 'heartbeat.extra', date: '2002-02-02T00:00:00Z'})
+    publish(bob.H, replacement.ref, replacement.object, true)
+    Remote.sync(w.op)
+    assert.match(w.op.remoteAlarms?.[signal.ref]!, /replaced/)
+  })
+
+  it('never silently waives an existing immutable pin in the heartbeat namespace', t => {
+    const w = world(t), bob = w.agent('bob'), beat = put(bob, 'bob')
+    Remote.pushHeartbeat(bob.H, beat.R, 'bob', beat.object, null)
+    Remote.sync(w.op)
+    const pin = 'refs/ringi/remote-accepted-tags/' + beat.ref.slice('refs/tags/'.length)
+    w.op.git(['update-ref', pin, beat.object])
+    const next = put(bob, 'bob', facts('waiting'))
+    Remote.pushHeartbeat(bob.H, next.R, 'bob', next.object, beat.object)
+    Remote.sync(w.op)
+    assert.equal(w.op.git(['rev-parse', pin]).trim(), beat.object)
+    assert.match(w.op.remoteAlarms?.[beat.ref]!, /previously accepted signal/)
+    assert.match(Remote.verifyHeartbeat(w.op, room(w.op), beat.ref, beat.object)!, /previously accepted signal/)
+  })
+})
