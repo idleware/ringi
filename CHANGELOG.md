@@ -1,3 +1,8 @@
+## [0.4.0](https://github.com/idleware/ringi/compare/v0.3.0...v0.4.0) (2026-10-11)
+
+### Features
+* feat: stage attachments; results travel only through the room ([88aa7c5](https://github.com/idleware/ringi/commit/88aa7c5b91840f19adef4aea82ddf268a1915a36))
+
 ## [0.3.0](https://github.com/idleware/ringi/compare/v0.2.0...v0.3.0) (2026-10-11)
 
 ### Features
