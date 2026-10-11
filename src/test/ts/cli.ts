@@ -1,9 +1,10 @@
 import {fileURLToPath} from 'node:url'
 import os from 'node:os'
 
-// RINGI_BIN is one executable, not shell text; the default is this package's Node build.
+// RINGI_BIN is one executable, not shell text; the default is this package's Node build, run by RINGI_NODE (an older
+// Node under test, while the tests themselves need a Node that runs TypeScript) or else by this Node.
 export const BIN = process.env.RINGI_BIN ? [process.env.RINGI_BIN] :
-  [process.execPath, fileURLToPath(new URL('../../../target/esm/cli.js', import.meta.url))]
+  [process.env.RINGI_NODE || process.execPath, fileURLToPath(new URL('../../../target/esm/cli.js', import.meta.url))]
 export const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`
 export const shellBin = BIN.map(quote).join(' ')
 // Never inherit the developer's live chat or hub in a fixture.

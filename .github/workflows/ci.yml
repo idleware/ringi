@@ -1,0 +1,219 @@
+# npm trusted publishing pins this filename to ci.yml and the release job to the `cicd` environment.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+env:
+  npm_config_audit: false
+  npm_config_fund: false
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  # Replace superseded checks while allowing release pushes to finish.
+  cancel-in-progress: ${{ github.event_name != 'push' || github.ref != 'refs/heads/master' }}
+
+jobs:
+  build:
+    name: Build & test (Node 26)
+    # A VM, not a container: the watcher waits for whole process groups, which needs a reaping init.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20 # backstop: a hung job can't burn more than this
+    permissions:
+      contents: read # Checkout the source used for build and tests.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: 'npm'
+
+      - run: npm ci
+
+      # One instrumented run is the test gate and the coverage: build, typecheck, the full suite under c8.
+      - name: Tests + coverage
+        timeout-minutes: 15
+        run: npm run test:coverage
+
+      # This phase runs untrusted deps and code (npm ci, the full suite), so it holds NO secrets. It only generates
+      # the build and the coverage report; publishing them (npm, Qlty) happens downstream in the `cicd` environment.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: build
+          path: |
+            target/esm
+            target/dts
+            package.json
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Cache coverage report for downstream publish
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: target/coverage/lcov.info
+          retention-days: 7
+
+  smoke:
+    name: Smoke (Node ${{ matrix.node }})
+    needs: build
+    # The BUILT package with no dev dependencies on the lowest Node it runs on (16) and the newest (26): the README's
+    # local journey through the public CLI. The CLI runs on the matrix Node; the scenario itself is TypeScript, which
+    # only a recent Node runs, so Node 26 drives it.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    permissions:
+      contents: read # Checkout the acceptance scenario.
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['16', '26']
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Node under test
+        id: under-test
+        run: echo "node=$(command -v node)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: build
+
+      - run: npm ci --omit=dev
+
+      - name: Smoke the CLI on Node ${{ matrix.node }}
+        env:
+          RINGI_NODE: ${{ steps.under-test.outputs.node }}
+        run: |
+          "$RINGI_NODE" --version
+          "$RINGI_NODE" target/esm/cli.js --version
+          npm run test:smoke
+
+  # Not in release: qlty-action runs a CLI downloaded at runtime with the whole job env, so it never shares a job with
+  # the npm OIDC permission.
+  coverage:
+    name: Coverage (Qlty)
+    needs: smoke
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-26.04
+    environment: cicd # scopes QLTY_COVERAGE_TOKEN
+    timeout-minutes: 10
+    permissions:
+      contents: read # Checkout the sources the coverage report refers to.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: coverage
+          path: target/coverage
+
+      - name: Publish coverage to Qlty
+        uses: qltysh/qlty-action/coverage@v2
+        with:
+          token: ${{ secrets.QLTY_COVERAGE_TOKEN }}
+          files: target/coverage/lcov.info
+
+  release:
+    name: Release ${{ github.ref }}
+    needs: smoke
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-26.04
+    environment: cicd # npm trusted publishing is bound to this environment
+    timeout-minutes: 15
+    concurrency:
+      group: release-${{ github.repository }}
+      cancel-in-progress: false
+    outputs:
+      version: ${{ steps.release.outputs.version }} # empty when nothing was released
+    permissions:
+      contents: write # Push the release commit/tag and create a GitHub release.
+      packages: write # zx-semrel also publishes the scoped package to GitHub Packages.
+      id-token: write # OIDC to the npm registry: passwordless publish and provenance.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          # no `cache: npm`: release installs nothing (see below)
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: build
+
+      # Artifacts drop file modes; the bin must stay executable in the tarball.
+      - name: Restore the executable bit
+        run: chmod 755 target/esm/cli.js
+
+      # NO `npm ci` here: release holds secrets (npm OIDC), so it installs none of the project's dependencies and
+      # publishes the pre-built artifact fetched above. The only code it fetches is the pinned zx-semrel (npx).
+      # zx-semrel succeeds without releasing when there is no semantic change; a release always adds its release commit.
+      - name: Release via zx-semrel (OIDC scheme)
+        id: release
+        env:
+          NPM_OIDC: true
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_USER: 'x-access-token'
+          GIT_BRANCH: 'master'
+          GIT_AUTHOR_NAME: ${{ vars.GIT_AUTHOR_NAME }}
+          GIT_AUTHOR_EMAIL: ${{ vars.GIT_AUTHOR_EMAIL }}
+          GIT_COMMITTER_NAME: ${{ vars.GIT_COMMITTER_NAME }}
+          GIT_COMMITTER_EMAIL: ${{ vars.GIT_COMMITTER_EMAIL }}
+          GIT_SIGN_KEY: ${{ secrets.GIT_SIGN_KEY }}
+        run: |
+          before=$(git rev-parse HEAD)
+          npm run release
+          if [ "$(git rev-parse HEAD)" != "$before" ]; then echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"; fi
+
+  post-release:
+    name: Published package smoke (Node 26)
+    needs: release
+    if: needs.release.outputs.version != ''
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions: {}
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          package-manager-cache: false
+
+      - name: Check running via npx
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: npx --yes "@idleware/ringi@$VERSION" --version | grep -F "ringi $VERSION;"
+
+      - name: Check global install
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        # Read from the registry to verify the published artifact.
+        run: npm install --global "@idleware/ringi@$VERSION" # zizmor: ignore[adhoc-packages]
+
+      - name: Check installed CLI
+        run: ringi help

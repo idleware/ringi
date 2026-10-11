@@ -1,7 +1,7 @@
 {
   "name": "@idleware/ringi",
-  "version": "0.0.0",
-  "description": "Distributed agent coordinator.",
+  "version": "0.1.0",
+  "description": "Distributed agent coordinator",
   "keywords": [
     "agents",
     "multi-agent",
@@ -31,6 +31,7 @@
   "types": "target/dts/index.d.ts",
   "files": [
     "target/esm",
+    "!target/esm/**/*.map",
     "target/dts",
     "src/main/resources"
   ],
@@ -38,13 +39,14 @@
     "build": "tsc -p tsconfig.json && node -e \"require('fs').chmodSync('target/esm/cli.js', 0o755)\"",
     "test": "npm run build && tsc -p tsconfig.test.json && node --test --test-reporter=spec src/test/ts/*.test.ts",
     "test:conformance": "node --test --test-reporter=spec src/test/ts/ringi.test.ts src/test/ts/model.test.ts src/test/ts/flow.test.ts",
-    "commands": "node target/esm/cli.js help --md > COMMANDS.md"
-  },
-  "engines": {
-    "node": ">=24"
+    "commands": "node target/esm/cli.js help --md > COMMANDS.md",
+    "release": "npx --yes zx-semrel@1.25.1",
+    "test:coverage": "npm run build && tsc -p tsconfig.test.json && c8 --reporter=lcov --reporter=text-summary --report-dir=target/coverage --exclude-after-remap --include='src/main/ts/**' node --test src/test/ts/*.test.ts",
+    "test:smoke": "node --test --test-reporter=spec src/test/ts/flow.test.ts"
   },
   "devDependencies": {
-    "@types/node": "24.19.2",
+    "@types/node": "26.6.3",
+    "c8": "12.0.0",
     "typescript": "7.0.2"
   },
   "publishConfig": {

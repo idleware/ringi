@@ -15,6 +15,7 @@
     "outDir": "target/esm",
     "declaration": true,
     "declarationDir": "target/dts",
+    "sourceMap": true,
     "skipLibCheck": true
   },
   "include": ["src/main/ts"]
