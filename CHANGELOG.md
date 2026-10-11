@@ -1,3 +1,11 @@
+## [0.5.0](https://github.com/idleware/ringi/compare/v0.4.0...v0.5.0) (2026-10-11)
+
+### Fixes & improvements
+* fix: heartbeat on Linux and signed hubs ([f591e17](https://github.com/idleware/ringi/commit/f591e1740ed2a6625887e76ba6098ecfee062510))
+
+### Features
+* feat: basic heartbeats ([6dceb03](https://github.com/idleware/ringi/commit/6dceb03a6fcb9178b8c7dd2e746b7a65c101c39d))
+
 ## [0.4.0](https://github.com/idleware/ringi/compare/v0.3.0...v0.4.0) (2026-10-11)
 
 ### Features
