@@ -13,9 +13,10 @@ const BELOW: Record<string, string[]> = {
   domain: ['protocol', 'lib'],
   store: ['protocol', 'lib'],
   home: ['lib'],
+  heartbeat: ['lib'],
   hub: ['domain', 'store', 'home', 'protocol', 'lib'],
-  runtime: ['hub', 'domain', 'store', 'home', 'protocol', 'lib'],
-  app: ['runtime', 'hub', 'domain', 'store', 'home', 'protocol', 'lib'],
+  runtime: ['hub', 'heartbeat', 'domain', 'store', 'home', 'protocol', 'lib'],
+  app: ['runtime', 'hub', 'heartbeat', 'domain', 'store', 'home', 'protocol', 'lib'],
   // An interface reaches the rest only through app: what the CLI can do, a control panel can do the same way.
   cli: ['app', 'lib'],
   entry: ['cli', 'lib'],

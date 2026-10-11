@@ -3,6 +3,7 @@
 
 import fs from 'node:fs'
 import * as Hubs from '../app/hubs.ts'
+import * as Heartbeat from '../app/heartbeat.ts'
 import * as Overview from '../app/overview.ts'
 import type {SessionView} from '../app/overview.ts'
 import * as Rooms from '../app/rooms.ts'
@@ -42,6 +43,28 @@ export const where = async (o: Opts) => {
     const now = Overview.arrived(H, R, seen)
     for (const m of now.messages) show(now.all, m)
   }
+}
+// Each session's pulse on this machine, judged without the model.
+export const heartbeats = async (o: Opts) => {
+  if (flag(o, 'published')) {
+    const R = Rooms.roomIn(Hubs.hubOf(opt(o, 'hub')), opt(o, 'room'))
+    const hs = Heartbeat.published(R)
+    if (flag(o, 'json')) return dump(hs)
+    if (!hs.length) return out(`no heartbeats in ${R.name}`)
+    for (const h of hs) out(`${h.agent.padEnd(12)} ${(h.waits ? `${h.state} (${h.waits})` : h.state).padEnd(22)} ${h.age}s ago${h.overdue ? ', overdue' : ''}  on ${short(h.target)}`)
+    return
+  }
+  const ps = await Heartbeat.heartbeats()
+  if (flag(o, 'json')) return dump(ps)
+  if (!ps.length) return out('no sessions')
+  for (const {session: s, tool, beat: b} of ps) {
+    const state = b.waits ? `${b.state} (${b.waits})` : b.state
+    out(`${s.agent.padEnd(12)} ${`${s.hub}/${s.room}`.padEnd(24)} ${state.padEnd(22)} alive ${b.alive === null ? '?' : b.alive ? 'yes' : 'no'}  quiet ${b.quiet}s${b.cpu === null ? '' : `  cpu ${b.cpu.toFixed(1)}s`}  ${tool}  ${s.handle}`)
+  }
+}
+// The process that beats for every session here; `join` and `continue` start it.
+export const pulse = async (o: Opts) => {
+  process.exitCode = await Heartbeat.pulse({every: Number(opt(o, 'beat') ?? 30), once: flag(o, 'once'), log: s => process.stderr.write(`ringi: ${s}\n`)})
 }
 export const sessions = (o: Opts) => {
   if (o._[0] === 'forget') {

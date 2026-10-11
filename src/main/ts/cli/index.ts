@@ -9,7 +9,7 @@ import type {Opts} from './args.ts'
 import {watch} from '../app/agent.ts'
 import {card, inbox, ping, take, wait, whoami} from './agent.ts'
 import {operatorCtx} from './context.ts'
-import {forget, hub, roomCmd, sessions, where} from './operator.ts'
+import {forget, heartbeats, hub, pulse, roomCmd, sessions, where} from './operator.ts'
 import {join, leave, resume, stop} from './session.ts'
 import {add, cat, decide, get, grants, log, profileCmd, proposals, propose, read, reply, send, signals, stamp_, tasks, thread, who} from './shared.ts'
 import {skill} from './skill.ts'
@@ -45,6 +45,8 @@ export const TABLE: Array<[string, 'operator' | 'session' | 'agent' | 'both', st
   ['signals [--all] [--repair]', 'both', 'what happened (signals) and where attention is (read and taken marks), each checked; --repair restores your missing signals'],
   ['profile', 'both', 'the room\'s profile: what a piece of work is, its states, who may move it'],
   ['sessions | sessions forget <handle>', 'operator', 'the chats the CLI remembers; drop a stale one'],
+  ['heartbeats [--json] | heartbeats --published [--room <id>]', 'operator', 'each session\'s pulse on this machine, from its process and its tool\'s trace, without the model: working, waiting (for what) or gone; --published: the room\'s heartbeat tags as an orchestrator reads them'],
+  ['pulse [--beat <s>] [--once]', 'operator', 'beat for every session here: sync its hub, put its heartbeat tag on the last pulled commit of its room; join and continue start it (RINGI_PULSE=off: not)'],
   ['forget <room>/<log>', 'operator', 'after a changed-history alarm: accept a new baseline for that log'],
   ['watch [<hub>:]<room>/<agent> --exec <cmd> [--handoff] [--scope <text>] [--once] [--require-grant] [--from <ids>] [--max-hop n] [--max-runs n] [--window s] [--interval s]', 'operator', 'headless turns for one agent: answers pings, spends grants, writes usage receipts; --handoff, run from the agent\'s own chat, moves its seat and scope to the watcher; exits with the failed turn\'s status'],
   ['skill install [--project] | uninstall | status | show', 'operator', 'the skill for Claude Code, Codex and Cursor'],
@@ -96,6 +98,8 @@ export const main = async (argv = process.argv.slice(2)): Promise<void> => {
   if (cmd === 'room') return roomCmd(o)
   if (cmd === 'where') return where(o)
   if (cmd === 'sessions') return sessions(o)
+  if (cmd === 'heartbeats') return heartbeats(o)
+  if (cmd === 'pulse') return pulse(o)
   if (cmd === 'forget') return forget(o)
   if (cmd === 'watch') {
     const num = (k: string) => opt(o, k) === undefined ? undefined : Number(opt(o, k))

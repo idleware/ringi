@@ -130,6 +130,41 @@ describe('rooms', () => {
     assert.match(w.ok(['where']), /started at its quorum of 2 agents/)
   })
 
+  it('shows each session\'s pulse without touching it', (t) => {
+    const w = world(t)
+    w.ok(['room', 'create', 'r', '--quorum', '2'])
+    w.ok(['join', 'local', 'r', '--as', 'codex'], {as: 'C'})
+    const before = w.json(['sessions'])[0].lastSeen
+    const [p] = JSON.parse(w.ok(['heartbeats', '--json']))
+    assert.deepEqual([p.session.agent, p.beat.state, p.beat.waits, p.beat.alive], ['codex', 'waiting', 'quorum', null])
+    assert.equal(w.json(['sessions'])[0].lastSeen, before, 'a look renews no lease')
+    w.ok(['join', 'local', 'r', '--as', 'claude'], {as: 'L'})
+    assert.match(w.ok(['heartbeats']), /^codex +local\/r +working +alive \? +quiet \d+s +none +env:C$/m)
+  })
+
+  it('publishes a heartbeat on the last pulled commit, replaced on every beat', (t) => {
+    const w = world(t)
+    w.ok(['room', 'create', 'r'])
+    w.ok(['join', 'local', 'r', '--as', 'codex'], {as: 'C'})
+    w.ok(['send', '--to', 'codex', '-m', 'work'])
+    w.ok(['pulse', '--once'])
+    const genesis = w.git('rev-list', '--reverse', 'refs/heads/r', '^refs/heads/main').split('\n')[0]
+    const ref = `refs/tags/codex.heartbeat.${genesis.slice(0, 12)}`
+    const first = w.git('rev-parse', ref)
+    assert.equal(w.git('rev-parse', `${ref}^{commit}`), w.git('rev-parse', 'refs/heads/r'))
+    assert.match(w.git('cat-file', '-p', ref), /^tagger codex <codex@ringi> \d+ \+0000\n\nState: working\nAlive: unknown\nQuiet: \d+\nNext: 30$/m)
+    assert.deepEqual(JSON.parse(w.ok(['heartbeats', '--published', '--json'])).map((h: {agent: string, state: string, overdue: boolean}) => [h.agent, h.state, h.overdue]), [['codex', 'working', false]])
+    // A heartbeat is no signal: readers list none and raise no alarm on its replacement.
+    assert.ok(!w.json(['signals', '--all']).some(x => x.ref === ref))
+    w.ok(['send', '--to', 'codex', '-m', 'more'])
+    w.ok(['pulse', '--once'])
+    assert.notEqual(w.git('rev-parse', ref), first)
+    assert.equal(w.git('rev-parse', `${ref}^{commit}`), w.git('rev-parse', 'refs/heads/r'))
+    assert.equal(w.run(['signals', '--all']).err, '')
+    w.ok(['room', 'delete', 'r', '--yes'])
+    assert.equal(w.git('tag', '-l', '*.heartbeat.*'), '')
+  })
+
   it('keeps agents bound when the operator switches rooms', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'one'])
@@ -403,6 +438,21 @@ describe('journals and attachments', () => {
     w.ok(['agent', 'add', `${file('r.md', 'report')}:report.md`], {as: 'C'})
     const reply = w.lastId(['agent', 'reply', sent, '-m', 'done'], {as: 'C'})
     assert.equal(w.ok(['cat', reply, 'report.md']), 'report')
+    // What is staged survives a prune of unreachable objects, and is let go once sent.
+    const kept = file('kept.txt', 'snapshot')
+    w.ok(['add', `${kept}:kept.txt`])
+    w.git('prune', '--expire=now')
+    fs.rmSync(kept)
+    const after = w.lastId(['send', '--to', 'codex', '-m', 'after prune'])
+    assert.equal(w.ok(['cat', after, 'kept.txt']), 'snapshot')
+    assert.equal(w.git('for-each-ref', 'refs/ringi/staged/'), '')
+    // A file over the limit is refused before it is stored.
+    const big = path.join(dir, 'big.bin')
+    fs.writeFileSync(big, '')
+    fs.truncateSync(big, 65 << 20)
+    w.no(['add', big], /at most 64 MiB/)
+    w.no(['send', '--to', 'codex', '-m', 'big', '--attach', big], /at most 64 MiB/)
+    assert.equal(w.ok(['add']).trim(), 'nothing staged')
   })
 
   it('quarantines rewritten, deleted and foreign histories', (t) => {

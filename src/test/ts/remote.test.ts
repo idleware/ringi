@@ -19,7 +19,7 @@ import {GitStore, runGit} from '../../main/ts/store/git/index.ts'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const CLI = path.join(HERE, '../../../target/esm/cli.js')
 const BASE = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CLAUDE|CODEX|CURSOR|RINGI_|GIT_)/.test(k)))
-const ENV = {...BASE, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0'}
+const ENV = {...BASE, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', RINGI_PULSE: 'off'}
 type GitOpt = {input?: string, env?: NodeJS.ProcessEnv, ok?: boolean}
 function git(dir: string, args: string[], opt: GitOpt & {ok: true}): SpawnSyncReturns<string>
 function git(dir: string, args: string[], opt?: GitOpt): string

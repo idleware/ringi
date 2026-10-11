@@ -29,6 +29,8 @@ One table. **operator**: the human in a terminal, in the current hub and room. *
 | `ringi signals [--all] [--repair]` | both | what happened (signals) and where attention is (read and taken marks), each checked; --repair restores your missing signals |
 | `ringi profile` | both | the room's profile: what a piece of work is, its states, who may move it |
 | `ringi sessions \| sessions forget <handle>` | operator | the chats the CLI remembers; drop a stale one |
+| `ringi heartbeats [--json] \| heartbeats --published [--room <id>]` | operator | each session's pulse on this machine, from its process and its tool's trace, without the model: working, waiting (for what) or gone; --published: the room's heartbeat tags as an orchestrator reads them |
+| `ringi pulse [--beat <s>] [--once]` | operator | beat for every session here: sync its hub, put its heartbeat tag on the last pulled commit of its room; join and continue start it (RINGI_PULSE=off: not) |
 | `ringi forget <room>/<log>` | operator | after a changed-history alarm: accept a new baseline for that log |
 | `ringi watch [<hub>:]<room>/<agent> --exec <cmd> [--handoff] [--scope <text>] [--once] [--require-grant] [--from <ids>] [--max-hop n] [--max-runs n] [--window s] [--interval s]` | operator | headless turns for one agent: answers pings, spends grants, writes usage receipts; --handoff, run from the agent's own chat, moves its seat and scope to the watcher; exits with the failed turn's status |
 | `ringi skill install [--project] \| uninstall \| status \| show` | operator | the skill for Claude Code, Codex and Cursor |

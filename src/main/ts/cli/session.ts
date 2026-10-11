@@ -1,4 +1,5 @@
 // Session interface: the operator's words become typed app requests.
+import * as Heartbeat from '../app/heartbeat.ts'
 import * as Session from '../app/session.ts'
 import {fail} from '../lib/index.ts'
 import {opt, out} from './args.ts'
@@ -27,9 +28,14 @@ export const join = (o: Opts) => {
     return
   }
   out(`joined ${r.hub}/${r.room} as ${r.agent}`)
+  Heartbeat.ensurePulse(process.argv[1])
   briefing(r.session!)
 }
-export const resume = (o: Opts) => briefing(Session.resume(o._[0]))
+export const resume = (o: Opts) => {
+  const s = Session.resume(o._[0])
+  Heartbeat.ensurePulse(process.argv[1])
+  briefing(s)
+}
 export const stop = () => {
   const s = Session.stop()
   out(`stopped: ${s.agent} keeps its seat in ${s.hub}/${s.room} and reacts to nothing until the operator says "continue"`)

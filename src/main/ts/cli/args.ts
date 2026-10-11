@@ -12,7 +12,7 @@ export const dump = (v: unknown): void => out(JSON.stringify(v, null, 2))
 // --- arguments ---
 
 export type Opts = {_: string[], [key: string]: string | string[] | boolean | undefined}
-const BOOLS = new Set(['task', 'peek', 'all', 'json', 'help', 'once', 'project', 'follow', 'short', 'yes', 'require-grant', 'md', 'archived', 'signed', 'repair', 'handoff', 'clear'])
+const BOOLS = new Set(['task', 'peek', 'all', 'json', 'help', 'once', 'project', 'follow', 'short', 'yes', 'require-grant', 'md', 'archived', 'signed', 'repair', 'handoff', 'clear', 'published'])
 const MULTI = new Set(['m', 'attach', 'set', 'drop'])
 const SHORT: Record<string, string> = {m: 'm', F: 'file', n: 'n', o: 'out', h: 'help'}
 export const parseArgs = (argv: string[]): Opts => {

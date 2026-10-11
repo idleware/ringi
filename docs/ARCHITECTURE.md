@@ -18,6 +18,7 @@ registry or data, never an edit across the tree.
 | domain | `domain/` | pure folds over messages, one module per capability: `profiles` (what work is), `decisions` (proposals, grants, usage), `signals` (signals and marks); `index` registers them | protocol, lib |
 | store | `store/` | the `Store` port; adapters `git` (local and signed), `kafka` and `temporal` (planned, registered) | protocol, lib |
 | home | `home/` | this machine's directory: paths, terminal context, locks, migrations | lib |
+| heartbeat | `heartbeat/` | whether an agent is alive and working or waiting, from what its machine shows without the model: `platform` (processes on macOS and Linux), `tools` (the trace Claude Code and Codex write of a session), `index` (the judgement and the heartbeat's text) | lib |
 | hub | `hub/` | descriptor, contract, rooms, the write path (append, control changes, signals) | domain, store, home, protocol, lib |
 | runtime | `runtime/` | sessions and seats, what each reader accepted, the watcher | hub and below |
 | app | `app/` | use cases, one function per operation, typed input and output, no printing: `context` (who acts), `room` (messages, work, signals), `budget`, `hubs`, `rooms`, `overview`, `agent` and `session` (turns, seats, the watcher), `view` (text and JSON shapes) | runtime and below |
