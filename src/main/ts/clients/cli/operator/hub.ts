@@ -1,3 +1,5 @@
+// hub: `ringi hub <subcommand>`, by its table (hub-commands.ts).
+
 import {fail} from '../../../lib/index.ts'
 import type {Opts} from '../args.ts'
 import {addHub, amendHub, createHub, listHub, switchHub} from './hub-commands.ts'

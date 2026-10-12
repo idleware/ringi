@@ -1,3 +1,5 @@
+// resume: a chat continues its own seat after a restart, or takes over one the operator names.
+
 import {hubPorts, locked} from '../../hub/ports/index.ts'
 import {fail, note, stamp} from '../../../lib/index.ts'
 import type {Me, Session} from './index.ts'

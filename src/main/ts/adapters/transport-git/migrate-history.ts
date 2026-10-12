@@ -1,3 +1,6 @@
+// migrate-history: before a ringi 0.1 room moves into one branch, every log and reader of it must be linear and
+// descend from the room's control record.
+
 import fs from 'node:fs'
 import path from 'node:path'
 import {fail, strictJson} from '../../lib/index.ts'

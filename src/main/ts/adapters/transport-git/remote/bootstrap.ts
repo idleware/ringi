@@ -1,3 +1,6 @@
+// bootstrap: a replica of a published signed hub, verified against the root and genesis the operator gives out of
+// band before its descriptor is written.
+
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'

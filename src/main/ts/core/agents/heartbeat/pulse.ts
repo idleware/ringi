@@ -33,7 +33,7 @@ export const heartbeats = async ({sample = 1}: {sample?: number} = {}): Promise<
 // One beat of every session here: its hub synced, its pulse judged, its heartbeat put on the last commit of its room
 // that this replica pulled. `prev` keeps each session's last facts for the CPU its watcher spent between beats.
 export type Beaten = {session: Session, beat?: HB.Beat, error?: string}
-export const beatAll = (prev: Map<string, HB.Facts>, next: number): Beaten[] => {
+const beatAll = (prev: Map<string, HB.Facts>, next: number): Beaten[] => {
   const rows = agentPorts().host.snapshot()
   return allSessions().flatMap((s): Beaten[] => {
     try {

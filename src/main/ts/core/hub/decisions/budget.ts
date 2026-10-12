@@ -3,7 +3,7 @@
 import {fail} from '../../../lib/index.ts'
 
 export const ROOT = 'operator'
-export const BUDGET_KEYS = ['runs', 'run-seconds', 'concurrency'] as const
+const BUDGET_KEYS = ['runs', 'run-seconds', 'concurrency'] as const
 export type Budget = {runs: number, 'run-seconds': number, concurrency: number}
 // Who may decide up to which budget: {"decide": {"<id>": {"runs": n, "run-seconds": n, "concurrency": n}}}.
 export type Authority = {decide?: Record<string, Partial<Budget>>}

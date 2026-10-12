@@ -1,3 +1,5 @@
+// forget: after the operator reviews a room's transport alarm, the remote branch becomes the accepted baseline.
+
 import {pushAlarms, savePushAlarms} from './alarms.ts'
 import {branchData} from './branch.ts'
 import {accepted, git, isRemote, locked, rev, tracking, zero} from './git.ts'

@@ -1,3 +1,6 @@
+// sessions: `ringi sessions` (the seats this machine holds; `forget <handle>` frees one) and `ringi forget <room>/<log>`
+// (a new baseline for a log after an alarm).
+
 import * as Hubs from '../../../core/hub/usecases/hubs.ts'
 import type {SessionView} from '../../../core/agents/overview.ts'
 import * as Overview from '../../../core/agents/overview.ts'

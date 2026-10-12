@@ -1,3 +1,5 @@
+// signature: commits and tags checked against the key of their principal; a branch checked to be linear.
+
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -10,7 +12,7 @@ import type {Commit, Handle, Key} from './types.ts'
 
 export const verified = new Set<string>()
 
-export const signerFile = (H: Handle, text: string): string => {
+const signerFile = (H: Handle, text: string): string => {
   const dir = path.join(H.dir, 'ringi', 'verify')
   mkdir(dir)
   const file = path.join(dir, crypto.createHash('sha256').update(text).digest('hex') + '.allowed_signers')

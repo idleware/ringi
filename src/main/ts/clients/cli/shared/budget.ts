@@ -1,3 +1,5 @@
+// budget: `propose`, `stamp`, `decide`, `proposals`, `grants`.
+
 import * as Budget from '../../../core/hub/usecases/budget.ts'
 import {fail, short, words} from '../../../lib/index.ts'
 import type {Opts} from '../args.ts'

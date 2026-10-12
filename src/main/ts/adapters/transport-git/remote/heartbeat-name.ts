@@ -1,3 +1,5 @@
+// heartbeat-name: the one mutable tag name, `<actor>.heartbeat.<genesis12>`; every other tag is a signal.
+
 import * as C from '../../../lib/index.ts'
 import {SHA, TAGS} from './types.ts'
 

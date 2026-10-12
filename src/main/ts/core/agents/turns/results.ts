@@ -1,3 +1,5 @@
+// results: a turn's end: its usage receipt settled, and its messages delivered or kept for a retry.
+
 import type {Room} from '../../hub/rooms/index.ts'
 import {OPERATOR, append} from '../../hub/rooms/index.ts'
 import {note} from '../../../lib/index.ts'

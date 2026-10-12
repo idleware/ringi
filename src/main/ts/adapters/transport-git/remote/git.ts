@@ -1,3 +1,5 @@
+// git: the isolated git invocation the signed transport uses for every read, write and signature check.
+
 import type {SpawnSyncReturns} from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'

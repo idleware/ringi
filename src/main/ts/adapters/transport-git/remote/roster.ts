@@ -1,3 +1,5 @@
+// roster: who may sign a room's logs at a control record: its signers file and members, checked against each other.
+
 import * as C from '../../../lib/index.ts'
 import * as P from '../../../core/hub/protocol/index.ts'
 import type {Member} from '../../../core/hub/ports/store.ts'

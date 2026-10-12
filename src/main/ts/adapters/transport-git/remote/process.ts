@@ -1,3 +1,5 @@
+// process: running git and ssh-keygen isolated from the user's configuration, with a timeout.
+
 import type {SpawnSyncReturns} from 'node:child_process'
 import {spawnSync} from 'node:child_process'
 import os from 'node:os'

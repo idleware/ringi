@@ -1,3 +1,5 @@
+// where: `ringi where`, where things stand for the operator, and `--follow` for what lands next.
+
 import {config} from '../../../core/hub/usecases/context.ts'
 import * as Hubs from '../../../core/hub/usecases/hubs.ts'
 import * as Overview from '../../../core/agents/overview.ts'

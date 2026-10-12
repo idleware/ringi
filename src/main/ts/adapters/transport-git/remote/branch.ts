@@ -1,3 +1,5 @@
+// branch: a room's branch as verified up to a tip, kept per tip; its roster, and why a log's head is not valid.
+
 import * as C from '../../../lib/index.ts'
 import {scanBranch} from './branch-scan.ts'
 import {memo} from './cache.ts'

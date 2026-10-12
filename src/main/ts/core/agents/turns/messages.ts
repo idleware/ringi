@@ -1,3 +1,5 @@
+// messages: what wakes the watcher: new messages for its agent and retries of failed turns, grouped by grant and work.
+
 import {isOpen, taskFor, taskOf} from '../../hub/work/index.ts'
 import type {Room} from '../../hub/rooms/index.ts'
 import {HIDDEN} from '../../hub/rooms/index.ts'

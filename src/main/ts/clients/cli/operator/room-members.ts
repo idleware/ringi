@@ -1,3 +1,5 @@
+// room-members: `ringi room admit | remove`.
+
 import * as Rooms from '../../../core/hub/usecases/rooms.ts'
 import type {Hub} from '../../../core/hub/rooms/index.ts'
 import {fail} from '../../../lib/index.ts'

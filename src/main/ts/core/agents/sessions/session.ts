@@ -1,3 +1,5 @@
+// session: what the operator says in an agent's chat: join, continue (with a briefing of the room), stop, leave.
+
 import {locked} from '../../hub/ports/index.ts'
 import {start} from '../../hub/rooms/index.ts'
 import {fail, stamp} from '../../../lib/index.ts'

@@ -1,3 +1,5 @@
+// heartbeat: `ringi heartbeats` (this machine's sessions, or what a room publishes) and `ringi pulse`.
+
 import * as Heartbeat from '../../../core/agents/heartbeat/pulse.ts'
 import * as Hubs from '../../../core/hub/usecases/hubs.ts'
 import * as Rooms from '../../../core/hub/usecases/rooms.ts'

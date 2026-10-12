@@ -1,3 +1,5 @@
+// session: how a session's scope and a room still waiting for its quorum are shown.
+
 import type {Session} from '../../../core/agents/sessions/session.ts'
 
 // What the session may do on its own: the recorded scope; without one, in a room with a quorum the room's work for it,

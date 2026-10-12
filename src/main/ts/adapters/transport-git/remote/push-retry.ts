@@ -1,3 +1,5 @@
+// push-retry: a rejected push recovered: fetch what the remote has, rebase only what extends it, or alarm.
+
 import * as C from '../../../lib/index.ts'
 import {savePushAlarms} from './alarms.ts'
 import {branchData} from './branch.ts'

@@ -1,3 +1,5 @@
+// poll: each loop renews the watcher's seat and finds its room still there, the same, with its agent a member.
+
 import {locked} from '../../hub/ports/index.ts'
 import type {Room} from '../../hub/rooms/index.ts'
 import {openHub, openRoom, start} from '../../hub/rooms/index.ts'

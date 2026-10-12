@@ -1,3 +1,6 @@
+// branch-commit: one commit of a room's branch, judged: a control record, a valid message of an admitted author, or
+// skipped with the reason.
+
 import * as C from '../../../lib/index.ts'
 import type {Scan} from './branch-control.ts'
 import {acceptControl, broken, isControl} from './branch-control.ts'

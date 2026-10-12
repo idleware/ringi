@@ -1,4 +1,5 @@
-// Signed transport facade. Each module owns one validation or publication step.
+// remote: the signed transport, as the git store uses it; each module of remote/ owns one step of validation or
+// publication.
 export type {Handle, Room, Branch} from './remote/types.ts'
 export {withVerification} from './remote/cache.ts'
 export {gitEnv, gitTimeout, checkGitTimeout} from './remote/process.ts'

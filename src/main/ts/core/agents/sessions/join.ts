@@ -1,3 +1,5 @@
+// join: a chat takes a seat in a room as an agent, one room per chat; on a signed hub its key must be admitted first.
+
 import {locked} from '../../hub/ports/index.ts'
 import type {Hub, Room} from '../../hub/rooms/index.ts'
 import {OPERATOR, controlChange, openHub, room as roomOf} from '../../hub/rooms/index.ts'

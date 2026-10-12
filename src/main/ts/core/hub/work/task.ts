@@ -13,7 +13,7 @@ const PRINCIPALS: Record<string, (who: string, t: Task) => boolean> = {
 const holds = (p: string, who: string, t: Task): boolean =>
   PRINCIPALS[p]?.(who, t) ?? (p.startsWith('role:') ? t.roles[who] === p.slice(5) : p === `agent:${who}`)
 const allows = (rule: string[] | undefined, who: string, t: Task): boolean => !!rule?.some(p => holds(p, who, t))
-export const ruleFor = (profile: Profile, state: string): string[] | undefined => profile.rules[`state:${state}`] ?? profile.rules['state:*']
+const ruleFor = (profile: Profile, state: string): string[] | undefined => profile.rules[`state:${state}`] ?? profile.rules['state:*']
 
 // A message belongs to the nearest work item on its Re chain, itself included.
 export const taskFor = (all: All, m: Message, profile: Profile): Message | null => {

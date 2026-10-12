@@ -1,3 +1,5 @@
+// keys: public keys as given and pinned, a signed hub's root and its signers, and which key signs for a principal.
+
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -23,9 +25,9 @@ export const rootKey = (H: Handle): Key => parseKey(H.d.root || C.fail(`hub ${H.
 
 export const signerLine = (who: string, key: Key): string => `${who} namespaces="git" ${key.line}\n`
 
-export const keyPath = (H: Handle, who: string, home: string): string => path.join(home, 'keys', id(H.name), id(who))
+const keyPath = (H: Handle, who: string, home: string): string => path.join(home, 'keys', id(H.name), id(who))
 
-export const localKey = (H: Handle, who: string, home: string, create = false): Key & {file: string} => {
+const localKey = (H: Handle, who: string, home: string, create = false): Key & {file: string} => {
   const file = keyPath(H, who, home)
   if (!fs.existsSync(file)) {
     if (!create) C.fail(`no private key for ${who} on this machine; ${who === ROOT ? 'root keys are never obtained from a hub' : 'join here to generate one, then ask the root to admit its public key'}`)

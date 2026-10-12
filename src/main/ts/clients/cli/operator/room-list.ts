@@ -1,3 +1,5 @@
+// room-list: `ringi room list | create | switch | migrate`.
+
 import {roomsActive} from '../../../core/agents/overview.ts'
 import * as Rooms from '../../../core/hub/usecases/rooms.ts'
 import type {Hub} from '../../../core/hub/rooms/index.ts'

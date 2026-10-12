@@ -1,3 +1,5 @@
+// exhaustion: a piece of work whose grant is spent or revoked waits for a new grant, said once in its thread.
+
 import {isOpen, taskOf} from '../../hub/work/index.ts'
 import type {Room} from '../../hub/rooms/index.ts'
 import {OPERATOR, append} from '../../hub/rooms/index.ts'

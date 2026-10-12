@@ -1,3 +1,5 @@
+// messages: `add` (staging), `send`, `reply`, `read`, `thread`.
+
 import * as Room from '../../../core/hub/usecases/room.ts'
 import {withSizes} from '../../../core/hub/usecases/room.ts'
 import {asJson, render} from '../../../core/hub/usecases/view.ts'

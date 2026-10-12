@@ -1,4 +1,6 @@
-// Planning and dispatch share grant -> reader -> sessions lock order.
+// plan: one loop's turns: what arrived, grouped and reserved; planning and dispatch take locks in the order grant,
+// reader, sessions.
+
 import {locked} from '../../hub/ports/index.ts'
 import type {Room} from '../../hub/rooms/index.ts'
 import {link} from '../../hub/protocol/index.ts'

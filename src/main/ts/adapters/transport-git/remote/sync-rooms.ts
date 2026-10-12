@@ -1,3 +1,5 @@
+// sync-rooms: the rooms' branches as fetched, verified, and indexed by genesis and by commit.
+
 import * as C from '../../../lib/index.ts'
 import * as P from '../../../core/hub/protocol/index.ts'
 import {branchData} from './branch.ts'

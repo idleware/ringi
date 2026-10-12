@@ -1,3 +1,5 @@
+// signals: `signals`, the room's signals checked, and `--repair` for the actor's own.
+
 import * as Room from '../../../core/hub/usecases/room.ts'
 import type {Checked} from '../../../core/hub/signals/index.ts'
 import {note, short, when} from '../../../lib/index.ts'

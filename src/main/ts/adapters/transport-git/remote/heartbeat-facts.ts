@@ -1,3 +1,5 @@
+// heartbeat-facts: the text of a heartbeat object, its fields checked.
+
 import * as C from '../../../lib/index.ts'
 import * as P from '../../../core/hub/protocol/index.ts'
 import {SHA} from './types.ts'

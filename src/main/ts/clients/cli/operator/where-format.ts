@@ -1,3 +1,5 @@
+// where-format: how `ringi where` shows the hub, the room, who is in, open work and the latest messages.
+
 import type {Where} from '../../../core/agents/overview.ts'
 import {withSizes} from '../../../core/hub/usecases/room.ts'
 import {oneLine, render} from '../../../core/hub/usecases/view.ts'
@@ -15,7 +17,7 @@ const quorumLine = (R: Room) => {
   const agents = Object.values(R.members).filter(m => m.role !== 'root').length
   return agents >= R.quorum ? `; started at its quorum of ${R.quorum} agents` : `; waiting for a quorum of ${R.quorum} agents, has ${agents}`
 }
-export const roomLine = (R: Room) => `room ${R.name}${R.archived ? ' (archived, read-only)' : ''}, genesis ${short(R.genesis)}, profile ${R.profile.name}; members: ${Object.entries(R.members).map(([id, i]) => i.role === 'root' ? `${id} (root)` : id).join(', ')}` + quorumLine(R)
+const roomLine = (R: Room) => `room ${R.name}${R.archived ? ' (archived, read-only)' : ''}, genesis ${short(R.genesis)}, profile ${R.profile.name}; members: ${Object.entries(R.members).map(([id, i]) => i.role === 'root' ? `${id} (root)` : id).join(', ')}` + quorumLine(R)
 export const printOverview = (w: Where, R: Room) => {
   out(roomLine(R))
   out(w.sessions.length ? `sessions:\n${w.sessions.map(s => `  ${sessionLine(s)}`).join('\n')}` : 'sessions: none joined')

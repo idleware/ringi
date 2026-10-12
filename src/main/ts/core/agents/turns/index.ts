@@ -1,4 +1,6 @@
-// Headless turns hold one seat and charge only the runner's reservations and receipts.
+// turns: the headless watcher: it holds one agent's seat, wakes a command for what arrives, and charges only its own
+// reservations and receipts.
+
 import {note, sleep} from '../../../lib/index.ts'
 import {planTurns} from './plan.ts'
 import {pollWatcher} from './poll.ts'

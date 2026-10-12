@@ -1,3 +1,5 @@
+// signals: a signal tag's name, object and target checked: its actor's own, on a message of the room's branch.
+
 import * as C from '../../../lib/index.ts'
 import * as P from '../../../core/hub/protocol/index.ts'
 import {branch} from './branch.ts'

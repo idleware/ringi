@@ -1,3 +1,5 @@
+// sync: one fetch of a signed hub under its transport lock: contract, rooms, signals and heartbeats verified.
+
 import * as C from '../../../lib/index.ts'
 import {pushAlarms} from './alarms.ts'
 import {git, isRemote, locked, origin, promote, reason, refs, rev, suffix} from './git.ts'
@@ -8,7 +10,7 @@ import {syncTags} from './sync-tags.ts'
 import type {Handle} from './types.ts'
 import {TAGS, TAG_TRACK, TRACK} from './types.ts'
 
-export const syncUnlocked = (H: Handle): Handle => {
+const syncUnlocked = (H: Handle): Handle => {
   H.remoteAlarms = {...pushAlarms(H)}
   H.heartbeatErrors = {}
   const url = origin(H)

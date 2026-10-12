@@ -1,3 +1,5 @@
+// work: `tasks` and `log`, and one line per piece of work.
+
 import * as Room from '../../../core/hub/usecases/room.ts'
 import type {TaskView} from '../../../core/hub/usecases/view.ts'
 import {asJson, oneLine} from '../../../core/hub/usecases/view.ts'

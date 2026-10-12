@@ -10,7 +10,7 @@ import {errno, fail, strictJson} from '../../lib/index.ts'
 import {guardWrite, locked as lockFile, mkdirIn, writeJsonAtomic} from '../fs/index.ts'
 import type {Build, Key, LocalState} from '../../core/hub/ports/index.ts'
 
-export const HOME_VERSION = 3
+const HOME_VERSION = 3
 // A step that moves a home of an older version to the next one; it gets the state to write through.
 export type Migration = (state: LocalState) => void
 

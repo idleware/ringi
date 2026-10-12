@@ -1,3 +1,5 @@
+// types: what the signed transport's modules share: the hub handle, a room, keys, signers, a verified branch.
+
 import type {Descriptor, Member} from '../../../core/hub/ports/store.ts'
 import type {SigningContext} from '../../../core/signing/index.ts'
 

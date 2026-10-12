@@ -1,3 +1,5 @@
+// admit: a member's key on a signed hub: made on its machine (join) and admitted by the root in a control record.
+
 import * as C from '../../../lib/index.ts'
 import * as P from '../../../core/hub/protocol/index.ts'
 import {branch, verifyRoom} from './branch.ts'
@@ -16,7 +18,7 @@ export const join = (H: Handle, R: Room, who: string, home: string) => {
 }
 
 // A tree from `base` with the control files as `control` has them, then `patches` on top.
-export const treeWith = (H: Handle, base: string, control: string, patches: Record<string, string>): string => {
+const treeWith = (H: Handle, base: string, control: string, patches: Record<string, string>): string => {
   const entries = (sha: string) => new Map(git(H, ['ls-tree', sha]).trim().split('\n').filter(Boolean).map(line => {
     const m = /^(\d+) (\w+) ([0-9a-f]+)\t(.+)$/.exec(line) ?? C.fail('malformed room tree')
     return [m[4], line] as [string, string]

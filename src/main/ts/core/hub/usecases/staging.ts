@@ -11,7 +11,7 @@ import {loadState, readerLock, saveState} from '../history/index.ts'
 import type {Staged} from '../history/index.ts'
 import type {Actor} from './actor.ts'
 
-export const FILE_MAX = 64 << 20
+const FILE_MAX = 64 << 20
 const tooBig = (path: string, size: number) => size > FILE_MAX && fail(`${path} is ${Math.ceil(size / (1 << 20))} MiB; an attachment is at most ${FILE_MAX >> 20} MiB`)
 // What retain keeps: each staged content once, named by its id, so two snapshots of one path both stay.
 const kept = (all: Staged[]): Entry[] => [...new Set(all.map(s => s.blob))].map(blob => ({path: blob, blob, mode: '100644'}))

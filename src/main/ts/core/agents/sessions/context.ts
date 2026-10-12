@@ -1,4 +1,4 @@
-// agent-context: who acts as an agent — the agent this session is bound to — and what the agent tools this machine
+// context: who acts as an agent — the agent this session is bound to — and what the agent tools this machine
 // knows need from an interface: where they read skills, and what lets their sandboxes write.
 
 import {agentPorts} from '../ports/index.ts'

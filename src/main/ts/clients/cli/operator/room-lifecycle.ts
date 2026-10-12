@@ -1,3 +1,5 @@
+// room-lifecycle: `ringi room archive | delete | rebase-contract`.
+
 import * as Rooms from '../../../core/hub/usecases/rooms.ts'
 import type {Hub} from '../../../core/hub/rooms/index.ts'
 import {fail, short} from '../../../lib/index.ts'

@@ -9,9 +9,16 @@ import {spawn} from 'node:child_process'
 import '../../main/ts/composition/index.ts'
 import {body, judge, probe} from '../../main/ts/core/agents/heartbeat/index.ts'
 import type {Facts} from '../../main/ts/core/agents/heartbeat/index.ts'
-import {SUPPORTED, procStat, seconds, table, treeCpu} from '../../main/ts/adapters/host-posix/platform.ts'
+import {agentPorts} from '../../main/ts/core/agents/ports/index.ts'
+import type {ProcessRows} from '../../main/ts/core/agents/ports/host.ts'
+import {procStat, seconds} from '../../main/ts/adapters/host-posix/stats.ts'
 import {toolOf, traceTime} from '../../main/ts/core/agents/heartbeat/tools.ts'
 
+// This machine's processes, as the host composition chose sees them.
+const host = () => agentPorts().host
+const SUPPORTED = host().supported
+const table = (): ProcessRows | null => host().snapshot()
+const treeCpu = (pid: number, rows: ProcessRows | null): number | null => host().inspect(pid, rows).cpu
 const facts = (o: Partial<Facts> = {}): Facts => ({at: 1000, alive: true, cpu: null, trace: null, seen: 0, stopped: false, waits: null, ...o})
 const scratch = (t: TestContext): string => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ringi-heartbeat-'))

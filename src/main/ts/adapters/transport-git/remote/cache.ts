@@ -1,7 +1,9 @@
+// cache: checks of immutable heads reused within one operation; nothing survives into the next one.
+
 import type {Handle} from './types.ts'
 
 // Reuse immutable-head checks within one operation; no ref or alarm survives into the next one.
-export const checking = new WeakMap<Handle, Map<string, unknown>>()
+const checking = new WeakMap<Handle, Map<string, unknown>>()
 
 export const withVerification = <T>(H: Handle, fn: () => T): T => {
   if (checking.has(H)) return fn()

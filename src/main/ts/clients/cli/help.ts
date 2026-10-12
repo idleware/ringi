@@ -1,3 +1,5 @@
+// help: the command table — every command, who runs it and what it does — as text, and as COMMANDS.md.
+
 import {about} from '../../core/hub/usecases/context.ts'
 
 // --- commands ---

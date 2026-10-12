@@ -1,3 +1,5 @@
+// room: `ringi room <subcommand>`, by its table (room-list, room-members, room-lifecycle).
+
 import * as Hubs from '../../../core/hub/usecases/hubs.ts'
 import type {Hub} from '../../../core/hub/rooms/index.ts'
 import {fail} from '../../../lib/index.ts'

@@ -1,3 +1,5 @@
+// migrate-readers: readers' pins of a 0.1 room's signals, planned and rewritten for the new signal names.
+
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'

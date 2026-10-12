@@ -1,3 +1,5 @@
+// branch-control: the scan of a room's branch and its control records, each signed by the root.
+
 import * as C from '../../../lib/index.ts'
 import * as P from '../../../core/hub/protocol/index.ts'
 import {reason} from './git.ts'

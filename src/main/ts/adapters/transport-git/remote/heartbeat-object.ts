@@ -1,3 +1,5 @@
+// heartbeat-object: a heartbeat tag object read and checked: its target in the room, its tagger, its signature.
+
 import * as C from '../../../lib/index.ts'
 import * as P from '../../../core/hub/protocol/index.ts'
 import {branch} from './branch.ts'

@@ -1,3 +1,5 @@
+// types: what the watcher's modules share: its options and context, groups of messages, runs and reservations.
+
 import type * as D from '../../hub/decisions/index.ts'
 import type {Hub, Room} from '../../hub/rooms/index.ts'
 import type {Message} from '../../hub/protocol/index.ts'

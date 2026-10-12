@@ -1,3 +1,5 @@
+// pings: the watcher answers pings for its agent without waking a model.
+
 import type {Room} from '../../hub/rooms/index.ts'
 import {append, pongText} from '../../hub/rooms/index.ts'
 import {note, short} from '../../../lib/index.ts'

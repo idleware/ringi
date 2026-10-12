@@ -60,7 +60,7 @@ export const createHub = (name: string, {signed = false, url}: {signed?: boolean
 }
 const knownSchema = (d: Descriptor, name: string): boolean => d.schema === 'ringi-hub/2' && d.name === name
 const knownStore = (d: Descriptor): boolean => ['signed', 'asserted'].includes(d.trust) && !!d.store?.type && !!d.store.path
-export const readDescriptor = (name: string): Descriptor => {
+const readDescriptor = (name: string): Descriptor => {
   const d = hubPorts().state.read<Descriptor | null>(['hub', name, 'hub'], null) ?? fail(`no hub ${name}; hubs: ${hubNames().join(', ') || 'none'}`)
   if (!(knownSchema(d, name) && knownStore(d))) fail(`hub ${name}: its descriptor is not one this ringi ${VERSION()} reads`)
   return d

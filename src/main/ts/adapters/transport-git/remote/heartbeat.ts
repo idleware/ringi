@@ -1,3 +1,5 @@
+// heartbeat: a signed heartbeat made and verified; it is published by heartbeat-push.ts.
+
 import * as C from '../../../lib/index.ts'
 import {git, isRemote, reason} from './git.ts'
 import {heartbeatBody} from './heartbeat-facts.ts'

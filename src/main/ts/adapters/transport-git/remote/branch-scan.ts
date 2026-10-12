@@ -1,3 +1,5 @@
+// branch-scan: a room's branch scanned from its genesis to a tip.
+
 import * as C from '../../../lib/index.ts'
 import {visitCommit} from './branch-commit.ts'
 import type {Scan} from './branch-control.ts'

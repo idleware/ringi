@@ -24,7 +24,7 @@ export const toMessage = (R: Room, from: string, x: StoredMessage, seq: number):
 }
 // The room as stored, read without a reader's lock or state: for an author working out the signals of its own message
 // (append runs inside reader locks too). Readers check signals themselves.
-export const asStored = (R: Room): All => {
+const asStored = (R: Room): All => {
   const s = R.hub.store.room(R.name) ?? R.s
   return link(new Map(R.hub.store.logIds(s).map(id => [id, R.hub.store.messages(s, id, R.hub.store.logHead(s, id)!).map((x, seq) => toMessage(R, id, x, seq))])))
 }

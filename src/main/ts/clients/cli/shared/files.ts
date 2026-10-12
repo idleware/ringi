@@ -1,3 +1,5 @@
+// files: `cat` and `get`, a message's attached files.
+
 import fs from 'node:fs'
 import path from 'node:path'
 import * as Room from '../../../core/hub/usecases/room.ts'

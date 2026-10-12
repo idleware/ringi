@@ -1,3 +1,5 @@
+// wait: an agent holds the line until something new arrives for it or the room falls silent, answering pings.
+
 import {HIDDEN, append, pongText} from '../../hub/rooms/index.ts'
 import {fail, sleep} from '../../../lib/index.ts'
 import type {Message} from '../../hub/protocol/index.ts'

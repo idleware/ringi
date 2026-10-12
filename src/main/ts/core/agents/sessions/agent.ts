@@ -1,3 +1,6 @@
+// agent: what an agent does in its room as itself: read its inbox (marking what it read), take a piece of work, show
+// who it is, leave its card, wait and ping; the headless watcher is turns/.
+
 import {HIDDEN, append, start, withSizes} from '../../hub/rooms/index.ts'
 import * as Signals from '../../hub/signals/write.ts'
 import {fail} from '../../../lib/index.ts'

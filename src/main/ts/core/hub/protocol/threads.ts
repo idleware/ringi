@@ -25,7 +25,7 @@ export const link = (logs: Logs): All => {
   return all
 }
 
-export const chainHas = (all: All, m: Message, top: Message): boolean => {
+const chainHas = (all: All, m: Message, top: Message): boolean => {
   for (let x: Message | undefined = m, i = 0; x && i < 10000; x = x.reId ? all.get(x.reId) : undefined, i++) if (x === top) return true
   return false
 }

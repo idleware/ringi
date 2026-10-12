@@ -1,3 +1,5 @@
+// main: the hub's contract branch verified: every commit signed by the root since the pinned genesis.
+
 import * as C from '../../../lib/index.ts'
 import {memo} from './cache.ts'
 import {git, isRemote, rev} from './git.ts'

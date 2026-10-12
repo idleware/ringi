@@ -1,3 +1,5 @@
+// heartbeat-format: one line per heartbeat, as this machine judges it or as the room publishes it.
+
 import type {Pulse} from '../../../core/agents/heartbeat/pulse.ts'
 import {short} from '../../../lib/index.ts'
 

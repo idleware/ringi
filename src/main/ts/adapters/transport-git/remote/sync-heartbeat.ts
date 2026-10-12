@@ -1,3 +1,5 @@
+// sync-heartbeat: a fetched heartbeat accepted when it verifies and is newer than the one here.
+
 import * as C from '../../../lib/index.ts'
 import {git, reason} from './git.ts'
 import {checkHeartbeat, heartbeatObject} from './heartbeat.ts'

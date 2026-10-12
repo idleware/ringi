@@ -1,3 +1,5 @@
+// heartbeat-push: a beat published with the object it replaces; a newer beat on the remote wins.
+
 import * as C from '../../../lib/index.ts'
 import {git, isRemote, locked, object, origin} from './git.ts'
 import {checkHeartbeat, heartbeatRef} from './heartbeat.ts'

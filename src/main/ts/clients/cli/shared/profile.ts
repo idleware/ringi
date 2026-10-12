@@ -1,3 +1,5 @@
+// profile: `profile` (what work is in the room) and `who` (its members and their cards).
+
 import * as Room from '../../../core/hub/usecases/room.ts'
 import type {Opts} from '../args.ts'
 import {dump, flag, out} from '../args.ts'

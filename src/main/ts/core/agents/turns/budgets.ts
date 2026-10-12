@@ -1,3 +1,6 @@
+// budgets: which groups of messages may start a turn now: within a grant's budget, or within the watcher's own run
+// limit when no grant covers them.
+
 import type {Room} from '../../hub/rooms/index.ts'
 import {note, short} from '../../../lib/index.ts'
 import type {All} from '../../hub/protocol/index.ts'

@@ -1,3 +1,5 @@
+// migrate-tags: a 0.1 signal tag, planned under its new name `<actor>.<signal>.<message12>`.
+
 import {fail} from '../../lib/index.ts'
 import {AGENT_RE, parse} from '../../core/hub/protocol/index.ts'
 import type {SignalMigration} from './migrate-signals.ts'

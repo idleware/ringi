@@ -1,3 +1,5 @@
+// seat: the watcher takes its agent's seat, from a dead watcher or by an explicit handoff from the agent's own chat.
+
 import {locked} from '../../hub/ports/index.ts'
 import {config, openHub, openRoom} from '../../hub/rooms/index.ts'
 import {fail, stamp} from '../../../lib/index.ts'

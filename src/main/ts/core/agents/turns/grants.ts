@@ -1,3 +1,5 @@
+// grants: a run reserved under a grant: approved, not revoked, not spent, within its concurrency.
+
 import * as D from '../../hub/decisions/index.ts'
 import type {Room} from '../../hub/rooms/index.ts'
 import {OPERATOR, append} from '../../hub/rooms/index.ts'

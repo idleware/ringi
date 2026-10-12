@@ -1,3 +1,5 @@
+// limits: the watcher's options checked before it starts.
+
 import {fail} from '../../../lib/index.ts'
 import type {WatchOptions} from './types.ts'
 export const validateWatch = (w: WatchOptions): void => {

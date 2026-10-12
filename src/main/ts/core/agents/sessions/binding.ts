@@ -1,3 +1,6 @@
+// binding: the seat a chat holds, checked on every agent command: joined, not stopped, its room alive and the same
+// room, still a member; a chat whose room is gone leaves it on its own.
+
 import {locked} from '../../hub/ports/index.ts'
 import type {Hub, Room} from '../../hub/rooms/index.ts'
 import {openHub, openRoom, roomNames} from '../../hub/rooms/index.ts'

@@ -1,3 +1,5 @@
+// sync-tags: fetched tags sorted into signals (immutable, pinned) and heartbeats (replaced).
+
 import * as C from '../../../lib/index.ts'
 import {git, object, reason, refs, zero} from './git.ts'
 import {heartbeatName} from './heartbeat.ts'

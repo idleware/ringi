@@ -1,3 +1,5 @@
+// dispatch: a planned turn is started through the process host, still holding the seat and a valid grant.
+
 import * as D from '../../hub/decisions/index.ts'
 import {hubPorts, locked} from '../../hub/ports/index.ts'
 import type {Room} from '../../hub/rooms/index.ts'

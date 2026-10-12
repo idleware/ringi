@@ -1,3 +1,5 @@
+// hub-commands: `ringi hub list | create | switch | add | amend`.
+
 import fs from 'node:fs'
 import * as Hubs from '../../../core/hub/usecases/hubs.ts'
 import * as Rooms from '../../../core/hub/usecases/rooms.ts'

@@ -1,3 +1,5 @@
+// commits: commit objects read whole: author, parents and message as bytes.
+
 import * as C from '../../../lib/index.ts'
 import * as P from '../../../core/hub/protocol/index.ts'
 import {git} from './git.ts'

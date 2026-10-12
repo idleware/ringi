@@ -1,3 +1,6 @@
+// sessions: the chats on this machine that hold a seat in a room: who this chat is (its handle, from the agent tool
+// it runs in), the session records, and whether each is active, stopped or gone.
+
 import crypto from 'node:crypto'
 import {hubPorts} from '../../hub/ports/index.ts'
 import {agentPorts} from '../ports/index.ts'
@@ -5,7 +8,7 @@ import {fail} from '../../../lib/index.ts'
 export {bound} from './binding.ts'
 export type {Bound} from './binding.ts'
 
-export const LEASE = 60 * 60 * 1000
+const LEASE = 60 * 60 * 1000
 
 export type Session = {
   handle: string
