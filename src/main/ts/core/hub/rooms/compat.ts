@@ -30,9 +30,17 @@ const refusal = (c: Contract, name: string): string | null => {
   const why = unenforceable(c.capabilities ?? [])
   return why && `hub ${name} ${why}, which this ringi ${version()} cannot enforce. Upgrade ringi`
 }
+// Old contract snapshots stay immutable after an explicit transition. Only ancestors of a readable canonical
+// main may use the old filename; an old current head or a room's attachment is never accepted this way.
+const historicalContract = (store: Store, name: string, rev: Rev): string | null => {
+  const head = store.contractHead()
+  if (rev === head || !store.extends(rev, head)) return null
+  contractAt(store, name, head)
+  return store.contractFile(rev, 'hub.json')
+}
 // The contract at `rev`, once it passes every gate.
 export const contractAt = (store: Store, name: string, rev: Rev): Contract => {
-  const text = store.contractFile(rev, 'contract.json') ?? fail(`hub ${name} has no contract at ${short(rev)}`)
+  const text = store.contractFile(rev, 'contract.json') ?? historicalContract(store, name, rev) ?? fail(`hub ${name} has no contract at ${short(rev)}`)
   const c = strictJson<Contract>(text, `hub ${name}: contract`)
   const why = refusal(c, name)
   if (why) fail(why)
