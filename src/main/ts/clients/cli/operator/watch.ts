@@ -1,7 +1,8 @@
-import {watch} from '../../core/agents/sessions/agent.ts'
-import {fail, words} from '../../lib/index.ts'
-import type {Opts} from './args.ts'
-import {flag, opt, out} from './args.ts'
+// watch: the headless watcher the operator starts for an agent's seat (`ringi watch <room>/<agent> --exec …`).
+import {watch} from '../../../core/agents/sessions/agent.ts'
+import {fail, words} from '../../../lib/index.ts'
+import type {Opts} from '../args.ts'
+import {flag, opt, out} from '../args.ts'
 
 const numberOption = (o: Opts, k: string) => opt(o, k) === undefined ? undefined : Number(opt(o, k))
 export const watchCommand = async (o: Opts): Promise<void> => {

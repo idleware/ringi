@@ -1,13 +1,14 @@
-// Skill installation is a sequence of filesystem steps for the selected targets.
+// skill: the agents' manual for this same command line (src/main/resources/skill/), installed where each agent tool
+// reads skills (targets.ts), checked and removed again.
 import fs from 'node:fs'
 import path from 'node:path'
-import {about} from '../../core/hub/usecases/context.ts'
-import {sandboxHints} from '../../core/agents/sessions/context.ts'
-import {fail} from '../../lib/index.ts'
-import type {Opts} from './args.ts'
-import {flag, out} from './args.ts'
-import {SKILL, sameSkill, skillTargets} from './skill-targets.ts'
-export {SKILL, skillTargets} from './skill-targets.ts'
+import {about} from '../../../core/hub/usecases/context.ts'
+import {sandboxHints} from '../../../core/agents/sessions/context.ts'
+import {fail} from '../../../lib/index.ts'
+import type {Opts} from '../args.ts'
+import {flag, out} from '../args.ts'
+import {SKILL, sameSkill, skillTargets} from './targets.ts'
+export {SKILL, skillTargets} from './targets.ts'
 
 const install = (o: Opts) => {
   for (const dir of skillTargets(flag(o, 'project'))) {

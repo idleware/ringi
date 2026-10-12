@@ -1,8 +1,9 @@
+// targets: where the skill goes: each agent tool's skill directory under the user's home or the project.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import {about} from '../../core/hub/usecases/context.ts'
-import {skillDirs} from '../../core/agents/sessions/context.ts'
+import {about} from '../../../core/hub/usecases/context.ts'
+import {skillDirs} from '../../../core/agents/sessions/context.ts'
 
 export const SKILL = path.join(about().resources, 'skill', 'ringi')
 export const skillTargets = (project: boolean) => {

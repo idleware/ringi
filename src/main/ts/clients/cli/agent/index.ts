@@ -1,11 +1,12 @@
-// Agent interface: parse options, call the app, render its result.
-import * as Agent from '../../core/agents/sessions/agent.ts'
-import {asJson, render} from '../../core/hub/usecases/view.ts'
-import {fail, short, when} from '../../lib/index.ts'
-import {dump, flag, list, opt, out, textOf} from './args.ts'
-import type {Opts} from './args.ts'
-import type {Ctx} from './context.ts'
-import {scopeLine, waiting} from './shared.ts'
+// agent: the commands only an agent runs, as the agent its session is bound to (`ringi agent inbox`, whoami, card,
+// ping, wait, take); joining and leaving a room are session.ts.
+import * as Agent from '../../../core/agents/sessions/agent.ts'
+import {asJson, render} from '../../../core/hub/usecases/view.ts'
+import {fail, short, when} from '../../../lib/index.ts'
+import {dump, flag, list, opt, out, textOf} from '../args.ts'
+import type {Opts} from '../args.ts'
+import type {Ctx} from '../context.ts'
+import {scopeLine, waiting} from '../shared/index.ts'
 
 const options = (o: Opts) => ({peek: flag(o, 'peek'), limit: opt(o, 'limit') ? Number(opt(o, 'limit')) : undefined})
 export const showInbox = ({R, me, s}: Ctx, res: Agent.Inbox, o: Opts) => {

@@ -23,7 +23,7 @@ puts them together when a program starts; nothing else imports an adapter. Core 
 | agents | `core/agents/` | agents on this machine: `sessions` (bindings and seats), `turns` (the watcher: wakeups, budgets, receipts), `heartbeat` (working, waiting or gone, from facts alone; the pulse), `ports` (`AgentTool`, `ProcessHost`) | hub, lib |
 | signing | `core/signing/` | `Signer`: a key's public identity and a signature over exact bytes, apart from where the key is kept | lib |
 | adapters | `adapters/<name>/` | `transport-git` (local and signed; `transport-kafka`, `transport-temporal` planned), `state-fs` (`$RINGI_HOME`), `host-posix` (macOS, Linux), `tool-claude`, `tool-codex`, `tool-cursor`, `keys-file`; shared: `fs` (files, locks), `tool-traces` | core, the shared adapters, lib |
-| clients | `clients/cli/` (the entry is `cli.ts`), `panel/` (planned), the skill in `src/main/resources/skill/` | parse, call core's use cases, render | hub, agents, lib |
+| clients | `clients/cli/` (the entry is `cli.ts`), `clients/panel/` (planned) | parse, call core's use cases, render. The command line is one for both: `operator/` (as the operator), `agent/` (`ringi agent …`, as the agent a session is bound to), `shared/` (under both), `skill/` (installs the skill: the agents' manual for this same command line, `src/main/resources/skill/`, where each agent tool reads skills) | hub, agents, lib |
 | composition | `composition/` | this build, which adapters, the home's migrations | everything |
 
 `index.ts` is the library; importing it wires the defaults through composition. Every import counts, type-only ones

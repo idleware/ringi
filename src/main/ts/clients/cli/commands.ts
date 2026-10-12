@@ -1,18 +1,19 @@
-// Dispatch tables share the existing command implementations and keep aliases together.
+// commands: one table for the one command line: the operator's commands (operator/), `ringi agent …` for an agent
+// (agent/), and the shared ones (shared/) under both; aliases kept together.
 import {about} from '../../core/hub/usecases/context.ts'
 import {agent} from '../../core/agents/sessions/context.ts'
 import {fail} from '../../lib/index.ts'
-import {card, inbox, ping, take, wait, whoami} from './agent.ts'
+import {card, inbox, ping, take, wait, whoami} from './agent/index.ts'
 import type {Opts} from './args.ts'
 import {flag, out, parseArgs} from './args.ts'
 import type {Ctx} from './context.ts'
 import {operatorCtx} from './context.ts'
 import {helpMarkdown, helpText} from './help.ts'
-import {forget, heartbeats, hub, pulse, roomCmd, sessions, where} from './operator.ts'
-import {join, leave, resume, stop} from './session.ts'
-import {add, cat, decide, get, grants, log, profileCmd, proposals, propose, read, reply, send, signals, stamp_, tasks, thread, who} from './shared.ts'
-import {skill} from './skill.ts'
-import {watchCommand} from './watch.ts'
+import {forget, heartbeats, hub, pulse, roomCmd, sessions, where} from './operator/index.ts'
+import {join, leave, resume, stop} from './agent/session.ts'
+import {add, cat, decide, get, grants, log, profileCmd, proposals, propose, read, reply, send, signals, stamp_, tasks, thread, who} from './shared/index.ts'
+import {skill} from './skill/index.ts'
+import {watchCommand} from './operator/watch.ts'
 
 type Cmd = (ctx: Ctx, o: Opts) => void | Promise<void>
 const SHARED: Record<string, Cmd> = {add, send, reply, read, thread, tasks, log, cat, get, who, signals, profile: profileCmd, propose, stamp: stamp_, decide, proposals, grants}

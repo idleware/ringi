@@ -1,11 +1,11 @@
-// Session interface: the operator's words become typed app requests.
-import * as Heartbeat from '../../core/agents/heartbeat/pulse.ts'
-import * as Session from '../../core/agents/sessions/session.ts'
-import {fail} from '../../lib/index.ts'
-import {opt, out} from './args.ts'
-import type {Opts} from './args.ts'
-import {showInbox} from './agent.ts'
-import {scopeLine, taskLine, waiting} from './shared.ts'
+// session: what the operator says in an agent's chat (join, continue, stop, leave) becomes the session's requests.
+import * as Heartbeat from '../../../core/agents/heartbeat/pulse.ts'
+import * as Session from '../../../core/agents/sessions/session.ts'
+import {fail} from '../../../lib/index.ts'
+import {opt, out} from '../args.ts'
+import type {Opts} from '../args.ts'
+import {showInbox} from './index.ts'
+import {scopeLine, taskLine, waiting} from '../shared/index.ts'
 
 export const briefing = (s: Session.Session) => {
   const r = Session.briefing(s)

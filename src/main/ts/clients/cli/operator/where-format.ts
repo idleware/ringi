@@ -6,7 +6,7 @@ import {short} from '../../../lib/index.ts'
 import type {All, Message} from '../../../core/hub/protocol/index.ts'
 import type {Opts} from '../args.ts'
 import {flag, out} from '../args.ts'
-import {taskLine} from '../shared.ts'
+import {taskLine} from '../shared/index.ts'
 import {sessionLine} from './sessions.ts'
 
 export const hubLine = (H: Where['hub']) => `hub ${H.name}: ${H.d.store.type} store, ${H.contract.trust} senders, contract ${H.contract.version}, protocol ${H.contract.protocol}${H.contract.capabilities?.length ? `, ${H.contract.capabilities.join(' ')}` : ''}`
