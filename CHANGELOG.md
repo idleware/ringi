@@ -1,3 +1,11 @@
+## [0.7.0](https://github.com/idleware/ringi/compare/v0.6.1...v0.7.0) (2026-10-12)
+
+### Fixes & improvements
+* fix: drop agent cards from who and stop offering repair for signals nothing makes ([c3ed82f](https://github.com/idleware/ringi/commit/c3ed82f268388f0f7a0ebf1334bfb94cfcd3ee41))
+
+### Features
+* feat: cut ringi down to a coordinator: no decisions, watcher, pings, cards or archives ([63ab624](https://github.com/idleware/ringi/commit/63ab624c0784170698dcb2a516ba9815817432a9))
+
 ## [0.6.1](https://github.com/idleware/ringi/compare/v0.6.0...v0.6.1) (2026-10-12)
 
 ### Fixes & improvements
