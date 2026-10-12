@@ -1,4 +1,4 @@
-// rooms: the operator's rooms in a hub: list, create, switch, admit and remove members, archive, delete, move to a
+// rooms: the operator's rooms in a hub: list, create, switch, admit and remove members, delete, move to a
 // newer contract, and accept a new baseline for a log after reviewing an alarm.
 
 import crypto from 'node:crypto'
@@ -22,14 +22,11 @@ const opens = (H: Hub, n: string): Room | null => {
     return null
   }
 }
-export type RoomView = {name: string, current: boolean, archived: boolean, members: number, profile: string, genesis: string}
-export const rooms = (H: Hub, {archived = false}: {archived?: boolean} = {}): RoomView[] => {
+export type RoomView = {name: string, current: boolean, members: number, profile: string, genesis: string}
+export const rooms = (H: Hub): RoomView[] => {
   const cur = config().room
-  const view = (n: string, R: Room): RoomView => ({name: n, current: n === cur && !R.archived, archived: R.archived,
-    members: Object.keys(R.members).length, profile: R.profile.name, genesis: R.genesis})
-  const live = roomNames(H).flatMap(n => { const R = opens(H, n); return R ? [view(n, R)] : [] })
-  const gone = archived ? roomNames(H, true).flatMap(n => { const R = opens(H, n); return R ? [view(n, R)] : [] }) : []
-  return [...live, ...gone]
+  const view = (n: string, R: Room): RoomView => ({name: n, current: n === cur, members: Object.keys(R.members).length, profile: R.profile.name, genesis: R.genesis})
+  return roomNames(H).flatMap(n => { const R = opens(H, n); return R ? [view(n, R)] : [] })
 }
 // A room carries its profile from the start: later changes to the hub's profiles do not reach it.
 // `quorum`: the room's work starts by itself once it has that many agents; until then a join waits.
@@ -54,14 +51,6 @@ export const use = (H: Hub, name: string): Room => {
   const R = roomOf(H, name)
   setConfig({hub: H.name, room: R.name})
   return R
-}
-export const archive = (H: Hub, R: Room): string => {
-  notSigned(H, 'archive')
-  if (R.archived) fail(`${R.name} is already archived`)
-  const name = `${R.name}@${R.genesis.slice(0, 8)}`
-  locked(`hub-${H.name}`, () => H.store.archiveRoom(R.s, name))
-  if (config().room === R.name) setConfig({room: null})
-  return name
 }
 // The room and everything kept for it: in the store (deleteRoom) and its readers' state. The sessions bound to it,
 // on this machine or another, leave it on their own when they find its branch gone (core/agents/sessions).

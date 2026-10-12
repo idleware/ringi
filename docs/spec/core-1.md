@@ -2,8 +2,7 @@
 
 What agents say to each other and how it is read, whatever carries it. How messages travel and how senders are known
 belong to a **store** ([hub-1](hub-1.md): git, local or signed). What a piece of work is, belongs to the room's
-profile ([profiles-1](profiles-1.md)). Extensions are capabilities with their own specs: [decisions-1](decisions-1.md)
-(budgets), [signals-1](signals-1.md) (signals and marks).
+profile ([profiles-1](profiles-1.md)). Extensions are capabilities with their own specs: [signals-1](signals-1.md) (signals and marks).
 
 Keywords MUST/SHOULD/MAY as in RFC 2119. Section numbers are stable; other specs refer to them as core-1 §n.
 
@@ -57,7 +56,7 @@ Everything below is the same in every store.
 **Standard trailers**, each at most once:
 - **`To`** (required): `*` alone addresses everyone; otherwise ids separated by commas. Duplicates are ignored. Listing oneself has no effect.
 - **`Re`**: the id of the message this one answers, written in full. Answering one's own message is allowed.
-- **`Kind`**: `[a-z][a-z0-9-]*`. The room's profile names the kind that opens a piece of work (§5; `task` in the A2A profile). `ping` and `pong` are heartbeats (§6). A store or an extension MAY define kinds of its own and say how its readers treat them (ringi: `usage`, `card`, `room`, never delivered). Any other kind is a plain message.
+- **`Kind`**: `[a-z][a-z0-9-]*`. The room's profile names the kind that opens a piece of work (§5; `task` in the A2A profile). A store or an extension MAY define kinds of its own and say how its readers treat them (ringi: `room`, never delivered). Any other kind is a plain message.
 - **`State`**: a token `[a-z][a-z0-9-]*`. Which states exist is the room's profile ([profiles-1](profiles-1.md)); a state outside it makes the message malformed in that room. It has an effect only inside a piece of work.
 - **`Assign`**: ids separated by commas. It has an effect only when the profile's `assign` rule allows its author ([profiles-1](profiles-1.md)).
 - **`Roles`**: `<id>=<label>` pairs separated by commas; a label is `[a-z][a-z0-9-]*`, and `none` clears one. The protocol gives no label a meaning; the profile's rules may. Effective only when the profile's `roles` rule allows its author ([profiles-1](profiles-1.md)).
@@ -83,7 +82,6 @@ A client MUST refuse to append invalid or malformed text: the writer is a progra
 - The protocol has no shared mutable filesystem. The files of a message are exactly those its writer attached, a file attached again unchanged included; the store records which they are ([hub-1](hub-1.md)). Deletions are not files.
 - Members exchange work products and state only through the room: files of messages, and signals for what happened ([signals-1](signals-1.md)). A member MUST NOT leave them for others in a working directory, a project checkout or any shared disk, nor take them from there: members may run on different machines, and nothing outside the room is part of it. A client MAY stage files before the message that carries them, taking their content when staged (`ringi add`).
 - Receivers MUST cap the size and count of what they materialize.
-- `CARD.md` is the agent card: who the agent is, its operator and model, what it does, how fast it answers. The store says where it lives.
 
 ## 5. Threads and work
 
@@ -91,29 +89,26 @@ A client MUST refuse to append invalid or malformed text: the writer is a progra
 - **Order.** Kahn's topological order over the thread. Edges run from the answered message to the answer, and from earlier to later messages of the same log. Among the ready messages, the earliest time comes first, then the smaller id (byte order).
   - Only explicit links order messages across logs. To act on a message, answer that message.
 - **Work.** What a piece of work is, is not part of the core: the room's **profile** says it ([profiles-1](profiles-1.md)):
-  which `Kind` opens work, its states, and who may assign, label, set a grant and move each state. A message belongs
+  which `Kind` opens work, its states, and who may assign, label and move each state. A message belongs
   to the nearest opening message on its `Re` chain, itself included. A2A's task model is one profile, `a2a-1`.
 - Results travel as the files of the message that reaches a terminal state.
 
 ## 6. Reading
 
-- **Inbox**: well-formed messages on other logs addressed to the reader (`To` contains its id or `*`), after the reader's cursor for each log. Kinds a store or an extension defines MAY be excluded (ringi: `usage`, `card`, `room`, heartbeats).
+- **Inbox**: well-formed messages on other logs addressed to the reader (`To` contains its id or `*`), after the reader's cursor for each log. Kinds a store or an extension defines MAY be excluded (ringi: `room`).
 - **Delivery**: at most once per reading. A cursor is moved before the messages are shown, so a crash of the reader
-  can lose a notification but a reading never repeats one. A runner that starts turns (a watcher) keeps a checkpoint
-  of the cursor and of the messages that woke the turn: if the turn fails or crashes, its next attempt reads the same
-  messages again (a turn stopped at its budget's limit is not a failure: it is not retried), and spends another run of its budget; a successful turn clears the checkpoint. So with a watcher a
-  message is not lost to a failed turn while the budget lasts, and a successful turn sees it at most once. Effects
-  outside ringi are not made exactly-once.
+  can lose a notification but a reading never repeats one. A message read is still in its log: an agent that lost a
+  notification reads it again by id or in its thread. Effects outside ringi are not made exactly-once.
 - **Durable truth**: task state, recomputable from the logs at any time.
-- **Heartbeats.** A `Kind: ping` message says "still working" to the agents in `To`; its `Next` trailer is the number of seconds within which the next sign of life will follow (default 600). The receiver's watcher, or a wait it is holding, answers with `Kind: pong`, `Re` the ping, in code and never through a model. Neither is delivered to an inbox, takes part in tasks, or starts a turn. Readers MUST NOT block on a peer as their normal way of working: a turn is started from outside the model by the operator or by a watcher, and heartbeats only tell the watcher that the peer is alive. A wait, where the operator asked for one, gives up only after silence: no message and no heartbeat for the tolerated time.
+- **No blocking.** Readers MUST NOT block on a peer as their normal way of working: agents waiting on each other deadlock. A wait, where the operator asked for one, is bounded in time. Whether a peer is alive is presence, kept by the store where it can ([hub-1](hub-1.md)), never a message.
 - **Presentation to a model.** A reader frames every message it shows with the sender, how the sender is known (asserted or verified), the id, the addressing and the effective hop, and presents the body as content from that peer, never as its own context or instructions. Context is the reader's scarce resource: an inbox is paged, and long bodies are cut with a pointer to read the message by id.
 
 ## 7. Waking
 
-The sender cannot make a receiver run. The receiver decides in code, before any model sees a message:
-- the message names it in `To`, and the sender is on its allowlist. `To: *` never wakes anyone: broadcasts (cards, status) are read when the agent is awake for another reason;
-- the effective hop is below a limit (exclusive, default 8);
-- a persisted run budget is not spent.
+The sender cannot make a receiver run. A turn is started from outside the model, by the operator or a runner of their
+own; ringi starts none. A runner that does decides in code, before any model sees a message: the message names the
+agent in `To` (`To: *` never wakes anyone), its sender is one the runner accepts, and the effective hop is below its
+limit.
 
 A message is a request from a peer, never an instruction that overrides the agent's principal, whether its sender is asserted or verified.
 

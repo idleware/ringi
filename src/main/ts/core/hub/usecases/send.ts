@@ -1,13 +1,11 @@
 // send: a message from the actor, its recipients, trailers and files checked before it is written.
 
-import * as D from '../decisions/index.ts'
 import type {Profile} from '../work/index.ts'
 import {OPERATOR, append} from '../rooms/index.ts'
-import type {Room} from '../rooms/index.ts'
-import {fail, note, short} from '../../../lib/index.ts'
+import {fail, note} from '../../../lib/index.ts'
 import type {Entry} from '../protocol/files.ts'
 import {ID_RE, TOKEN_RE, checkOutgoing, compose, lookup} from '../protocol/index.ts'
-import type {All, Message} from '../protocol/index.ts'
+import type {Message} from '../protocol/index.ts'
 import {linked, readerLock} from '../history/index.ts'
 import {isRef} from './actor.ts'
 import type {Actor} from './actor.ts'
@@ -24,7 +22,6 @@ export type SendInput = {
   state?: string
   assign?: string[]
   roles?: string
-  grant?: string
   files?: Entry[]
 }
 export type Sent = {id: string, to: string[], files: number}
@@ -55,13 +52,6 @@ const checkTrailers = (P: Profile, x: SendInput, to: string[], assign: string[] 
   for (const a of assign ?? []) if (!ID_RE.test(a)) fail(`bad assignee ${a}`)
   if (x.roles && !x.roles.split(',').every(role)) fail('--roles takes "<id>=<label>, …"; labels mean what the room profile says')
 }
-// The grant a piece of work spends: an approved decision with a budget, not revoked.
-const grantOf = (R: Room, all: All, ref: string | undefined): string | null => {
-  if (!ref) return null
-  const d = lookup(all, ref)
-  const g = D.grantOf(all, R.authorityAt, d.id) ?? fail(`${short(d.id)} is not an approved decision with a budget`)
-  return g.revoked ? fail(`grant ${short(g.id)} was revoked`) : g.id
-}
 // A message from the actor. The operator may omit `to`: the room, or the assignees when there are any.
 export const send = ({R, me}: Actor, x: SendInput): Sent => {
   const P = R.profile
@@ -70,12 +60,11 @@ export const send = ({R, me}: Actor, x: SendInput): Sent => {
   const assign = x.assign ? [...new Set(x.assign)] : null
   const to = recipients(me, x, re, assign)
   checkTrailers(P, x, to, assign, re)
-  const grant = grantOf(R, all, x.grant)
   const stagedNow = staged({R, me})
   const entries = outgoing(stagedNow, x.files ?? [])
   const text = compose(x.text, [
     ['To', to.join(', ')], ['Re', re?.id], ['Kind', x.task && P.opens], ['State', x.state], ['Assign', assign?.join(', ')],
-    ['Roles', x.roles], ['Grant', grant], ['Hop', re && String(re.hopEff + 1)],
+    ['Roles', x.roles], ['Hop', re && String(re.hopEff + 1)],
   ])
   checkOutgoing(text, isRef(R))
   const id = append(R, me, text, entries)

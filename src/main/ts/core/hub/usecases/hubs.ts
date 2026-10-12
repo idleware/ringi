@@ -1,6 +1,5 @@
 // hubs: the operator's hubs on this machine: list, create, switch, add a signed replica, amend the shared contract.
 
-import fs from 'node:fs'
 import {DEFAULT_PROFILE, PROFILES_CAPABILITY, parseProfile} from '../work/index.ts'
 import {OPERATOR, config, createHub, hubNames, openHub, roomNames, setConfig, transportOf} from '../rooms/index.ts'
 import {hubPorts} from '../ports/index.ts'
@@ -43,7 +42,7 @@ export const add = (name: string, url: string, {root, genesis}: {root?: string, 
   t.attach(name, url, {root, genesis})
   return openHub(name)
 }
-export type AmendInput = {text: string, set?: string[], authority?: string, files?: Array<{path: string, content: Buffer}>}
+export type AmendInput = {text: string, set?: string[], files?: Array<{path: string, content: Buffer}>}
 type Contract = Record<string, unknown>
 const SETTABLE = ['version', 'capabilities', 'protocol', 'profile']
 const json = (x: unknown): string => JSON.stringify(x, null, 2) + '\n'
@@ -58,7 +57,6 @@ const setKeys = (contract: Contract, set: string[]): void => {
 // The files the amendment brings besides the contract; a profile is checked before it reaches the contract.
 const extraFiles = (x: AmendInput): Record<string, string | Buffer> => {
   const files: Record<string, string | Buffer> = {}
-  if (x.authority) files['authority.json'] = json(strictJson(fs.readFileSync(x.authority, 'utf8'), x.authority))
   for (const f of x.files ?? []) {
     if (/^profiles\/[^/]+\.json$/.test(f.path)) parseProfile(f.content.toString('utf8'), f.path)
     files[f.path] = f.content

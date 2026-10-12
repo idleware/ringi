@@ -1,7 +1,6 @@
-// view: how messages, work, proposals and grants are shown: as text framed for people and models, and as the JSON
+// view: how messages and work are shown: as text framed for people and models, and as the JSON
 // shapes every interface (the CLI's --json, a control panel) returns.
 
-import type {Budget, Proposal, Usage} from '../decisions/index.ts'
 import type {Task} from '../work/index.ts'
 import {bytes, when} from '../../../lib/index.ts'
 import {KNOWN} from '../protocol/index.ts'
@@ -50,14 +49,6 @@ export const asJson = (m: Message) => ({id: m.id, from: m.from, trust: m.trust, 
   body: m.body, files: m.files.map(f => ({path: f.path, size: f.size})), refused: m.refused, trailers: m.trailers})
 
 export type TaskView = {id: string, subject: string, requester: string, assignees: string[], roles: Record<string, string>,
-  taken: string[], grant: string | null, state: string, by: string, at: string}
+  taken: string[], state: string, by: string, at: string}
 export const taskView = (t: Task, taken: string[]): TaskView => ({id: t.root.id, subject: t.root.subject, requester: t.requester,
-  assignees: t.assignees, roles: t.roles, taken, grant: t.grant, state: t.state, by: t.by, at: new Date(t.at * 1000).toISOString()})
-export type ProposalView = {id: string, subject: string, from: string, decider: string, state: string, budget: Budget | null,
-  stamps: Proposal['stamps'], missing: string[]}
-export const proposalView = (x: Proposal): ProposalView => ({id: x.proposal.id, subject: x.proposal.subject, from: x.proposal.from,
-  decider: x.decider, state: x.state, budget: x.budget, stamps: x.stamps, missing: x.missing})
-export type GrantView = {grant: string, proposal: string, subject: string, budget: Budget, revoked: boolean, usage: Usage}
-export const grantView = (x: Proposal, usage: Usage): GrantView => ({grant: x.grant!.id, proposal: x.proposal.id,
-  subject: x.proposal.subject, budget: x.grant!.budget, revoked: x.grant!.revoked, usage})
-
+  assignees: t.assignees, roles: t.roles, taken, state: t.state, by: t.by, at: new Date(t.at * 1000).toISOString()})

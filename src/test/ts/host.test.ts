@@ -1,10 +1,8 @@
-// ProcessHost contracts: alternate facts reach heartbeat/session, launches settle, and an observation timeout does
-// not spend authority to stop a process. Existing heartbeat/runtime tests retain their compatibility coverage.
+// ProcessHost: the host composition chose is what heartbeat and sessions ask, and the pulse is one per machine.
 
 import {describe, it} from 'node:test'
 import assert from 'node:assert/strict'
 import '../../main/ts/composition/index.ts'
-import {hostPosix} from '../../main/ts/adapters/host-posix/index.ts'
 import {agentPorts, wireAgents} from '../../main/ts/core/agents/ports/index.ts'
 import {probe} from '../../main/ts/core/agents/heartbeat/index.ts'
 import {pidAlive} from '../../main/ts/core/agents/sessions/index.ts'
@@ -15,38 +13,10 @@ describe('ProcessHost', () => {
   it('uses the chosen host for heartbeat and session facts without an OS probe', t => {
     const original = agentPorts()
     t.after(() => wireAgents(original))
-    const host = {...original.host,
-      clock: {wall: () => 1000000, monotonic: () => 10},
-      snapshot: () => null,
-      alive: () => false,
-      inspect: () => ({alive: false, cpu: 4.5}),
-    }
-    wireAgents({...original, host})
-    const f = probe({handle: 'env:host-contract', product: 'watch', pid: 123, lastSeen: '1970-01-01T00:00:00Z', state: 'active'})
-    assert.equal(f.at, 1000)
+    wireAgents({...original, host: {...original.host, supported: true, alive: () => false}})
+    const f = probe({handle: 'env:host-contract', product: null, pid: 123, lastSeen: '1970-01-01T00:00:00Z', state: 'active'})
     assert.equal(f.alive, false)
-    assert.equal(f.cpu, 4.5)
     assert.equal(pidAlive(123), false)
-  })
-
-  it('keeps shell exit results and isolates handle ownership', async () => {
-    const host = hostPosix(), other = hostPosix()
-    const process = host.start({shell: 'exit 7', timeout: null, env: globalThis.process.env})
-    assert.throws(() => other.stop(process), /belongs to another host/)
-    const result = await host.awaitQuiescence(process, host.clock.monotonic() + 5000)
-    assert.ok(result)
-    assert.equal(result.code, 7)
-    assert.equal(result.timedOut, false)
-  })
-
-  it('returns at an observation deadline while the process finishes normally', async () => {
-    const host = hostPosix()
-    const process = host.start({shell: 'sleep 0.2; exit 0', timeout: null, env: globalThis.process.env})
-    assert.equal(await host.awaitQuiescence(process, host.clock.monotonic() + 5), null)
-    const result = await host.awaitQuiescence(process, host.clock.monotonic() + 5000)
-    assert.ok(result)
-    assert.equal(result.code, 0)
-    assert.equal(result.timedOut, false)
   })
 
   it('rejects corrupt pulse records and keeps a valid owner', t => {

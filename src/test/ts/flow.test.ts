@@ -5,15 +5,15 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {spawnSync} from 'node:child_process'
-import {BASE, BIN, quote, shellBin} from './cli.ts'
+import {BASE, BIN} from './cli.ts'
 
 type Result = {code: number | null, out: string, err: string}
 type Message = {id: string, from: string, subject: string, kind: string | null, state: string | null, trust: string, files: {path: string}[]}
 type Task = {id: string, subject: string, state: string, by: string, taken: string[]}
 type Signal = {actor: string, signal: string, target: string, ok: boolean}
 
-describe('local flow: operator, chat agent and headless reviewer', () => {
-  it('delivers, takes, reviews and completes work, then resumes and archives it', t => {
+describe('local flow: operator and two chat agents', () => {
+  it('delivers, takes, reviews and completes work, then resumes and deletes the room', t => {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), 'ringi-flow-'))
     const home = path.join(base, 'home')
     const transcript: string[] = []
@@ -72,41 +72,14 @@ describe('local flow: operator, chat agent and headless reviewer', () => {
     assert.match(ok(['where']), /Fix the badge[\s\S]*Review the badge|Review the badge[\s\S]*Fix the badge/)
     assert.match(ok(['read', work.id]), /Fix the badge/)
 
-    // A deterministic reviewer stands in for the external agent command; it uses the same public CLI.
-    const runner = path.join(base, 'reviewer.mjs')
-    fs.writeFileSync(runner, `
-import assert from 'node:assert/strict'
-import fs from 'node:fs'
-import {spawnSync} from 'node:child_process'
-const [report, ...bin] = process.argv.slice(2)
-const run = (...args) => spawnSync(bin[0], [...bin.slice(1), ...args], {encoding: 'utf8', env: process.env, timeout: 30000})
-const call = (...args) => {
-  const r = run(...args)
-  assert.equal(r.status, 0, r.stderr)
-  return r.stdout
-}
-const id = text => /sent (\\S+)/.exec(text)[1]
-assert.ok(call('agent', 'whoami').includes(${JSON.stringify(review)}))
-const task = JSON.parse(call('agent', 'inbox', '--json')).find(m => m.subject === 'Review the badge')
-assert.ok(task, 'the watcher delivers the pending review to its turn')
-call('agent', 'take', task.id)
-const working = id(call('agent', 'reply', task.id, '--state', 'working', '-m', 'Checking the patch'))
-assert.equal(call('agent', 'cat', task.id, 'files/badge.diff'), ${JSON.stringify(change)})
-fs.writeFileSync(report, 'Reviewed the patch: badge is visible.\\n')
-call('agent', 'reply', working, '--state', 'completed', '-m', 'Review complete', '--attach', report + ':files/review.md')
-`)
-    const command = [process.execPath, runner, report, ...BIN].map(quote).join(' ')
-    const watch = (exec: string, session?: string, handoff = false) =>
-      run(['watch', 'fix-badge/claude', '--once', '--exec', exec, ...(handoff ? ['--handoff'] : [])], session)
-    const refused = watch('true', claude)
-    assert.notEqual(refused.code, 0, 'headless turns require an explicit handoff from a chat')
-    assert.match(refused.err, /held by session.*chat-claude/)
-    const failed = watch(`${shellBin} agent inbox --json >/dev/null; exit 7`, claude, true)
-    assert.match(failed.err, /watch: exit 7/, 'the reviewer fails after reading its inbox')
-    assert.equal(failed.code, 7)
-    const delivered = watch(command)
-    assert.equal(delivered.code, 0, delivered.err)
-    assert.equal(fs.readFileSync(report, 'utf8'), 'Reviewed the patch: badge is visible.\n')
+    // The reviewer is a chat of its own, on the same public CLI.
+    const [toReview] = json<Message[]>(['agent', 'inbox'], claude)
+    assert.equal(toReview?.subject, 'Review the badge')
+    agent(claude, 'take', toReview.id)
+    const checking = sent(agent(claude, 'reply', toReview.id, '--state', 'working', '-m', 'Checking the patch'))
+    assert.equal(agent(claude, 'cat', toReview.id, 'files/badge.diff'), change)
+    fs.writeFileSync(report, 'Reviewed the patch: badge is visible.\n')
+    agent(claude, 'reply', checking, '--state', 'completed', '-m', 'Review complete', '--attach', `${report}:files/review.md`)
     const reviewMessages = json<Message[]>(['agent', 'inbox'], codex)
     const approved = reviewMessages.find(m => m.from === 'claude' && m.state === 'completed')
     assert.ok(approved, 'the reviewer replies to codex with its completed review')
@@ -148,13 +121,7 @@ call('agent', 'reply', working, '--state', 'completed', '-m', 'Review complete',
       no(['agent', 'whoami'], /not in a room/, session)
     }
     assert.match(ok(['where']), /sessions: none joined/)
-    const archived = /archived fix-badge as (\S+):/.exec(ok(['room', 'archive', 'fix-badge']))?.[1]
-      ?? assert.fail('the operator receives the archive name')
-    assert.ok(ok(['room', 'list', '--archived']).includes(archived))
-    assert.match(ok(['log', '--room', archived, '--all']), /Badge fixed and reviewed/)
-    assert.equal(ok(['cat', done, 'files/review.md', '--room', archived]), fs.readFileSync(report, 'utf8'))
-    no(['send', '--room', archived, '-m', 'Work after archive'], /archived: read-only/)
-    assert.deepEqual(json<Task[]>(['tasks', '--room', archived, '--all']).map(x => x.state), ['completed', 'completed'])
-
+    assert.match(ok(['room', 'delete', 'fix-badge', '--yes']), /deleted room fix-badge/)
+    assert.match(ok(['room', 'list']), /no rooms in hub local/)
   })
 })

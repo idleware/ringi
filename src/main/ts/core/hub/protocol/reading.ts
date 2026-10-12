@@ -1,4 +1,4 @@
-// reading: what is delivered to whom (core-1 §6) and what wakes it (§7).
+// reading: what is delivered to whom (core-1 §6).
 
 import type {Logs, Message} from './model.ts'
 import {ordered} from './order.ts'
@@ -8,8 +8,6 @@ const hiddenKind = (m: Message, hidden: Set<string>): boolean => !!m.kind && hid
 // Delivered: well-formed, not a hidden kind, addressed to `id` by name or `*`.
 export const visible = (m: Message, id: string, hidden: Set<string>): boolean =>
   !m.invalid && !m.bad && !hiddenKind(m, hidden) && addressed(m, id)
-// Wakes: only a direct address. Broadcasts are read when the agent is awake for another reason.
-export const wakes = (m: Message, id: string, hidden: Set<string>): boolean => visible(m, id, hidden) && m.to.includes(id)
 
 const after = (msgs: Message[], cursor: string | undefined): Message[] => msgs.slice(msgs.findIndex(m => m.id === cursor) + 1)
 const others = (logs: Logs, id: string) => [...logs].filter(([log]) => log !== id)

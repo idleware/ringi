@@ -3,7 +3,6 @@
 // what it keeps. The home has its own gate (adapters/state-fs). Each gate fails closed and says what to do. ringi migrates nothing: a hub it cannot read stays as it is, and the operator makes a new hub
 // beside it, or a new root branch on a forge (docs/ARCHITECTURE.md, Evolution).
 
-import type * as D from '../decisions/index.ts'
 import {unenforceable} from '../capabilities.ts'
 import {hubPorts} from '../ports/index.ts'
 import type {Descriptor, Rev, Store} from '../ports/store.ts'
@@ -44,8 +43,7 @@ export const contractAt = (store: Store, name: string, rev: Rev): Contract => {
   const c = strictJson<Contract>(text, `hub ${name}: contract`)
   const why = refusal(c, name)
   if (why) fail(why)
-  const a = store.contractFile(rev, 'authority.json')
-  return {...c, authority: a === null ? {} : strictJson<D.Authority>(a, `hub ${name}: authority.json at ${short(rev)}`)}
+  return c
 }
 // Why this ringi cannot read the hub's store as it is laid out (`shown`: what its contract names, or what its store
 // type finds there when the contract names nothing), or nothing; `reads` is what the store type reads.

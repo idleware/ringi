@@ -3,7 +3,7 @@
 
 import {locked} from '../../hub/ports/index.ts'
 import type {Hub, Room} from '../../hub/rooms/index.ts'
-import {openHub, openRoom, roomNames} from '../../hub/rooms/index.ts'
+import {openHub, openRoom} from '../../hub/rooms/index.ts'
 import {fail, stamp} from '../../../lib/index.ts'
 import type {Me, Session} from './index.ts'
 import {dropSession, readSession, saveSession, whoAmI} from './index.ts'
@@ -27,13 +27,11 @@ export const bound = (): Bound => {
 
 const checkRoomIdentity = (me: Me, s: Session, H: Hub, R: Room | null): void => {
   if (!R || R.genesis !== s.genesis) {
-    // The room's branch is gone (deleted, archived, or deleted and made anew): the session leaves it on its own. A hub
-    // that cannot be reached fails above and leaves nothing.
+    // The room's branch is gone (deleted, or deleted and made anew): the session leaves it on its own. A hub that
+    // cannot be reached fails above and leaves nothing.
     locked('sessions', () => {if (readSession(me.handle)?.genesis === s.genesis) dropSession(me.handle)})
-    const gone = roomNames(H, true).find(a => a === `${s.room}@${s.genesis.slice(0, 8)}`)
-    fail(gone ? `room ${s.room} was archived as ${gone}; this session left it`
-      : R ? `room ${s.room} was deleted and created again; this session left the old room. The operator joins it anew`
-        : `room ${s.room} is gone from hub ${s.hub}; this session left it`)
+    fail(R ? `room ${s.room} was deleted and created again; this session left the old room. The operator joins it anew`
+      : `room ${s.room} is gone from hub ${s.hub}; this session left it`)
   }
 }
 

@@ -22,7 +22,6 @@ export type Session = {
   since: string
   lastSeen: string
   pid: number | null
-  takenFrom?: string
 }
 
 export type Me = {handle: string, product: string | null, pid: number | null}
@@ -71,18 +70,14 @@ export const dropSession = (handle: string): void => hubPorts().state.remove(ses
 export const pidAlive = (pid: number): boolean => agentPorts().host.alive(pid)
 
 // active: in use within the lease by a living process; stopped: paused by the operator; gone: neither. A gone or
-// stopped binding keeps its seat and scope. A watcher is alive exactly while its process is: a run may outlast any
-// lease.
+// stopped binding keeps its seat and scope.
 export const liveness = (s: Session): 'active' | 'stopped' | 'gone' => s.state === 'stopped' ? 'stopped'
-  : s.product === 'watch' ? (s.pid && pidAlive(s.pid) ? 'active' : 'gone')
-    : Date.now() - Date.parse(s.lastSeen) < LEASE && (!s.pid || pidAlive(s.pid)) ? 'active' : 'gone'
+  : Date.now() - Date.parse(s.lastSeen) < LEASE && (!s.pid || pidAlive(s.pid)) ? 'active' : 'gone'
 
 export const seatHolder = (hub: string, genesis: string, agent: string, except: string): Session | undefined =>
   allSessions().find(s => s.hub === hub && s.genesis === genesis && s.agent === agent && s.handle !== except)
 
-// An explicit chat-to-watch handoff remembers only that chat; it never selects another chat's seat.
 export const ownSession = (handle: string): Session | null => readSession(handle)
-  ?? allSessions().find(s => s.product === 'watch' && s.takenFrom === handle) ?? null
 
 export const parseSelector = (sel: string | undefined): {hub: string | null, room: string, agent: string} => {
   const m = /^(?:([a-z0-9._-]+):)?([^/]+)\/([^/]+)$/.exec(sel ?? '')

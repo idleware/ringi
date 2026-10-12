@@ -108,8 +108,8 @@ const world = (t: TestContext, profile?: string, spec?: Profile) => {
   initBare(path.join(opHome, 'hub', 'team', 'store', '.git'))
   const op = hub(opHome)
   const setup = Remote.setupSigned(op, opHome, url)
-  const meta = {schema: 'ringi-hub', version: spec ? '1.1' : '1.0', protocol: 1, capabilities: ['decisions/1', ...(spec ? ['profiles/1'] : [])], trust: 'signed', root: setup.root, ...(profile ? {profile} : {})}
-  const mainTree = tree(op, {'contract.json': JSON.stringify(meta), 'authority.json': '{"decide":{}}', 'HUB.md': '# independent fixture\n'}, spec ? {profiles: tree(op, {[`${spec.name}.json`]: JSON.stringify(spec)})} : {})
+  const meta = {schema: 'ringi-hub', version: spec ? '1.1' : '1.0', protocol: 1, capabilities: spec ? ['profiles/1'] : [], trust: 'signed', root: setup.root, ...(profile ? {profile} : {})}
+  const mainTree = tree(op, {'contract.json': JSON.stringify(meta), 'HUB.md': '# independent fixture\n'}, spec ? {profiles: tree(op, {[`${spec.name}.json`]: JSON.stringify(spec)})} : {})
   const genesis = commit(op, opHome, 'operator', 'fixture hub\n\nTo: *\nKind: hub\n', mainTree, [])
   op.git(['update-ref', 'refs/heads/main', genesis]); op.main = genesis; op.d.genesis = genesis
   op.git(['remote', 'add', 'origin', url])
@@ -277,7 +277,7 @@ describe('signed remote hubs', () => {
       assert.equal(store.alarms(stored).length, 2)
     })
 
-    it('refuses duplicate authority fields and agent-signed control', t => {
+    it('refuses duplicate contract fields and agent-signed control', t => {
       const w = world(t)
       const bob = w.agent('bob')
       const old = room(w.op).head
@@ -287,8 +287,8 @@ describe('signed remote hubs', () => {
       Remote.sync(w.op)
       assert.match(Remote.branch(w.op, room(w.op), fakeControl).skipped.get(fakeControl)!, /control files/)
       assert.ok(!Remote.verifyRoom(w.op, room(w.op)).members.mallory)
-      const tr = tree(w.op, {'contract.json': JSON.stringify(w.meta), 'authority.json': '{"decide":{},"decide":{"bob":{"runs":999}}}'})
-      const bad = commit(w.op, w.opHome, 'operator', 'ambiguous authority\n\nTo: *\nKind: hub\n', tr, [w.genesis])
+      const tr = tree(w.op, {'contract.json': JSON.stringify(w.meta).replace(/}$/, ',"trust":"asserted"}')})
+      const bad = commit(w.op, w.opHome, 'operator', 'ambiguous contract\n\nTo: *\nKind: hub\n', tr, [w.genesis])
       publish(w.op, 'refs/heads/main', bad)
       assert.throws(() => Remote.sync(w.op), /ALARM.*duplicate JSON/)
       assert.equal(w.op.rev('refs/heads/main'), w.genesis)
@@ -900,59 +900,17 @@ describe('signed remote hubs', () => {
       assert.ok(!signals.some(s => s.signal === 'state.completed'))
     })
 
-    it('replicates signed watcher usage without counting tags as spending', t => {
-      const w = world(t), codex = w.agent('codex', 'worker')
-      w.ok('root', ['hub', 'switch', 'team'])
-      w.ok('root', ['room', 'switch', 'r'])
-      w.ok('worker', ['join', 'team', 'r', '--as', 'codex'], 'chat-codex')
-      const p = /proposed (\w+)/.exec(w.ok('worker', ['agent', 'propose', '-m', 'One watcher run', '--decider', 'operator', '--budget', 'runs=1,run-seconds=10'], 'chat-codex'))![1]
-      const grant = /grant (\w+)/.exec(w.ok('root', ['decide', p, 'approved', '-m', 'go']))![1]
-      w.ok('worker', ['leave'], 'chat-codex')
-      w.ok('root', ['send', '--task', '--assign', 'codex', '--grant', grant, '-m', 'Run once'])
-      w.ok('worker', ['watch', 'team:r/codex', '--exec', 'true', '--once', '--require-grant'])
-      const receipts: ReturnType<typeof asJson>[] = JSON.parse(w.ok('root', ['log', '--all', '--json']))
-      const usage = receipts.filter(m => m.kind === 'usage')
-      assert.deepEqual(usage.map(m => m.trailers.usage[0]), ['reserve', 'settle'])
-      const signals: Array<{ref: string, signal: string, actor: string, target: string, ok: boolean}> = JSON.parse(w.ok('root', ['signals', '--all', '--json']))
-      const tags = signals.filter(s => s.signal.startsWith('usage.'))
-      assert.equal(tags.length, 2)
-      for (const m of usage) {
-        const s = tags.find(s => s.target === m.id)!
-        assert.deepEqual([s.actor, s.signal, s.ok], ['codex', `usage.${m.trailers.usage[0]}`, true])
-        const raw = w.op.git(['rev-parse', s.ref]).trim()
-        assert.equal(Remote.verifySignal(w.op, room(w.op), s.ref, raw), null)
-      }
-      const before = w.ok('root', ['grants'])
-      assert.match(before, /spent +runs 1\/1, open 0/)
-      const removed = tags.find(s => s.signal === 'usage.reserve')!
-      const object = codex.H.git(['rev-parse', removed.ref]).trim()
-      codex.H.git(['push', '-q', 'origin', `:${removed.ref}`])
-      const read = w.run('root', ['signals', '--all', '--json'])
-      assert.equal(read.code, 0, read.err)
-      assert.match(read.err, /ALARM.*signal.*deleted/)
-      assert.equal(w.ok('root', ['grants']), before, 'deleting a tag cannot refund or recount a receipt')
-      publish(codex.H, removed.ref, object)
-      const restored = w.run('root', ['signals', '--all', '--json'])
-      assert.equal(restored.code, 0, restored.err)
-      assert.doesNotMatch(restored.err, /ALARM/)
-      assert.equal(w.ok('root', ['grants']), before, 'restoring a tag does not double-count spending')
-    })
-
-    it('exchanges a granted task and signed completion between two machines', t => {
+    it('exchanges a task and signed completion between two machines', t => {
       const w = world(t)
       const codex = w.agent('codex', 'worker')
       w.ok('root', ['hub', 'switch', 'team'])
       w.ok('root', ['room', 'switch', 'r'])
       assert.match(w.ok('worker', ['join', 'team', 'r', '--as', 'codex', '--scope', 'implement tasks; no publication'], 'chat-codex'), /joined team\/r as codex/)
-      const p = /proposed (\w+)/.exec(w.ok('worker', ['agent', 'propose', '-m', 'One bounded run', '--decider', 'operator', '--budget', 'runs=1,run-seconds=10'], 'chat-codex'))![1]
-      const decision = w.ok('root', ['decide', p, 'approved', '-m', 'go'])
-      const grant = /grant (\w+)/.exec(decision)![1]
-      w.ok('root', ['send', '--task', '--assign', 'codex', '--grant', grant, '-m', 'Deliver result'])
+      w.ok('root', ['send', '--task', '--assign', 'codex', '-m', 'Deliver result'])
       const inbox: ReturnType<typeof asJson>[] = JSON.parse(w.ok('worker', ['agent', 'inbox', '--json'], 'chat-codex'))
       const task = inbox.find(m => m.kind === 'task')
       assert.ok(task)
       assert.equal(task.trust, 'verified')
-      assert.ok(task.trailers.grant[0].startsWith(grant))
       w.ok('worker', ['agent', 'take', task.id], 'chat-codex')
       const [taken] = JSON.parse(w.ok('root', ['tasks', '--all', '--json']))
       assert.deepEqual([taken.state, taken.assignees, taken.taken], ['submitted', ['codex'], ['codex']])
@@ -1003,7 +961,7 @@ describe('signed remote heartbeats', () => {
     Remote.sync(w.op)
     assert.equal(w.op.git(['rev-parse', second.ref]).trim(), second.object)
     assert.notEqual(first.object, second.object)
-    assert.equal(w.op.rev(R.ref), before, 'beats never append work or budget receipts')
+    assert.equal(w.op.rev(R.ref), before, 'beats never append to the room')
     assert.equal(w.op.git(['for-each-ref', '--format=%(refname)', 'refs/ringi/remote-accepted-tags/']).trim(), '')
     assert.deepEqual(w.op.remoteAlarms, {})
     assert.throws(() => Remote.push(bob.H, second.ref), /expected object id/)

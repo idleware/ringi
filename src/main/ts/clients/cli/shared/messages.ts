@@ -10,7 +10,7 @@ import type {Ctx} from '../context.ts'
 
 const sendInput = (o: Opts): Room.SendInput => ({
   text: textOf(o), to: words(opt(o, 'to')), all: flag(o, 'all'), task: flag(o, 'task'),
-  state: opt(o, 'state'), assign: opt(o, 'assign') ? words(opt(o, 'assign')) : undefined, roles: opt(o, 'roles'), grant: opt(o, 'grant'),
+  state: opt(o, 'state'), assign: opt(o, 'assign') ? words(opt(o, 'assign')) : undefined, roles: opt(o, 'roles'),
   files: list(o, 'attach').flatMap(attachments)
 })
 

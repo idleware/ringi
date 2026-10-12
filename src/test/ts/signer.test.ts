@@ -21,7 +21,6 @@ const temp = (t: TestContext) => {
 }
 const genesis: Genesis = d => ({files: {
   'contract.json': JSON.stringify({schema: 'ringi-hub', trust: d.trust, root: d.root}),
-  'authority.json': '{"decide":{}}',
 }, text: 'hub fixture\n\nTo: *\nKind: hub\n'})
 const descriptor = (trust: Descriptor['trust']): Descriptor => ({schema: 'ringi-hub/2', name: 'team', trust, store: {type: 'git', path: 'store'}})
 

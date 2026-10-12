@@ -6,7 +6,7 @@ import {OPERATOR, controlChange, openHub, room as roomOf} from '../../hub/rooms/
 import {fail, note, stamp} from '../../../lib/index.ts'
 import {AGENT_RE} from '../../hub/protocol/index.ts'
 import type {Me, Session} from './index.ts'
-import {dropSession, liveness, ownSession, pidAlive, readSession, saveSession, seatHolder, whoAmI} from './index.ts'
+import {dropSession, liveness, ownSession, readSession, saveSession, seatHolder, whoAmI} from './index.ts'
 import type {JoinKey} from '../../hub/ports/store.ts'
 
 export type JoinInput = {hub: string, room: string, agent?: string, scope?: string}
@@ -18,7 +18,6 @@ export const join = ({hub, room, agent: id, scope}: JoinInput): JoinResult => {
   const agent = id ?? me.product ?? fail('--as <id> is required: this session\'s product is unknown')
   if (!AGENT_RE.test(agent) || agent === OPERATOR) fail(`bad agent id ${agent}: lowercase letters, digits, - and _, no dot`)
   const H = openHub(hub), R = roomOf(H, room)
-  if (R.archived) fail(`${room} is archived`)
   if (H.signed) {
     if (!H.store.joinKey) fail(`hub ${H.name}: its store cannot make keys`)
     const key = H.store.joinKey!(R.s, agent)
@@ -45,7 +44,6 @@ const previousSession = ({me, H, R, agent, room}: JoinContext): Session | null =
   const holder = seatHolder(H.name, R.genesis, agent, me.handle)
   if (holder) fail(`${room}/${agent} is held by another session (${holder.handle}, ${liveness(holder)}). A seat ends only with leave, or the operator's takeover: "continue ${room}/${agent}" in this chat`)
   const mine = ownSession(me.handle)
-  if (mine?.product === 'watch' && mine.pid && pidAlive(mine.pid)) fail('this chat handed its seat to a live watcher; stop or leave it before joining another room')
   if (mine && mine.handle !== me.handle) dropSession(mine.handle)
   return mine
 }

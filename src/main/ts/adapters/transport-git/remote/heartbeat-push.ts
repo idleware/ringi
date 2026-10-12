@@ -8,7 +8,7 @@ import type {Handle, Room} from './types.ts'
 import {SHA, TAG_ACCEPT, TAG_TRACK, TAGS} from './types.ts'
 
 // Publish only the actor's exact heartbeat with an explicit old OID. A racing beat is ordinary contention, never a
-// signal rewrite alarm. Neither success nor failure changes immutable acceptance pins or budget/history state.
+// signal rewrite alarm. Neither success nor failure changes immutable acceptance pins or history state.
 export const pushHeartbeat = (H: Handle, R: Room, who: string, sha: string, expected: string | null): boolean => {
   const ref = heartbeatRef(who, R.genesis)
   if (!SHA.test(sha) || (expected !== null && !SHA.test(expected))) C.fail('heartbeat publication requires full object ids')

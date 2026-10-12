@@ -4,7 +4,6 @@
 //                                         (the root's, on top of main); then every message is a commit by its author, and
 //                                         every control record (Kind: room) a commit by the root
 //   refs/tags/<agent>.<signal>.<message12>   signals: annotated tags without text on the message's commit
-//   refs/archive/<room>@<genesis8>        an archived room, read-only
 //   refs/ringi/accepted/<genesis>/<reader>/<author>   readers' pins of each author's accepted last message
 // A member's log is its own commits in the room's branch, in branch order. The control files at the root of a room's
 // tree (members, profile, signers) change only in the root's control records.
@@ -84,7 +83,6 @@ export class GitStore extends Marks implements Store {
   }
   // One message on top of the room's branch.
   append(room: StoredRoom, who: string, text: string, entries: Entry[]): string {
-    if (room.archived) fail(`room ${room.name} is archived: read-only`)
     if (checkOutgoing(text, s => this.isRef(s)).trailers['ringi-files']) fail('Ringi-Files is store metadata; supply attachments instead')
     const own = entries.find(e => CONTROL_FILES.has(e.path))
     if (own) fail(`${own.path} is the room's own file; attach it under another path`)
@@ -97,7 +95,7 @@ export class GitStore extends Marks implements Store {
     return this.trust === 'signed' ? Remote.verify(this.h, this.remote(room), id, head) : null
   }
   pin(room: StoredRoom, reader: string, id: string, rev: string): void {
-    if (!room.archived) this.git(['update-ref', `refs/ringi/accepted/${room.genesis}/${reader}/${id}`, rev])
+    this.git(['update-ref', `refs/ringi/accepted/${room.genesis}/${reader}/${id}`, rev])
   }
   unpin(room: StoredRoom, reader: string, id: string): void {
     this.gitOk(['update-ref', '-d', `refs/ringi/accepted/${room.genesis}/${reader}/${id}`])
@@ -114,6 +112,5 @@ export class GitStore extends Marks implements Store {
   joinKey(room: StoredRoom, who: string): JoinKey { return Remote.join(this.h, this.remote(room), who, this.home) }
   // A room's transport alarm is the room's, whichever author the operator forgets.
   forgetLog(room: StoredRoom, _id: string): void { Remote.forget(this.h, this.remote(room)) }
-  rootKey(): string { return this.d.root ?? fail(`hub ${this.d.name} has no pinned root`) }
   rootRoster(): string { return Remote.rootRoster(this.h) }
 }

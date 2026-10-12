@@ -2,7 +2,6 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import * as D from '../decisions/index.ts'
 import {DEFAULT_PROFILE, PROFILES_CAPABILITY} from '../work/index.ts'
 import {hubPorts} from '../ports/index.ts'
 import {fail} from '../../../lib/index.ts'
@@ -19,17 +18,15 @@ const VERSION = () => hubPorts().build.version
 const HUB_MD = `# ringi hub
 
 The shared contract of a ringi hub (docs/spec/hub-1.md): contract.json (schema, version, protocol, trust, capabilities, the
-default profile), authority.json (who may decide what, up to which budget; the root, \`operator\`, always may) and
-profiles/ (what a piece of work is in a room: its states, and who may move it). Use \`ringi\`; never edit by hand.
+default profile) and profiles/ (what a piece of work is in a room: its states, and who may move it). Use \`ringi\`; never edit by hand.
 `
 export const readProfileResource = (name: string): string => fs.readFileSync(path.join(hubPorts().build.resources, 'profiles', `${name}.json`), 'utf8')
 // A new hub: local (asserted senders), or signed, with the operator's root key generated on this machine and pinned.
 // The files of a new hub's first contract.
 const genesisFiles = (d: Descriptor, layout: string): Record<string, string> => {
-  const contract = {schema: 'ringi-hub', version: '1.2', protocol: PROTOCOL_MAJOR, trust: d.trust, store: layout, capabilities: [D.CAPABILITY, PROFILES_CAPABILITY], profile: DEFAULT_PROFILE, ...(d.root ? {root: d.root} : {})}
+  const contract = {schema: 'ringi-hub', version: '1.2', protocol: PROTOCOL_MAJOR, trust: d.trust, store: layout, capabilities: [PROFILES_CAPABILITY], profile: DEFAULT_PROFILE, ...(d.root ? {root: d.root} : {})}
   return {
     'contract.json': JSON.stringify(contract, null, 2) + '\n',
-    'authority.json': JSON.stringify({decide: {}}, null, 2) + '\n',
     'HUB.md': HUB_MD,
     [`profiles/${DEFAULT_PROFILE}.json`]: readProfileResource(DEFAULT_PROFILE),
   }

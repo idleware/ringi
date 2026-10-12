@@ -17,11 +17,10 @@ const quorumLine = (R: Room) => {
   const agents = Object.values(R.members).filter(m => m.role !== 'root').length
   return agents >= R.quorum ? `; started at its quorum of ${R.quorum} agents` : `; waiting for a quorum of ${R.quorum} agents, has ${agents}`
 }
-const roomLine = (R: Room) => `room ${R.name}${R.archived ? ' (archived, read-only)' : ''}, genesis ${short(R.genesis)}, profile ${R.profile.name}; members: ${Object.entries(R.members).map(([id, i]) => i.role === 'root' ? `${id} (root)` : id).join(', ')}` + quorumLine(R)
+const roomLine = (R: Room) => `room ${R.name}, genesis ${short(R.genesis)}, profile ${R.profile.name}; members: ${Object.entries(R.members).map(([id, i]) => i.role === 'root' ? `${id} (root)` : id).join(', ')}` + quorumLine(R)
 export const printOverview = (w: Where, R: Room) => {
   out(roomLine(R))
   out(w.sessions.length ? `sessions:\n${w.sessions.map(s => `  ${sessionLine(s)}`).join('\n')}` : 'sessions: none joined')
   out(w.work.length ? `open work:\n${w.work.map(t => `  ${taskLine(t)}`).join('\n')}` : 'open work: none')
-  if (w.proposals.length) out(`open proposals:\n${w.proposals.map(x => `  ${short(x.proposal.id)} ${x.state} → ${x.decider}  ${x.proposal.subject}`).join('\n')}`)
 }
 export const showMessage = (R: Room, o: Opts, all: All, m: Message) => out(flag(o, 'short') ? `  ${oneLine(m)}` : `\n${render(all, m, {max: 2000, files: () => withSizes(R, m)})}`)

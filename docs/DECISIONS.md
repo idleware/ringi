@@ -213,60 +213,13 @@ Git covers several of these by construction. That is the bet here.
 ## Open questions
 
 - **Porting gaps** (codex's audit, 2026-10-11). Behaviour a Go or Rust port would still have to read from the code,
-  in the order to specify it: (1) the CLI's JSON shapes and exit codes (wait 3, held budget 4, a cancelled dispatch
-  settled with Exit 125); (2) session records (fields, file naming, the 60-minute lease, handle prefixes, watcher
-  liveness by pid) and reader state (heads, cursors, pending and inflight checkpoints, heartbeats, run times, signal
-  pins); (3) lock files (owner token, recovery gate) if homes are shared across implementations; (4) the watcher's
-  environment (`RINGI_HOME`, `RINGI_SESSION`, `RINGI_MSGS`, `RINGI_GRANT`), its `sh` process group, 5 s grace,
-  defaults (interval 5 s, window 86400 s, 10 runs) and grouping by grant; (5) rendering (12-character ids, UTC
-  times, sizes) where tests read prose rather than JSON; (6) old home layouts and which JSON files reject duplicate
-  keys; (7) the signed transport's recovery state (`push-alarms.json`).
+  in the order to specify it: (1) the CLI's JSON shapes and exit codes (3: a wait that timed out, a join that awaits admission);
+  (2) session records (fields, file naming, the 60-minute lease, handle prefixes) and reader state (accepted heads,
+  control and signals, delivery cursors, staged files); (3) lock files (owner token, recovery gate) if homes are
+  shared across implementations; (4) rendering (12-character ids, UTC times, sizes) where tests read prose rather than
+  JSON; (5) which JSON files reject duplicate keys; (6) the signed transport's recovery state (`push-alarms.json`).
 
-- **Observability: is the agent working, and what does it spend** (proposal of claude and codex, 2026-10-11, awaiting
-  the operator). Research: Claude Code, Codex, DeepSeek, vLLM, Ollama, llama.cpp, LM Studio, NVML.
-  - *Four things kept apart:* the collector is alive; the agent is active (tools, tokens flowing); semantic progress (a
-    stage done); usage (resources measured). A keep-alive or a collector tick proves activity of the transport, not
-    progress; an overdue `Next` means a suspected stall or lost telemetry, never a finished or failed run.
-  - *Reports* (`reports/1`, its own capability, non-waking kind): Re <work>, Stage, an opaque Run with host
-    session/turn/request ids as correlation, Seq per reporter and run, a receipt id, Phase, Source and adapter version,
-    Next, and resource values each with its provenance (measured, provider-reported, estimated, unknown) and the scope
-    of its counter. Only normalized deltas enter accounting; raw provider usage rides as evidence. A model's stage report
-    carries no numbers. Git: a commit in the reporter's log plus a derived immutable tag; Telegram: a message; Kafka: an
-    event. Counting reports against grants belongs to decisions/2.
-  - *Who writes, no model tokens:* the watcher reads the host's JSON (`codex exec --json`, `claude -p --output-format
-    json`); an optional proxy reads API usage (DeepSeek and OpenAI-compatible local servers); host OTLP and GPU meters
-    are later adapters. One canonical source per resource and run, or reconciliation by a shared request id.
-  - *Presence* (busy, waiting on approval/input/tool, idle, unknown) is a later, optional live view outside history,
-    with its own rules: bounded signed payload, sequence, expiry, one writer per seat.
-  - *First lesson:* one empty-inbox poll by a model in this room reported 268,011 input tokens, 266,624 of them cached
-    (1,387 uncached), and 281 output: a single sample, but it says to poll in code and wake a model only on actionable
-    input.
-- **Budgets as coordination, not enforcement** (proposal of claude and codex, 2026-10-11, awaiting the operator).
-  The operator: enforcement is an orchestrator's job (Hermes, OpenClaw); ringi carries budget instructions and keeps
-  the books, and tokens are only one of the resources work may need. Proposed as `decisions/2`:
-  - *Boundary.* An executor (orchestrator, provider adapter, runner, person) enforces. ringi establishes authorized
-    allowances, who reported what, the declared totals and what remains, revocation, overruns and missing reports, and
-    tampering. It does not prove consumption, compel reports or prevent off-ledger work; totals read as reported.
-  - *Resources.* Ids from a catalogue in the hub contract (`resources.json`: id, fixed unit, meaning), integer
-    quantities (`usd-cent`, not float dollars). Cumulative consumption, occupied capacity and a per-run deadline are
-    different things; the first version keeps cumulative amounts and visible reservations, capacity later.
-  - *Placement.* Vocabulary: the contract. Who may allow how much of what: `authority.json`, per resource. Request and
-    allowance: proposal and decision (`Budget`, `Reporters`). Binding to work: `Grant`. Consumption: usage receipts with
-    resource, quantity, receipt id, phase and an optional evidence attachment. Views: signals. Execution policy: the
-    executor's own, outside ringi. Profiles stay about work.
-  - *Reporting.* Only reporters the grant names count; the CLI writes the proposer when none is given, the decision
-    confirms or narrows. Others' receipts stay visible, excluded and alarmed. An authorized overrun counts and alarms;
-    a settlement after revocation still counts for earlier work. Missing reporters mean unaccounted, not zero
-    consumption; receipts are deduplicated by grant, resource, reporter and receipt id.
-  - *Watcher.* Keeps coordinating turns (seats, stop, handoff, retries); its run limits become the reference
-    executor's settings, not a protocol promise.
-  - *Versions.* Version dispatch first; `decisions/2` in its own file; every existing proposal and grant keeps the
-    version it was made under, so no rebase reinterprets old records.
-
-- **Budget signals** (settled 2026-10-11, kept for the reasoning). The `Kind: usage` journal remains authoritative. Each counted receipt derives an author-bound `usage.reserve` or `usage.settle` tag on that receipt, signed on a signed hub, for tools and webhooks. Tags carry no additional spending: a missing tag changes no accounting, an accepted tag's deletion alarms, and `signals --repair` restores missing tags from the journal. An authoritative tag ledger would need a durable, complete reservation inventory and a fenced owner or trusted checkpoint for successor readers; private pins cannot reveal reservations deleted before a reader arrived. It would also need stable run identities, settlement bindings, explicit clock and executor trust, and a required accounting capability for older clients. The journal already supplies the inventory and ordering; retaining it avoids a second ledger and migration fold. Across machines the reservation stays non-atomic: one enforcing watcher per grant.
-
-
-0.3, from codex's scope review: static allocations of a grant among named executors with a reservation journal and crash semantics; handoff with control generations; claims, leases and failover; token and money adapters; cross-hub work; on signed hubs: archive, deletion, member removal, key rotation and revocation, freezes, seals and repair.
+0.3, from codex's scope review: claims, leases and failover; cross-hub work; on signed hubs: deletion, member removal, key rotation and revocation, freezes, seals and repair.
 
 
 1. `join` changes the room's roster on the operator's word in the chat. Fine while the operator is the only root; with other roots it splits into `room admit` by a root and `join` by the session.
@@ -277,7 +230,7 @@ Git covers several of these by construction. That is the bet here.
 - **Freshness.** One hub can withhold new commits. Options: witnesses, or relaying across two hubs.
 - **Concurrent terminal states.** A cancel and a completion that are concurrent can swap order until replication completes. Irreversible work needs an acknowledgement protocol.
 - **Hostile hubs.** Fetch size, history depth and attachment sizes are unbounded before verification.
-- **Wake-up transport.** A Forgejo webhook that calls a runner, or polling `git ls-remote`; either one stays within the receiver's budget.
+- **Wake-up transport.** A Forgejo webhook that calls the operator's runner, or polling `git ls-remote`; either one wakes in code, never a model.
 - **Large assets.** LFS, or pointers with hashes.
 - **Encryption.** `age` per message and attachment, encrypted to the room members' SSH keys, so the forge's admin sees only metadata. Group keys for large rooms.
 - **Rooms in practice.**
@@ -370,3 +323,26 @@ Git covers several of these by construction. That is the bet here.
   finds by looking when an older one does not (codex: no field proves nothing). Each refuses with what to do; a layout
   older ringi cannot read also raises the contract major. A migration, if ever worth it, is a tool beside ringi. The
   `Store` port is split by what each part does, and hub-1 states what a log must guarantee.
+
+## ringi: a coordinator, cut to size (2026-10-12)
+
+- **The operator:** less code is always better; whatever does not fit the strategy goes. The strategy is the purpose
+  stated on 2026-10-11: a coordinator, not an orchestrator. Starting turns, spending and approving work is what an
+  orchestrator does (Hermes, n8n, OpenClaw), so ringi stops doing it. The live room used tasks, states, assignment,
+  files, signals, marks and heartbeats; nothing else.
+- **Gone.** `decisions/1` whole (proposals, stamps, decisions, budgets, grants, usage receipts, `authority.json`); the
+  watcher (`ringi watch`, its turns, checkpoints, retries, hand-off, process groups, the zombie settlement just
+  finished); `agent ping` and pongs; agent cards; `room archive`; the CPU reading in heartbeats; the planned
+  `transport-kafka` and `transport-temporal` stubs; reader budgets and run times. 34 files, about 2,200 lines.
+- **No major.** ringi is 0.x and used in one project. `decisions/1` stays registered as a retired capability that
+  restricts nothing, so a contract that names it (the live hub's) opens. A profile's `grant` rule is still accepted and
+  allows nothing. Rooms holding decision records are not supported: their signals would read as alarms, so such a
+  room is replaced by a new one, not read; the live hub has none (no such kinds, tags or archives, checked). `ping`,
+  `pong`, `usage` and `card` are plain kinds again (core-1 lost its heartbeat and waking rules: ringi starts no
+  turns). Archived rooms' refs, where they exist, stay in the store unlisted; a reader's old watcher fields are
+  ignored. Presence stays: it is the store's heartbeat, written by the pulse, not a message.
+- **Rejected with it.** Budgets as coordination (`decisions/2`, the open proposal of 2026-10-11), budget signals, usage
+  reports and observability of spending: each is the executor's books. What stays from that research: poll in code
+  and wake a model only on actionable input (one empty-inbox poll cost 268k input tokens).
+- **Smaller ports.** `ProcessHost` is `supported`, `alive`, `ancestors`, `start`; the store's administration is
+  `deleteRoom`; `Store.contractFiles` and the transport's `rootKey` went with the authority table.

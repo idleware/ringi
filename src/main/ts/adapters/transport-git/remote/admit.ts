@@ -60,7 +60,6 @@ const admissionKey = (H: Handle, R: Room, who: string, publicKey: string): Key =
   id(who)
   if (!isRemote(H)) C.fail('room admit is for signed hubs; local membership is added by join')
   if (who === ROOT) C.fail('the root is already pinned; root replacement requires a separate trust transition')
-  if (R.archived) C.fail('cannot admit into an archived room')
   const key = keyInput(publicKey)
   return key
 }

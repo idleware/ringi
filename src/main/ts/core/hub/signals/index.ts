@@ -11,8 +11,8 @@
 // after a crash between message and tag changes nothing and is restored with `signals --repair`.
 //
 // Marks are the second layer, in the same namespace: where attention is, not what was decided. `read` says a message
-// reached its reader (made on delivery); `taken` says a member took a piece of work. A mark changes no state,
-// assignment or budget. It is checked only for being possible: its target is an accepted message of the room, its
+// reached its reader (made on delivery); `taken` says a member took a piece of work. A mark changes no state
+// or assignment. It is checked only for being possible: its target is an accepted message of the room, its
 // actor a member; `read` only for a message addressed to the actor or to all, `taken` only for a message that opens
 // work.
 

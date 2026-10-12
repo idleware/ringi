@@ -15,6 +15,7 @@ export const PROFILES_CAPABILITY = 'profiles/1'
 // A rule lists principals: `requester` (who opened the work), `assignee`, `member` (anyone in the room),
 // `role:<label>` (whoever holds that label in the work), or `agent:<id>`. An empty or missing rule allows nobody;
 // an exact `state:<s>` rule replaces `state:*` for that state.
+// `grant` is retired: a profile may still name it, and nothing acts on it.
 export type Rules = {assign?: string[], roles?: string[], grant?: string[], [state: `state:${string}`]: string[] | undefined}
 export type Profile = {
   schema: typeof PROFILE_SCHEMA
@@ -24,7 +25,7 @@ export type Profile = {
   states: string[]
   initial: string
   terminal: string[]
-  // The state a runner sets when the work cannot go on without input or budget; none if the profile has no such state.
+  // The state of work that cannot go on without input; none if the profile has no such state.
   waiting?: string
   rules: Rules
 }
@@ -37,10 +38,7 @@ export type Task = {
   requester: string
   assignees: string[]
   roles: Record<string, string>
-  // The grant the work spends (decisions/1): its root's `Grant`, replaced by a later one from whoever the `grant`
-  // rule allows (a top-up).
-  grant: string | null
-  // What each message actually changed, in fold order: `opened`, `assigned`, `roles`, `grant`, `state.<s>`. A trailer
+  // What each message actually changed, in fold order: `opened`, `assigned`, `roles`, `state.<s>`. A trailer
   // the author had no right to is not here; signals (core/hub/signals) are made only from these.
   effects: Map<string, string[]>
 }

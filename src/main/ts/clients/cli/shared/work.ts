@@ -10,7 +10,7 @@ import type {Ctx} from '../context.ts'
 
 export const taskLine = (t: TaskView) => {
   const roles = Object.keys(t.roles).length ? ` [${Object.entries(t.roles).map(([id, label]) => `${id}=${label}`).join(' ')}]` : ''
-  return `${short(t.id)}  ${t.state.padEnd(14)} ${t.requester} → ${t.assignees.join(',') || '(open)'}${roles}${t.taken.length ? ` taken by ${t.taken.join(',')}` : ''}${t.grant ? ` grant ${short(t.grant)}` : ''}  ${when(Date.parse(t.at) / 1000).slice(5)} by ${t.by}  ${t.subject}`
+  return `${short(t.id)}  ${t.state.padEnd(14)} ${t.requester} → ${t.assignees.join(',') || '(open)'}${roles}${t.taken.length ? ` taken by ${t.taken.join(',')}` : ''}  ${when(Date.parse(t.at) / 1000).slice(5)} by ${t.by}  ${t.subject}`
 }
 
 export const tasks = (a: Ctx, o: Opts) => {

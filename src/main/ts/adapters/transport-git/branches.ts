@@ -1,5 +1,5 @@
 // branches: a room is one linear branch from its genesis. What its commits are (messages or control records), the
-// room's control files, and the room's life: create, archive, delete.
+// room's control files, and the room's life: create, delete.
 
 import {fail} from '../../lib/index.ts'
 import * as Remote from './remote.ts'
@@ -14,20 +14,20 @@ const ROOT = 'operator'
 export const CONTROL_FILES = new Set(['ROOM.md', 'members.json', 'profile.json', 'allowed_signers'])
 // One commit of a room's branch: who wrote it, and whether it is a control record.
 type Entry_ = {sha: string, author: string, text: string, control: boolean, skipped?: string}
-type Named = Pick<StoredRoom, 'name' | 'genesis' | 'archived'>
+type Named = Pick<StoredRoom, 'name' | 'genesis'>
 
 export class Branches extends Repo {
-  protected ref(name: string) { return name.includes('@') ? `refs/archive/${name}` : `refs/heads/${name}` }
+  protected ref(name: string) { return `refs/heads/${name}` }
   protected tip(name: string) { return this.rev(this.ref(name)) }
   // Every branch but the contract's, by name.
   roomBranches(): string[] {
     return this.git(['for-each-ref', '--format=%(refname:lstrip=2)', 'refs/heads/']).split('\n').filter(b => b && b !== 'main')
   }
-  // Every branch but the contract's is a room; an archive is `<room>@<genesis8>`.
-  roomNames(archived: boolean): string[] {
-    const prefix = archived ? 'refs/archive/' : 'refs/heads/'
+  // Every branch but the contract's is a room.
+  roomNames(): string[] {
+    const prefix = 'refs/heads/'
     const names = this.git(['for-each-ref', '--format=%(refname)', prefix]).split('\n').filter(Boolean).map(r => r.slice(prefix.length))
-      .filter(n => ID_RE.test(n.split('@')[0]) && n !== 'main' && n.includes('@') === archived)
+      .filter(n => ID_RE.test(n) && n !== 'main')
     return names.sort()
   }
   // A control record: the room's genesis, or a root commit of Kind: room.
@@ -49,7 +49,7 @@ export class Branches extends Repo {
   // On a signed hub the branch's verification says which commits are control records, and why the others that are no
   // valid message are skipped; a commit off the branch's first parents is never a message (remote.ts).
   protected judged(room: Named, tip: string, entries: Entry_[]): Entry_[] {
-    if (this.trust !== 'signed' || room.archived) return entries
+    if (this.trust !== 'signed') return entries
     const b = Remote.branch(this.h, {name: room.name, ref: this.ref(room.name), genesis: room.genesis}, tip)
     const control = new Set(b.control)
     return entries.map(e => ({...e, control: control.has(e.sha),
@@ -68,10 +68,9 @@ export class Branches extends Repo {
     if (!tip) return null
     const genesis = this.git(['rev-list', '--first-parent', '--reverse', tip, '^refs/heads/main']).split('\n')[0]
       || this.git(['rev-list', '--first-parent', '--reverse', tip]).split('\n').filter(Boolean).at(-1)!
-    const archived = name.includes('@')
-    if (this.trust === 'signed' && !archived && this.h.remoteAlarms?.[ref]) fail(`ALARM ${this.h.remoteAlarms[ref]}; room ${name} is quarantined`)
-    const control = this.entries({name, genesis, archived}, tip).filter(e => e.control).map(e => ({rev: e.sha, text: e.text}))
-    return {name, archived, head: control.at(-1)!.rev, genesis, tip, base: this.rev(`${genesis}^`) ?? ZERO, control}
+    if (this.trust === 'signed' && this.h.remoteAlarms?.[ref]) fail(`ALARM ${this.h.remoteAlarms[ref]}; room ${name} is quarantined`)
+    const control = this.entries({name, genesis}, tip).filter(e => e.control).map(e => ({rev: e.sha, text: e.text}))
+    return {name, head: control.at(-1)!.rev, genesis, tip, base: this.rev(`${genesis}^`) ?? ZERO, control}
   }
   // Control files are read at a control record, never at the branch's tip.
   controlFile(room: StoredRoom, name: string, rev?: string): string | null {
@@ -95,13 +94,7 @@ export class Branches extends Repo {
   protected refsUnder(prefix: string): Array<[string, string]> {
     return this.git(['for-each-ref', '--format=%(refname) %(objectname)', prefix]).split('\n').filter(Boolean).map(l => l.split(' ') as [string, string])
   }
-  // The branch moves under the archive; its signals stay where they are, on its commits.
-  archiveRoom(room: StoredRoom, as: string): void {
-    const tip = this.rev(this.ref(room.name)) ?? fail(`room ${room.name} is gone`)
-    this.git(['update-ref', `refs/archive/${as}`, tip, ZERO])
-    this.git(['update-ref', '-d', this.ref(room.name), tip])
-  }
-  // Every ref of the room in one transaction: its branch (or archive), every tag on its commits (signals, heartbeats,
+  // Every ref of the room in one transaction: its branch, every tag on its commits (signals, heartbeats,
   // anyone's), what the store keeps under its genesis (pins, evidence) and its unpublished commits. Objects are left to
   // the repository.
   deleteRoom(room: StoredRoom): void {
@@ -116,10 +109,10 @@ export class Branches extends Repo {
     this.git(['update-ref', '--stdin'], {input: ['start', ...refs.map(r => `delete ${r}`), 'prepare', 'commit', ''].join('\n')})
   }
   protected remote(room: StoredRoom): Remote.Room {
-    return {name: room.name, ref: this.ref(room.name), head: room.head, genesis: room.genesis, archived: room.archived}
+    return {name: room.name, ref: this.ref(room.name), head: room.head, genesis: room.genesis}
   }
   roster(room: StoredRoom): Roster | null {
-    if (this.trust !== 'signed' || room.archived) return null
+    if (this.trust !== 'signed') return null
     const v = Remote.verifyRoom(this.h, this.remote(room))
     return {members: v.members, signers: v.entries}
   }

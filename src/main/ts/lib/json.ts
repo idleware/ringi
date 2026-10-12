@@ -1,5 +1,5 @@
 // json: JSON read strictly. JSON.parse silently keeps the last of duplicate
-// fields; for contracts and authority that hides a second value, so the structure is checked first and a duplicate
+// fields; for contracts and profiles that hides a second value, so the structure is checked first and a duplicate
 // field is refused.
 
 import {fail} from './fail.ts'

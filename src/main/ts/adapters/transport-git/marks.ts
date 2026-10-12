@@ -73,7 +73,7 @@ export class Marks extends Branches {
       if (!mine.has(o?.target || t.object)) return []
       return [{ref: t.ref, object: t.object, name: t.name, actor: t.actor, target: o?.target ?? '', tagger: o?.tagger ?? '', text: o?.text ?? ''}]
     })
-    if (this.trust !== 'signed' || room.archived) return records
+    if (this.trust !== 'signed') return records
     return Remote.withVerification(this.h, () => records.filter(s => {
       const why = Remote.verifySignal(this.h, this.remote(room), s.ref, s.object)
       if (why) note(`ALARM signal ${s.ref}: ${why}; quarantined and withheld`)

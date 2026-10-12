@@ -6,7 +6,7 @@ import type {SigningContext} from '../../../core/signing/index.ts'
 export type Handle = {name: string, dir: string, d: Descriptor, signing?: SigningContext, main?: string, remoteAlarms?: Record<string, string>, heartbeatErrors?: Record<string, string>, bootstrap?: boolean}
 
 // A room: its one branch (`ref`), its latest control record (`head`) and its genesis.
-export type Room = {name: string, ref: string, head: string, genesis: string, archived?: boolean, members?: Record<string, Member>}
+export type Room = {name: string, ref: string, head: string, genesis: string, members?: Record<string, Member>}
 
 export type Key = {line: string, fp: string}
 

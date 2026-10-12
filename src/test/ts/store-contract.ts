@@ -108,15 +108,12 @@ export const storeContract = (type: string, make: Factory): void => { describe(`
     store.retain(room(store, 'r'), 'alice', [])
   })
 
-  it('archives a room read-only and deletes one with everything kept for it', t => {
+  it('lists its rooms and deletes one with everything kept for it', t => {
     const {store} = fresh(t)
     store.append(room(store, 'r'), 'alice', say('hello'), [])
-    store.archiveRoom(room(store, 'r'), 'r@archived')
-    assert.deepEqual(store.roomNames(false), [])
-    assert.deepEqual(store.roomNames(true), ['r@archived'])
-    assert.ok(room(store, 'r@archived').archived)
-    store.deleteRoom(room(store, 'r@archived'))
-    assert.deepEqual(store.roomNames(true), [])
+    assert.deepEqual(store.roomNames(), ['r'])
+    store.deleteRoom(room(store, 'r'))
+    assert.deepEqual(store.roomNames(), [])
   })
 
   it('replaces an agent\'s heartbeat on every beat, if it keeps presence', t => {

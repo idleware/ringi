@@ -93,7 +93,6 @@ export class Repo {
     const r = this.gitOk(['show', `${rev}:${name}`])
     return r.status === 0 ? r.stdout : null
   }
-  contractFiles(rev: string): string[] { return this.git(['ls-tree', '-r', '--name-only', rev]).split('\n').filter(Boolean) }
   amendContract(who: string, text: string, files: Record<string, string | Buffer>): string {
     const head = this.contractHead()
     const sha = this.commit(who, text, this.tree(`${head}^{tree}`, Object.entries(files).map(([p, c]) => ({path: p, content: c as string, mode: '100644'}))), [head])

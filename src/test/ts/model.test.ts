@@ -5,7 +5,6 @@ import type {TestContext} from 'node:test'
 import type {Session} from '../../main/ts/core/agents/sessions/index.ts'
 import type {asJson} from '../../main/ts/core/hub/usecases/view.ts'
 import type {Checked} from '../../main/ts/core/hub/signals/index.ts'
-import type {Budget, Usage} from '../../main/ts/core/hub/decisions/index.ts'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -20,8 +19,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 type RunOpt = {as?: string}
 const find = <T>(xs: T[], hit: (x: T) => boolean): T => xs.find(hit) ?? assert.fail('the expected entry is listed')
 type TaskView = {id: string, subject: string, requester: string, assignees: string[], roles: Record<string, string>,
-  taken: string[], grant: string | null, state: string, by: string, at: string}
-type GrantView = {grant: string, proposal: string, budget: Budget, revoked: boolean, usage: Usage}
+  taken: string[], state: string, by: string, at: string}
 
 const world = (t: TestContext) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ringi-model-'))
@@ -44,7 +42,6 @@ const world = (t: TestContext) => {
   function json(args: ['tasks', ...string[]], opt?: RunOpt): TaskView[]
   function json(args: ['sessions', ...string[]], opt?: RunOpt): Session[]
   function json(args: ['signals', ...string[]], opt?: RunOpt): Checked[]
-  function json(args: ['grants', ...string[]], opt?: RunOpt): GrantView[]
   function json(args: string[], opt?: RunOpt): unknown { return JSON.parse(ok([...args, '--json'], opt)) }
   const store = path.join(home, 'hub', 'local', 'store', '.git')
   const git = (...args: string[]) => spawnSync('git', ['--git-dir', store, ...args], {encoding: 'utf8', env: FIXTURE_GIT}).stdout.trim()
@@ -204,67 +201,6 @@ describe('signals: what happened, beside the messages', () => {
     assert.match(w.run(['signals']).err, /was removed after it was accepted/)
   })
 
-  it('tags only the usage receipts a grant\'s ledger counts', (t) => {
-    const w = world(t)
-    w.ok(['room', 'create', 'r'])
-    for (const [as, who] of [['C', 'codex'], ['L', 'claude']]) w.ok(['join', 'local', 'r', '--as', who], {as})
-    const note = w.id(w.ok(['agent', 'send', '--to', 'operator', '-m', 'just a note'], {as: 'C'}))
-    w.ok(['agent', 'send', '--to', 'operator', '-m', 'here too'], {as: 'L'})
-    const p = w.id(w.ok(['propose', '-m', 'runs', '--decider', 'operator', '--budget', 'runs=5']))
-    w.ok(['decide', p, 'approved', '-m', 'go'])
-    const [grant] = w.json(['grants'])
-    const full = (short: string) => find(w.json(['log', '--all']), m => m.id.startsWith(short)).id
-    // Receipts written past ringi: one naming a note, a run settled twice, a settlement before its reservation, and
-    // claude's run under the same Run id as codex's.
-    const env = (who: string) => ({...FIXTURE_GIT, GIT_AUTHOR_NAME: who, GIT_AUTHOR_EMAIL: `${who}@ringi`, GIT_COMMITTER_NAME: who, GIT_COMMITTER_EMAIL: `${who}@ringi`})
-    const store = path.join(w.home, 'hub', 'local', 'store', '.git')
-    const receipt = (subject: string, trailers: string, who = 'codex') => {
-      const ref = 'refs/heads/r'
-      const head = w.git('rev-parse', ref)
-      const sha = spawnSync('git', ['--git-dir', store, 'commit-tree', w.git('rev-parse', `${head}^{tree}`), '-p', head, '-m', `${subject}\n\nTo: operator\nKind: usage\n${trailers}`],
-        {encoding: 'utf8', env: env(who)}).stdout.trim()
-      w.git('update-ref', ref, sha, head)
-      return sha
-    }
-    const stray = receipt('usage: reserve', `Grant: ${full(note)}\nUsage: reserve\nRun: r0`)
-    receipt('usage: reserve', `Grant: ${grant.grant}\nUsage: reserve\nRun: r1`)
-    const first = receipt('usage: settle', `Grant: ${grant.grant}\nUsage: settle\nRun: r1\nSeconds: 5\nExit: 0`)
-    const again = receipt('usage: settle', `Grant: ${grant.grant}\nUsage: settle\nRun: r1\nSeconds: 7\nExit: 0`)
-    const early = receipt('usage: settle', `Grant: ${grant.grant}\nUsage: settle\nRun: r2\nSeconds: 11\nExit: 0`)
-    receipt('usage: reserve', `Grant: ${grant.grant}\nUsage: reserve\nRun: r2`)
-    receipt('usage: reserve', `Grant: ${grant.grant}\nUsage: reserve\nRun: r1`, 'claude')
-    receipt('usage: settle', `Grant: ${grant.grant}\nUsage: settle\nRun: r1\nSeconds: 3\nExit: 0`, 'claude')
-    assert.match(w.ok(['agent', 'signals', '--repair'], {as: 'C'}), /restored 3 signal\(s\) of codex/)
-    assert.match(w.ok(['agent', 'signals', '--repair'], {as: 'L'}), /restored 2 signal\(s\) of claude/)
-    const usage = w.json(['signals', '--all']).filter(s => s.signal.startsWith('usage.'))
-    assert.deepEqual(usage.map(s => `${s.actor}:${s.signal}`).sort(),
-      ['claude:usage.reserve', 'claude:usage.settle', 'codex:usage.reserve', 'codex:usage.reserve', 'codex:usage.settle'])
-    assert.equal(find(usage, s => s.actor === 'codex' && s.signal === 'usage.settle').target, first)
-    assert.ok(!usage.some(s => [stray, again, early].includes(s.target)))
-    // Three runs, codex's r2 still open; 5s and 3s spent, the duplicate and the early settlement count nothing.
-    assert.match(w.ok(['grants']), /runs 3\/5, open 1, 8s used/)
-    // A tag forged on the receipt no grant counts is an alarm.
-    spawnSync('git', ['--git-dir', store, 'tag', '-a', '-F', '-', `codex.usage.reserve.${stray.slice(0, 12)}`, stray], {env: env('codex'), input: ''})
-    assert.match(w.run(['signals', '--all']).err, /ALARM signal .*codex.*did not make usage\.reserve/)
-  })
-
-  it('keeps a reader\'s pins when the room is archived', (t) => {
-    const w = world(t)
-    w.ok(['room', 'create', 'r'])
-    w.ok(['join', 'local', 'r', '--as', 'alice'], {as: 'A'})
-    const task = w.id(w.ok(['send', '--task', '--assign', 'alice', '-m', 'Job']))
-    w.ok(['agent', 'inbox'], {as: 'A'})
-    w.ok(['agent', 'reply', task, '--state', 'completed', '-m', 'done'], {as: 'A'})
-    assert.equal(w.run(['signals']).err, '')
-    const archived = /archived r as (r@\w+)/.exec(w.ok(['room', 'archive', 'r']))![1]
-    // The signals moved with the room; the operator's pins still name them.
-    const read = w.run(['log', '--room', archived])
-    assert.equal(read.code, 0, read.err)
-    assert.doesNotMatch(read.err, /ALARM/)
-    assert.deepEqual(w.json(['signals', '--room', archived]).map(s => `${s.actor}:${s.signal}`).sort(),
-      ['alice:read', 'alice:state.completed', 'operator:assigned', 'operator:opened'])
-  })
-
   it('restores the missing signals of one\'s own messages', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
@@ -331,21 +267,15 @@ describe('hubs: a descriptor beside a store', () => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
     w.ok(['send', '--to', '*', '-m', 'only in r'])
-    // A store that copies r's branch to `other`, and invents an archive of r.
+    // A store that copies r's branch to `other`.
     w.git('update-ref', 'refs/heads/other', w.git('rev-parse', 'refs/heads/r'))
-    w.git('update-ref', 'refs/archive/r@00000000', w.git('rev-parse', 'refs/heads/r'))
-    const list = w.run(['room', 'list', '--archived'])
+    const list = w.run(['room', 'list'])
     assert.equal(list.code, 0, list.err)
     assert.match(list.out, /^\* r +1 member/m)
     assert.doesNotMatch(list.out, /other/)
     assert.match(list.err, /ALARM room other: its genesis is "room r"/)
-    assert.doesNotMatch(list.out, /r@00000000/)
-    assert.match(list.err, /ALARM room r@00000000: its genesis is "room r"/)
     w.no(['log', '--room', 'other'], /its genesis is "room r"; refusing a room's history under another name/)
-    w.no(['log', '--room', 'r@00000000'], /its genesis is "room r"/)
-    // The real archive still reads.
-    const archived = /archived r as (r@\w+)/.exec(w.ok(['room', 'archive', 'r']))![1]
-    assert.match(w.ok(['log', '--room', archived]), /only in r/)
+    assert.match(w.ok(['log', '--room', 'r']), /only in r/)
   })
 
   it('keeps what this machine knows in hub.json and the shared contract in the store', (t) => {
@@ -353,21 +283,17 @@ describe('hubs: a descriptor beside a store', () => {
     w.ok(['room', 'create', 'r'])
     const d = JSON.parse(fs.readFileSync(path.join(w.home, 'hub', 'local', 'hub.json'), 'utf8'))
     assert.deepEqual(d, {schema: 'ringi-hub/2', name: 'local', trust: 'asserted', store: {type: 'git', path: 'store'}})
-    assert.deepEqual(w.git('ls-tree', '-r', '--name-only', 'main').split('\n'), ['HUB.md', 'authority.json', 'contract.json', 'profiles/a2a-1.json'])
+    assert.deepEqual(w.git('ls-tree', '-r', '--name-only', 'main').split('\n'), ['HUB.md', 'contract.json', 'profiles/a2a-1.json'])
     assert.match(w.git('show', 'main:contract.json'), /"profile": "a2a-1"/)
   })
 
-  it('refuses a planned store type it does not implement yet, and one it does not know', (t) => {
+  it('refuses a store type it does not know', (t) => {
     const w = world(t)
     w.ok(['hub'])
     const f = path.join(w.home, 'hub', 'local', 'hub.json')
     const d = JSON.parse(fs.readFileSync(f, 'utf8'))
-    for (const type of ['kafka', 'temporal']) {
-      fs.writeFileSync(f, JSON.stringify({...d, store: {type, path: 'store'}}))
-      w.no(['where'], new RegExp(`the ${type} store is planned and not implemented`))
-    }
     fs.writeFileSync(f, JSON.stringify({...d, store: {type: 'teleport', path: 'store'}}))
-    w.no(['where'], /hub local uses a teleport store; this ringi .* knows git, kafka, temporal/)
+    w.no(['where'], /hub local uses a teleport store; this ringi .* knows git/)
   })
 
 })

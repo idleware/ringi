@@ -9,9 +9,8 @@ export const TRAILER_RE = /^([A-Za-z][A-Za-z0-9-]*):[ \t]*(.*)$/
 export const TEXT_MAX = 64 * 1024
 // Trailers the protocol itself interprets; any other trailer belongs to an extension or a profile.
 export const KNOWN = new Set(['to', 're', 'kind', 'state', 'hop', 'assign', 'roles'])
-export const HEARTBEATS = new Set(['ping', 'pong'])
-// Kinds that are bookkeeping, never delivered to an inbox: heartbeats, usage receipts, cards, room records.
-export const HIDDEN = new Set(['ping', 'pong', 'usage', 'card', 'room'])
+// Kinds that are bookkeeping, never delivered to an inbox: room records.
+export const HIDDEN = new Set(['room'])
 
 export type Trailers = Record<string, string[]>
 export type FileRef = {path: string, size: number | null}

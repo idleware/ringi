@@ -15,11 +15,6 @@ import {BASE, quote} from './cli.ts'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const CLI = path.join(HERE, '../../../target/esm/cli.js')
 const NODE = process.execPath
-const until = async (ready: () => boolean) => {
-  const end = Date.now() + 10000
-  while (!ready() && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 20))
-  assert.ok(ready(), 'the expected checkpoint was reached')
-}
 const world = (t: TestContext) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ringi-node-'))
   t.after(() => fs.rmSync(home, {recursive: true, force: true}))
@@ -45,46 +40,6 @@ describe('Node implementation: main', () => {
     assert.equal(fs.readFileSync(status, 'utf8'), '0', r.stderr)
     assert.doesNotMatch(r.stderr, /EPIPE|Unhandled/)
   })
-})
-
-describe('Node implementation: watcher dispatch', () => {
-  it('honors stop during the last grant read before dispatch', async (t) => {
-    const w = world(t)
-    w.ok(['room', 'create', 'r'])
-    w.ok(['join', 'local', 'r', '--as', 'codex'], {as: 'C'})
-    w.ok(['leave'], {as: 'C'})
-    const p = w.lastId(['propose', '-m', 'one turn', '--decider', 'operator', '--budget', 'runs=1,run-seconds=10'])
-    const g = /grant (\w+)/.exec(w.ok(['decide', p, 'approved', '-m', 'go']))![1]
-    w.ok(['send', '--task', '--assign', 'codex', '--grant', g, '-m', 'work'])
-    const ready = path.join(w.home, 'ready'), resume = path.join(w.home, 'resume'), marker = path.join(w.home, 'started')
-    const wrapper = path.join(w.home, 'watch.mjs')
-    // Pause after the plan is saved, while dispatch rereads its grant. Stop must still win before spawn.
-    fs.writeFileSync(wrapper, `import fs from 'node:fs';
-      const read = fs.readFileSync; let paused = false;
-      fs.readFileSync = function(file, ...args) {
-        const data = read.call(fs, file, ...args);
-        if (!paused && String(file).endsWith('/codex.json') && String(file).includes('/readers/') && JSON.parse(data).watched) {
-          paused = true; fs.writeFileSync(${JSON.stringify(ready)}, 'ready');
-          const end = Date.now() + 10000;
-          while (!fs.existsSync(${JSON.stringify(resume)}) && Date.now() < end) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
-        }
-        return data;
-      };
-      const {main} = await import(${JSON.stringify(pathToFileURL(CLI).href)}); await main(process.argv.slice(2));`)
-    const child = spawn(NODE, [wrapper, 'watch', 'r/codex', '--once', '--require-grant', '--exec', `touch '${marker}'`], {env: {...BASE, RINGI_HOME: w.home}, stdio: 'ignore'})
-    const exit = new Promise(resolve => child.once('exit', resolve))
-    t.after(() => { if (child.exitCode === null) child.kill('SIGKILL') })
-    await until(() => fs.existsSync(ready))
-    const session = w.json(['sessions']).find(s => s.product === 'watch')!
-    w.ok(['stop'], {as: session.handle.slice(4)})
-    fs.writeFileSync(resume, 'resume')
-    assert.equal(await exit, 0)
-    assert.equal(fs.existsSync(marker), false)
-    const receipt = w.json(['log', '--all', '-n', '100']).find(m => m.kind === 'usage' && m.trailers.usage[0] === 'settle')!
-    assert.equal(receipt.trailers.seconds[0], '0')
-    assert.equal(receipt.trailers.exit[0], '125')
-  })
-
 })
 
 describe('Node implementation: file locks', () => {

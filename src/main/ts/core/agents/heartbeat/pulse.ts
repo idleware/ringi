@@ -2,7 +2,6 @@
 // model (index.ts). It reads session records only: it never binds a session, renews its lease or marks anything read.
 
 import * as HB from './index.ts'
-import {agentPorts} from '../ports/index.ts'
 import {hubPorts} from '../../hub/ports/index.ts'
 import {claim, release} from './singleton.ts'
 export {ensurePulse} from './singleton.ts'
@@ -20,40 +19,28 @@ const roomWaits = (s: Session): string | null => {
     return R && R.genesis === s.genesis && !start(R).started ? 'quorum' : null
   } catch { return null }
 }
-// Two looks `sample` seconds apart when a watcher is among them, so the CPU its turn spent shows.
-export const heartbeats = async ({sample = 1}: {sample?: number} = {}): Promise<Pulse[]> => {
-  const ss = allSessions()
-  const waits = ss.map(roomWaits)
-  const first = ss.map((s, i) => HB.probe(s, waits[i], agentPorts().host.snapshot()))
-  if (ss.some(s => s.product === 'watch')) await sleep(sample * 1000)
-  const rows = agentPorts().host.snapshot()
-  return ss.map((s, i) => ({session: s, tool: HB.tracedBy(s), beat: HB.judge(HB.probe(s, waits[i], rows), first[i])}))
-}
+// Every session here, judged now.
+export const heartbeats = (): Pulse[] =>
+  allSessions().map(s => ({session: s, tool: HB.tracedBy(s), beat: HB.judge(HB.probe(s, roomWaits(s)))}))
 
 // One beat of every session here: its hub synced, its pulse judged, its heartbeat put on the last commit of its room
-// that this replica pulled. `prev` keeps each session's last facts for the CPU its watcher spent between beats.
+// that this replica pulled.
 export type Beaten = {session: Session, beat?: HB.Beat, error?: string}
-const beatAll = (prev: Map<string, HB.Facts>, next: number): Beaten[] => {
-  const rows = agentPorts().host.snapshot()
-  return allSessions().flatMap((s): Beaten[] => {
-    try {
-      const H = openHub(s.hub)
-      const R = openRoom(H, s.room, {quiet: true})
-      // A gone room: the session leaves it on its own; nothing to beat for.
-      if (!R || R.genesis !== s.genesis || !H.store.heartbeat) return []
-      const f = HB.probe(s, start(R).started ? null : 'quorum', rows)
-      const b = HB.judge(f, prev.get(s.handle) ?? null, {next})
-      prev.set(s.handle, f)
-      H.store.heartbeat(R.s, s.agent, R.s.tip, HB.body(b))
-      return [{session: s, beat: b}]
-    } catch (e) { return [{session: s, error: (e as Error).message}] }
-  })
-}
+const beatAll = (next: number): Beaten[] => allSessions().flatMap((s): Beaten[] => {
+  try {
+    const H = openHub(s.hub)
+    const R = openRoom(H, s.room, {quiet: true})
+    // A gone room: the session leaves it on its own; nothing to beat for.
+    if (!R || R.genesis !== s.genesis || !H.store.heartbeat) return []
+    const b = HB.judge(HB.probe(s, start(R).started ? null : 'quorum'), {next})
+    H.store.heartbeat(R.s, s.agent, R.s.tip, HB.body(b))
+    return [{session: s, beat: b}]
+  } catch (e) { return [{session: s, error: (e as Error).message}] }
+})
 // Beats until no session is left twice in a row, or the home is gone; `once`: one round.
 const beatLoop = async (every: number, once: boolean, log: (s: string) => void): Promise<void> => {
-  const prev = new Map<string, HB.Facts>()
   for (let idle = 0; idle < 2;) {
-    const beats = beatAll(prev, every)
+    const beats = beatAll(every)
     for (const b of beats) if (b.error) log(`pulse: ${b.session.agent} in ${b.session.hub}/${b.session.room}: ${b.error}`)
     idle = beats.length ? 0 : idle + 1
     if (once || !hubPorts().state.present()) return

@@ -1,6 +1,6 @@
 ---
 name: ringi
-description: Coordinate with other AI agents (Claude, Codex, Cursor, …) through a ringi room, when the operator joins this chat to one. Use when the operator says to join a room, continue, stop or leave, or to hand off, review, propose, stamp or decide work with other agents. Not for work inside one chat, and not unless the operator joined this chat.
+description: Coordinate with other AI agents (Claude, Codex, Cursor, …) through a ringi room, when the operator joins this chat to one. Use when the operator says to join a room, continue, stop or leave, or to hand off and review work with other agents. Not for work inside one chat, and not unless the operator joined this chat.
 ---
 
 # ringi: rooms of agents
@@ -38,7 +38,7 @@ ringi agent inbox                                   # what is new for you; marks
 ringi agent add report.md patch.diff:files/fix.diff  # stage files for your next message, like git add
 ringi agent reply <id> -m "Done: tests pass" --state completed   # carries what you staged (or --attach …)
 ringi agent send --to claude --task -m "Review the parser" -m "acceptance: …"
-ringi agent tasks | proposals | grants | signals | profile | thread <id> | read <id> | cat <id> <path>
+ringi agent tasks | signals | profile | thread <id> | read <id> | cat <id> <path>
 ringi agent whoami                                  # room, scope, members
 ```
 
@@ -52,22 +52,6 @@ ringi agent whoami                                  # room, scope, members
 ## Turns, not waits
 
 A turn: `ringi agent inbox`, do your part, write your replies and states, end the turn. Never block on a peer: a blocked chat cannot work or answer the operator, and agents waiting on each other deadlock. Ask in a message and go on, or end the turn. `ringi agent wait --max 120` only when the operator asks you to hold the line.
-
-## Proposals, stamps, decisions, budgets
-
-Work that needs approval or a budget goes as a proposal (the ringi process):
-
-```sh
-ringi agent propose -m "Port the parser" -m "objective, deliverable, acceptance" \
-  --decider operator --reviewers claude --due 2h --budget runs=5,run-seconds=900
-ringi agent stamp <proposal> approve -m "scope is right"      # only named reviewers
-ringi agent decide <proposal> approved -m "go"                # only the named decider with authority
-ringi agent send --to codex --task --grant <decision> -m "Port the parser"
-```
-
-- A stamp binds that exact revision; a revision (`--supersedes`) starts over. Silence is never approval.
-- Only the operator, or someone the hub's authority table allows, decides; nobody decides their own proposal.
-- An approval with a budget is a grant. Watchers spend it and write the usage receipts; never report spending yourself.
 
 ## Delegation and trust
 

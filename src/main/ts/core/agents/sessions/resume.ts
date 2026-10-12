@@ -3,7 +3,7 @@
 import {hubPorts, locked} from '../../hub/ports/index.ts'
 import {fail, note, stamp} from '../../../lib/index.ts'
 import type {Me, Session} from './index.ts'
-import {allSessions, dropSession, liveness, ownSession, parseSelector, pidAlive, saveSession, whoAmI} from './index.ts'
+import {allSessions, dropSession, liveness, ownSession, parseSelector, saveSession, whoAmI} from './index.ts'
 
 export const resume = (selector?: string): Session => {
   const me = whoAmI()
@@ -40,7 +40,7 @@ const ownTarget = (me: Me): Session => {
 
 const takeOver = (me: Me, target: Session): void => {
   if (target.handle !== me.handle) {
-    if (liveness(target) === 'active' || (target.product === 'watch' && target.pid && pidAlive(target.pid))) fail(`${target.room}/${target.agent} is held by a live session (${target.handle}); it is not taken over`)
+    if (liveness(target) === 'active') fail(`${target.room}/${target.agent} is held by a live session (${target.handle}); it is not taken over`)
     dropSession(target.handle)
     note(`took over ${target.hub}/${target.room}/${target.agent} from ${target.handle}`)
   }
@@ -49,8 +49,7 @@ const takeOver = (me: Me, target: Session): void => {
 const resumed = (me: Me, target: Session): Session => {
   const session: Session = {
     ...target, handle: me.handle, product: target.handle === me.handle ? target.product : me.product, state: 'active',
-    since: target.handle === me.handle ? target.since : stamp(), lastSeen: stamp(), pid: me.pid ?? (target.handle === me.handle ? target.pid : null),
-    takenFrom: target.handle === me.handle ? target.takenFrom : undefined
+    since: target.handle === me.handle ? target.since : stamp(), lastSeen: stamp(), pid: me.pid ?? (target.handle === me.handle ? target.pid : null)
   }
   return session
 }

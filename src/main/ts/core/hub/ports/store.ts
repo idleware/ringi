@@ -1,7 +1,7 @@
-// store: the port every storage type implements, each an adapter (adapters/transport-<type>: git, kafka and temporal
-// planned) that composition/ registers. Rooms, accepted history, profiles, decisions and signals use only this
+// store: the port every storage type implements, each an adapter (adapters/transport-<type>) that composition/
+// registers. Rooms, accepted history, profiles and signals use only this
 // interface; git is the first implementation, and a hub's descriptor names which one it uses (`store.type`). A store
-// keeps the shared contract (versioned files the participants agree on: contract.json, authority.json, profiles), the
+// keeps the shared contract (versioned files the participants agree on: contract.json, profiles), the
 // rooms (a control record with versioned files, members and roster, and one append-only log per member) and signals
 // (named markers on log entries); the port is split by what each part does (Log, Attachments, …).
 // Revisions are opaque, store-assigned ids. A store says whether one revision extends another; ringi builds the
@@ -15,7 +15,6 @@ export type StoredMessage = {id: Rev, parent: Rev | null, time: number, text: Bu
 export type ControlRecord = {rev: Rev, text: string}
 export type StoredRoom = {
   name: string
-  archived: boolean
   // The latest control record, the room's first one (its genesis, unique per room), the contract revision the room was
   // created on, and the room's latest entry of any kind.
   head: Rev
@@ -43,10 +42,9 @@ export interface Log {
   // The shared contract.
   contractHead(): Rev
   contractFile(rev: Rev, name: string): string | null
-  contractFiles(rev: Rev): string[]
   amendContract(who: string, text: string, files: Record<string, string | Buffer>): Rev
   // Rooms and their control records.
-  roomNames(archived: boolean): string[]
+  roomNames(): string[]
   room(name: string): StoredRoom | null
   // A control file at the head, or at a given control entry (the genesis, say).
   controlFile(room: StoredRoom, name: string, rev?: Rev): string | null
@@ -82,10 +80,8 @@ export interface Evidence {
   pin(room: StoredRoom, reader: string, id: string, rev: Rev): void
   unpin(room: StoredRoom, reader: string, id: string): void
 }
-// A room's life beyond its messages.
+// A room's end: the room and everything the store keeps for it.
 export interface Administration {
-  archiveRoom(room: StoredRoom, as: string): void
-  // The room and everything the store keeps for it.
   deleteRoom(room: StoredRoom): void
 }
 // Why history may not be accepted. A store whose senders are asserted has nothing to say (null).
@@ -107,7 +103,6 @@ export interface Signed {
   admit(room: StoredRoom, who: string, key: string): Rev
   joinKey(room: StoredRoom, who: string): JoinKey
   forgetLog(room: StoredRoom, id: string): void
-  rootKey(): string
   // The signers file a new signed room starts with: the root alone.
   rootRoster(): string
 }

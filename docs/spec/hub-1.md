@@ -7,19 +7,19 @@ hubs: the contract's `version`, not the tool's, decides compatibility. Nothing h
 
 ## Terms
 
-- **Operator**: the human, and for now also the root: every grant is theirs. Their terminal context is a current hub
+- **Operator**: the human, and for now also the root. Their terminal context is a current hub
   and room, kept in the home; it never moves an agent.
 - **Hub**: a directory with a **descriptor** (`hub.json`: which store, where, the trust, the pins this machine holds)
   beside its **store**. The store keeps the shared contract, the rooms and the signals. `local` always exists and is
   the default: on this machine, no keys, senders asserted. A signed hub is a replica of a remote, with signatures.
-- **Room**: a namespace in a hub for one piece of work, kept until the operator archives or deletes it. Its identity
+- **Room**: a namespace in a hub for one piece of work, kept until the operator deletes it. Its identity
   is its genesis: the first control entry, written by the root, whose subject is `room <name>` and whose `Room-Id`
   trailer is random. A room deleted and created again is a new room; a history offered under another name is not that
   room. A room has its own roster and carries its profile from the start ([profiles-1](profiles-1.md)).
 - **Session**: one chat (Claude Code, Codex, Cursor) that the operator joined to a room as an agent, known by a
   stable handle: `RINGI_SESSION` when set, else the chat's own id where the UI exposes one (`CLAUDE_CODE_SESSION_ID`),
   else the UI process found with `ps` as a last resort. Nothing is written into projects (`AGENTS.md`, `CLAUDE.md` stay untouched).
-- **Seat**: one per (hub, room genesis, agent). A session or a watcher holds it.
+- **Seat**: one per (hub, room genesis, agent). A session holds it.
 
 ## Layout
 
@@ -29,7 +29,7 @@ $RINGI_HOME/                         unset: ~/.ringi
   config.json                        the operator's terminal context: {"hub": "local", "room": "…"}
   hub/<name>/hub.json                the descriptor: {schema: ringi-hub/2, name, trust, root?, genesis?, store: {type, path, remote?}}
   hub/<name>/store/                  the store; for type git, a repository (store/.git) with the contract checked out
-  readers/<hub>/<room-genesis>/<agent>.json   that reader's accepted heads and signals, cursors, run budget
+  readers/<hub>/<room-genesis>/<agent>.json   that reader's accepted heads and signals, cursors
   sessions/<handle>.json             {hub, room, genesis, agent, scope, state, since, lastSeen, pid}
   keys/<hub>/<agent>                 agent keys, signed hubs only
 ```
@@ -37,11 +37,10 @@ $RINGI_HOME/                         unset: ~/.ringi
 A git store:
 
 ```
-refs/heads/main                      the shared contract: contract.json, authority.json, profiles/, HUB.md
+refs/heads/main                      the shared contract: contract.json, profiles/, HUB.md
 refs/heads/<room>                    the room: one linear branch, a stack of messages like a chat
 refs/tags/<agent>.<signal>.<message12>   signals and marks on their message's commit (signals-1)
 refs/ringi/accepted/<genesis>/<reader>/<author>   reader-owned pins of each author's accepted last message, so gc never erases evidence
-refs/archive/<room>@<genesis8>       an archived room: read-only, nothing appends, nothing wakes; its signals stay where they are
 ```
 
 A room's branch starts on the contract's head at `room create` with its genesis, the root's commit with the control
@@ -69,7 +68,7 @@ A store type is an adapter of the `Store` port (core/hub/ports/store.ts), split 
 | Attachments | files stored for messages, and what a member staged for its next one | yes |
 | Signals | immutable markers on messages (signals-1) | yes |
 | Evidence | what a reader accepted, kept reachable | yes |
-| Administration | archive and delete a room | yes |
+| Administration | delete a room | yes |
 | Verification | why history may not be accepted; nothing for asserted senders | yes |
 | Presence | one heartbeat per agent and room, replaced on every beat | no |
 | Signed | the root, members' keys, a transport alarm forgotten after review | signed hubs |
@@ -95,26 +94,26 @@ only.
 ## The contract and its versions
 
 - **Genesis.** The contract's first version holds `contract.json`
-  (`{"schema": "ringi-hub", "version": "1.2", "protocol": 1, "trust": "asserted", "store": "git/2", "capabilities": ["decisions/1", "profiles/1"], "profile": "a2a-1"}`),
-  `authority.json`, `profiles/a2a-1.json` and `HUB.md`. A signed hub adds its root key and signs every version with
+  (`{"schema": "ringi-hub", "version": "1.2", "protocol": 1, "trust": "asserted", "store": "git/2", "capabilities": ["profiles/1"], "profile": "a2a-1"}`),
+  `profiles/a2a-1.json` and `HUB.md`. A signed hub adds its root key and signs every version with
   it. `store` names how the store lays out what it keeps; for a contract without it (before 1.2) the store type looks
   (a git store with room branches under `<room>/` is ringi 0.1's, `git/1`, and refused).
 - **Versions.** `version` is major.minor. A minor only adds optional data without authority; older tools keep reading
   and writing. Anything that grants or restricts is a required capability (core-1 §8) or a major. A tool refuses a
   hub or a room whose contract major, protocol major, capabilities or store layout it does not know, and says what to
   do: upgrade the tool for a newer hub; for an older one, make a new hub beside it or a new root branch on a forge.
-  Nothing is migrated.
-- **Amending.** `ringi hub amend` changes version, capabilities, the default profile, the authority table and
-  profiles (each checked before it lands). A room follows the contract as of its base until the operator moves it
-  (`ringi room rebase-contract <room>`, a control entry naming the new base) or archives it.
+  Nothing is migrated. A retired capability (`decisions/1`) stays known and restricts nothing, so a contract that
+  names it opens; a room that holds its records is not supported (start a new room).
+- **Amending.** `ringi hub amend` changes version, capabilities, the default profile and profiles (each checked
+  before it lands). A room follows the contract as of its base until the operator moves it (`ringi room
+  rebase-contract <room>`, a control entry naming the new base) or deletes it.
 - `ringi --version` prints the tool's version and the majors it reads.
 
 ## A room's life
 
 1. `ringi room create fix-badge`: the room's branch with the operator as first member and the profile copied in;
    it becomes the terminal's current room. With `--quorum <n>` (a `Quorum` trailer of the genesis) the room's work
-   starts by itself once it has n agents: until then a join or an inbox reads nothing and says it waits, and a watcher
-   runs no turn; from then on an agent takes its first turn without asking the operator, the room's work for it being
+   starts by itself once it has n agents: until then a join or an inbox reads nothing and says it waits; from then on an agent takes its first turn without asking the operator, the room's work for it being
    its scope when none is recorded. `--quorum 1` starts at once.
 2. In each chat the operator wants in, the operator says who it is and what to accept: *"join fix-badge as codex;
    review tasks from operator and claude; no commits"*. The skill runs `ringi join local fix-badge --as codex --scope
@@ -128,15 +127,10 @@ only.
    `continue` lists the candidates; naming one (`ringi continue fix-badge/codex`) is the operator's explicit takeover.
    It never picks by product and never takes a seat a live session holds. A plain `join` starts a fresh delegation.
 7. Exit: *"leave"* releases the seat; the agent stays in the roster until the room ends.
-   Hand-off: the chat that holds a seat may hand it to a watcher for headless turns, `ringi watch <room>/<agent>
-   --handoff --exec …` run from that chat: the watcher takes the seat with its scope; `stop` and `leave` in that chat
-   reach the watcher; plain `continue` in that chat takes the seat back once the watcher has ended. A seat another
-   chat holds is never taken.
-8. End: `ringi room archive fix-badge` moves the room under `refs/archive/`, keeps it readable. `ringi room delete
-   fix-badge --yes` erases it, irreversibly: its branch, every tag on its commits, every ref the store keeps under
+8. End: `ringi room delete fix-badge --yes` erases it, irreversibly: its branch, every tag on its commits, every ref the store keeps under
    its genesis (pins, evidence), its unpublished commits and its readers' state; git objects are left to the
-   repository. Without an id both take the room of the current context. Either way the room's branch is gone, and
-   every session and watcher bound to it, on this machine or another, leaves its seat on its own when it finds that.
+   repository. Without an id it takes the room of the current context. The room's branch is gone, and
+   every session bound to it, on this machine or another, leaves its seat on its own when it finds that.
    A hub that cannot be reached is not a gone room: it fails, and waiting or retrying is the orchestrator's concern.
 
 ## Commands, seats and locks
@@ -144,16 +138,11 @@ only.
 Three namespaces, all in one generated table ([COMMANDS.md](../../COMMANDS.md)): **operator** commands in a terminal,
 in the operator's context; **session** commands in a chat, on the operator's words; **agent** commands during a turn,
 always as `ringi agent …` and always in the session's own hub and room. An agent command refuses when the session is
-not joined, is stopped, or its room is archived, and names the session command to run.
+not joined, is stopped, or its room is gone, and names the session command to run.
 
 - `join`, `continue`, `stop`, `leave`, lease renewal and takeover go through one lock with compare-and-set on the
-  seat record, so a resumed watcher cannot overwrite a takeover. `join` of another room releases the old seat in the
+  seat record, so a resumed session cannot overwrite a takeover. `join` of another room releases the old seat in the
   same step: one room per session.
-- A watcher (`ringi watch <room>/<agent> --exec …`) holds the seat of an agent and starts its headless turns. It
-  checks the grant and spawns under the same locks as decisions and session changes: a completed `stop` or
-  revocation prevents the next start; a started turn ends with its run-seconds, descendants included. A failed turn
-  is retried with the same messages (core-1 §6); one stopped at its run-seconds is not. `watch --once` exits with the
-  failed turn's status.
 - Locks are files with an owner. Live or unreadable owners are never evicted by age; a dead owner is recovered under
   a gate; if the gate's owner dies, ringi stops and names the gate to remove.
 
@@ -177,8 +166,7 @@ in different directories apart. So the home is one place with one grant:
 - **The grant.** When ringi cannot write the home it fails with a fixed message: the agent re-runs the same command
   with its host's sandbox escalation, which the operator approves; or the operator adds the home once to the host's
   writable roots (Codex: `[sandbox_workspace_write] writable_roots` in `~/.codex/config.toml`). ringi prints that line
-  and changes no host configuration. A command-prefix rule for `ringi` is broader than it looks: it would also run
-  `ringi watch --exec <anything>` outside the sandbox.
+  and changes no host configuration.
 - ringi never falls back to a per-project or temporary home. An explicit session handle never depends on `ps`, which
   a sandbox may deny; only the last-resort fallback does, and where `ps` is denied ringi asks for `RINGI_SESSION`.
 
@@ -210,7 +198,7 @@ in different directories apart. So the home is one place with one grant:
 - Reads fetch into staging refs, verify each room's branch along first parents (signatures, encoding, genesis, the
   room's name, the roster), then advance local refs and transport pins. A room whose genesis or a root-signed control
   record is broken, whose branch has a merge (a second parent could hide accepted messages), or whose branch was
-  rewritten or deleted, is withheld; invalid hub authority stops delivery. Any other commit that is no valid message
+  rewritten or deleted, is withheld; a contract branch (`main`) that fails its root signatures stops delivery. Any other commit that is no valid message
   (unsigned, signed by another key than its author's, by someone not admitted when it was written, a change of the
   control files, a control record not signed by the root) is skipped with an alarm, and the room reads on.
 - When one unpublished commit loses a push race, the writer fetches and verifies the new tip against the accepted
@@ -223,18 +211,18 @@ in different directories apart. So the home is one place with one grant:
   `ssh` or `https`; cleartext HTTP and redirects are refused.
 - Every git command of a store and its transport has a time limit: 30 s by default, `RINGI_GIT_TIMEOUT_MS` (a
   positive integer) to change it; an invalid value is refused before git runs, and a timeout names the setting.
-- Not yet on signed hubs: archive, delete and member removal, key rotation and revocation, freezes, seals, automatic
+- Not yet on signed hubs: delete and member removal, key rotation and revocation, freezes, seals, automatic
   repair. A remote can still withhold valid data: signatures give authorship and integrity, not completeness,
-  availability or confidentiality. Budgets across machines: one enforcing watcher per grant ([decisions-1](decisions-1.md)).
+  availability or confidentiality.
 
 ## Compatibility and acceptance
 
 - A hub without a contract, or with an unknown major or capability, is refused with the version it needs. ringi
   refuses a home without `home.json` and never repurposes what it did not create.
 - Two chats of the same vendor join different rooms without taking each other's seats or scopes. Switching the
-  operator's hub or room moves no agent and no watcher. An archived room is readable and wakes nobody. A message from
+  operator's hub or room moves no agent. A message from
   `operator` widens no scope. A restarted chat resumes exactly its own binding; an ambiguous `continue` asks; a stale
-  watcher cannot undo a pause, a leave or a takeover. A home the agent may not write, or a denied `ps`, gives an
+  session cannot undo a pause, a leave or a takeover. A home the agent may not write, or a denied `ps`, gives an
   actionable error. `npm test` covers each.
 
 Changes: what older tools can keep reading and writing is a minor edit of this file and of the contract; anything

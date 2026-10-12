@@ -1,7 +1,6 @@
-// overview: where things stand for the operator: the hub, the room, who is in, open work and proposals, the latest
+// overview: where things stand for the operator: the hub, the room, who is in, open work, the latest
 // messages, and new ones as they land; and the sessions of this machine.
 
-import * as D from '../hub/decisions/index.ts'
 import {hubPorts, locked} from '../hub/ports/index.ts'
 import {HIDDEN, OPERATOR, openHub, room as roomOf} from '../hub/rooms/index.ts'
 import type {Hub, Room} from '../hub/rooms/index.ts'
@@ -23,17 +22,16 @@ export type Where = {
   room: Room | null
   sessions: SessionView[]
   work: TaskView[]
-  proposals: D.Proposal[]
   // The room as the operator reads it, and its visible messages in order.
   all: All
   messages: Message[]
 }
 export const where = (H: Hub, name: string | null): Where => {
-  if (!name) return {hub: H, room: null, sessions: [], work: [], proposals: [], all: new Map(), messages: []}
+  if (!name) return {hub: H, room: null, sessions: [], work: [], all: new Map(), messages: []}
   const R = roomOf(H, name)
   const {all} = linked(R, OPERATOR)
   return {hub: H, room: R, sessions: allSessions().filter(s => s.hub === H.name && s.genesis === R.genesis).map(sessionView),
-    work: tasks({R, me: OPERATOR}).views, proposals: D.proposals(all, R.authorityAt).filter(x => ['open', 'overdue'].includes(x.state)),
+    work: tasks({R, me: OPERATOR}).views,
     all, messages: ordered([...all.values()].filter(m => !(m.kind && HIDDEN.has(m.kind))))}
 }
 // The visible messages that landed since `seen` (which it extends), read afresh from the store.
@@ -44,9 +42,9 @@ export const arrived = (H: Hub, R: Room, seen: Set<string>): {all: All, messages
   return {all, messages}
 }
 // The hub's rooms, each with how many of its sessions on this machine are active.
-export const roomsActive = (H: Hub, o: {archived?: boolean} = {}): Array<RoomView & {active: number}> => {
+export const roomsActive = (H: Hub): Array<RoomView & {active: number}> => {
   const ss = allSessions().filter(s => s.hub === H.name && liveness(s) === 'active')
-  return rooms(H, o).map(v => ({...v, active: ss.filter(s => s.genesis === v.genesis).length}))
+  return rooms(H).map(v => ({...v, active: ss.filter(s => s.genesis === v.genesis).length}))
 }
 export const sessions = (): SessionView[] => {
   hubPorts().state.ensure()

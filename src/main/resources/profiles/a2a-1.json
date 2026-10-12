@@ -29,10 +29,6 @@
       "requester",
       "role:lead"
     ],
-    "grant": [
-      "requester",
-      "role:lead"
-    ],
     "state:canceled": [
       "requester"
     ],

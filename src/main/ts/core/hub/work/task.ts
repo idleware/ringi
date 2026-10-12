@@ -1,6 +1,6 @@
 // task: a piece of work folded over its messages in thread order, by the room's profile.
 
-import {HEARTBEATS, one, ordered} from '../protocol/index.ts'
+import {ordered} from '../protocol/index.ts'
 import type {All, Message} from '../protocol/index.ts'
 import type {Profile, Task} from './index.ts'
 
@@ -23,11 +23,6 @@ export const taskFor = (all: All, m: Message, profile: Profile): Message | null 
 
 // One kind of change a message may make, judged on the work as it was before the message (`b`); its effect, or null.
 type Step = (profile: Profile, t: Task, b: Task, m: Message) => string | null
-const grant: Step = (profile, t, b, m) => {
-  if (!one(m, 'grant') || !allows(profile.rules.grant, m.from, b)) return null
-  t.grant = one(m, 'grant')
-  return 'grant'
-}
 const roles: Step = (profile, t, b, m) => {
   if (!m.roles || !allows(profile.rules.roles, m.from, b)) return null
   for (const [id, label] of Object.entries(m.roles)) label === 'none' ? delete t.roles[id] : t.roles[id] = label
@@ -45,14 +40,13 @@ const state: Step = (profile, t, b, m) => {
   Object.assign(t, {state: m.state, by: m.from, at: m.time})
   return `state.${m.state}`
 }
-const STEPS = [grant, roles, assign, state]
+const STEPS = [roles, assign, state]
 
 const opening = (root: Message, profile: Profile, msgs: Message[]): Task => ({root, msgs, state: profile.initial, by: root.from, at: root.time,
   requester: root.from, roles: {...root.roles}, assignees: root.assign ?? (root.to.includes('*') ? [] : root.to.filter(x => x !== root.from)),
-  grant: one(root, 'grant'), effects: new Map([[root.id, ['opened', ...(root.assign ? ['assigned'] : [])]]])})
-// Heartbeats never take part in work (§6), whatever trailers they carry.
+  effects: new Map([[root.id, ['opened', ...(root.assign ? ['assigned'] : [])]]])})
 const partOf = (all: All, m: Message, root: Message, profile: Profile): boolean =>
-  !m.bad && !(m.kind && HEARTBEATS.has(m.kind)) && taskFor(all, m, profile) === root
+  !m.bad && taskFor(all, m, profile) === root
 // A work item folds over its messages in thread order. Every right is judged on the work as it was before the
 // message, so a label given in a message authorizes nothing in that same message, while its holder may still hand it
 // over and reassign in one reply. Opening sets the initial state and assignees (Assign, else To minus the opener; none

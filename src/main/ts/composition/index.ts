@@ -17,8 +17,6 @@ import {cursor} from '../adapters/tool-cursor/index.ts'
 import {hostPosix} from '../adapters/host-posix/index.ts'
 import {keysFile} from '../adapters/keys-file/index.ts'
 import {gitTransport} from '../adapters/transport-git/transport.ts'
-import {kafka} from '../adapters/transport-kafka/index.ts'
-import {temporal} from '../adapters/transport-temporal/index.ts'
 
 // The package this file belongs to, run from its source (src/main/ts) or its build (target/esm).
 const packageOf = (dir: string): string => fs.existsSync(path.join(dir, 'package.json')) ? dir : packageOf(path.dirname(dir))
@@ -30,7 +28,7 @@ export const build: Build = {
 const root = path.resolve(process.env.RINGI_HOME || path.join(os.homedir(), '.ringi'))
 
 // The git store signs with keys kept as files under the home, made only for a signed hub.
-const transports = {git: gitTransport(root, {signer: () => keysFile(root)}), kafka, temporal}
+const transports = {git: gitTransport(root, {signer: () => keysFile(root)})}
 wireHub({build, state: stateFs({root, build}), transports, store: 'git'})
 // In the order a session is recognised by.
 wireAgents({tools: [claude, codex, cursor], host: hostPosix()})

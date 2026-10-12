@@ -1,4 +1,4 @@
-// An explicit contract transition keeps old room profiles and decision authority without accepting legacy heads
+// An explicit contract transition keeps old room profiles without accepting legacy heads
 // or treating files attached to an agent's message as historical hub contracts.
 import {describe, it} from 'node:test'
 import type {TestContext} from 'node:test'
@@ -30,10 +30,9 @@ const fixture = (t: TestContext) => {
   const d: Descriptor = {schema: 'ringi-hub/2', name: 'fixture', trust: 'asserted', store: {type: 'git', path: 'store'}}
   const transport = gitTransport(root, {signer: () => { throw new Error('asserted transition must not construct a Signer') }})
   const at = path.join(root, 'hub', d.name)
-  const authority = {decide: {reviewer: {runs: 2}}}
   const store = transport.create(at, d, () => ({text: compose('hub fixture', [['To', '*'], ['Kind', 'hub']]),
-    files: {'hub.json': JSON.stringify(legacy), 'authority.json': JSON.stringify(authority)}})).store
-  return {store, d, at, authority}
+    files: {'hub.json': JSON.stringify(legacy)}})).store
+  return {store, d, at}
 }
 
 describe('historical contracts', () => {
@@ -42,8 +41,8 @@ describe('historical contracts', () => {
     assert.throws(() => contractAt(store, 'fixture', store.contractHead()), /has no contract/)
   })
 
-  it('keeps the frozen profile and authority of earlier decisions after a real append-only transition', t => {
-    const {store, d, at, authority} = fixture(t)
+  it('keeps the frozen profile of a room after a real append-only transition', t => {
+    const {store, d, at} = fixture(t)
     const base = store.contractHead()
     const profile = fs.readFileSync(path.join(hubPorts().build.resources, 'profiles/a2a-1.json'), 'utf8')
     const genesis = store.createRoom('legacy-room', 'operator', compose('room legacy-room', [['To', '*'], ['Kind', 'room']]),
@@ -51,10 +50,9 @@ describe('historical contracts', () => {
     const before = store.room('legacy-room')!
     const poison = store.append(before, 'codex', compose('an attachment is not a contract', [['To', 'operator']]),
       [{path: 'hub.json', content: JSON.stringify(legacy), mode: '100644'}])
-    const changed = {decide: {reviewer: {runs: 9}}}
     const main = store.amendContract('operator', compose('canonical contract', [['To', '*'], ['Kind', 'hub']]),
-      {'contract.json': JSON.stringify(canonical), 'authority.json': JSON.stringify(changed)})
-    const control = store.updateControl(store.room('legacy-room')!, 'operator',
+      {'contract.json': JSON.stringify(canonical)})
+    store.updateControl(store.room('legacy-room')!, 'operator',
       compose('contract 1.2', [['To', '*'], ['Kind', 'room'], ['Contract', main]]), {})
     const room = openRoom({name: 'fixture', dir: at, d, store, main, contract: contractAt(store, 'fixture', main), signed: false}, 'legacy-room')!
     assert.equal(room.genesis, genesis)
@@ -62,8 +60,6 @@ describe('historical contracts', () => {
     assert.equal(room.contract.version, '1.2')
     assert.equal(room.profile.name, 'a2a-1')
     assert.equal(store.controlFile(room.s, 'profile.json', genesis), profile)
-    assert.deepEqual(room.authorityAt(genesis), authority)
-    assert.deepEqual(room.authorityAt(control), changed)
     assert.equal(store.extends(base, main), true)
     assert.equal(contractAt(store, 'fixture', base).version, '1.0')
     assert.throws(() => contractAt(store, 'fixture', poison), /has no contract/)

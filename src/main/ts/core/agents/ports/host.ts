@@ -1,27 +1,15 @@
-// host: process facts and isolated launches, apart from any operating system or agent tool. A launch is held by an
-// opaque handle; only its host may stop it. A deadline uses the host's monotonic clock, dates its wall clock.
+// host: what the operating system says about this machine's processes, and a detached start, apart from any operating
+// system or agent tool. ringi starts one process of its own (the pulse); agents' processes are their tools'.
 
 export type Environment = Record<string, string | undefined>
-export type ProcessRows = Map<number, {ppid: number, cpu: number}>
 export type Ancestor = {pid: number, name: string}
-export type Ended = {code: number | null, signal: string | null, timedOut: boolean, seconds: number}
-export type Clock = {wall(): number, monotonic(): number}
-declare const handle: unique symbol
-export type ProcessHandle = {readonly [handle]: true}
-export type Launch = {env: Environment} & (
-  {shell: string, timeout: number | null} | {file: string, args: readonly string[]}
-)
 
 export interface ProcessHost {
+  // Whether this host can say anything at all; where it cannot, every probe says nothing.
   readonly supported: boolean
-  readonly clock: Clock
   alive(pid: number): boolean
+  // The process's parents, nearest first, by name: to find the agent tool a command runs in.
   ancestors(pid: number): Ancestor[]
-  snapshot(): ProcessRows | null
-  inspect(pid: number, rows?: ProcessRows | null): {alive: boolean | null, cpu: number | null}
-  start(request: Launch): ProcessHandle
-  stop(process: ProcessHandle): void
-  // null: the caller's observation deadline expired; it does not silently stop the process. Without a deadline it
-  // waits until every member of the group has ended; a zombie that no init reaps has ended.
-  awaitQuiescence(process: ProcessHandle, deadline?: number): Promise<Ended | null>
+  // A process that outlives the one that starts it.
+  start(request: {file: string, args: readonly string[], env: Environment}): void
 }

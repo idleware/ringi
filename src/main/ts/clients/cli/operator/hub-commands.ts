@@ -39,6 +39,6 @@ export const addHub = (o: Opts) => {
 export const amendHub = (o: Opts) => {
   const H = Hubs.hubOf(opt(o, 'hub'))
   const files = list(o, 'attach').flatMap(attachments).map(e => ({path: e.path, content: fs.readFileSync(e.file!)}))
-  const r = Hubs.amend(H, {text: textOf(o), set: list(o, 'set'), authority: opt(o, 'authority'), files})
+  const r = Hubs.amend(H, {text: textOf(o), set: list(o, 'set'), files})
   return out(`amended hub ${H.name}: contract ${r.version}; rooms keep their base until ringi room rebase-contract <room>`)
 }

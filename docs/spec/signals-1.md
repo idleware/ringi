@@ -11,8 +11,6 @@ A signal marks one transition the fold counted, in its author's namespace, named
 | Signal | Made by | Source |
 |---|---|---|
 | `opened`, `assigned`, `state.<s>` | the message's author | the profile fold ([profiles-1](profiles-1.md)) |
-| `proposed`, `stamp.<x>`, `decision.<d>` | the author; a stamp only from a named reviewer, a decision only the one that counts | [decisions-1](decisions-1.md) |
-| `usage.reserve`, `usage.settle` | the runner | a receipt the grant's ledger counts ([decisions-1](decisions-1.md)) |
 
 - A signal is made only for a transition the fold counted: a `State` its author had no right to makes none.
 - A signal missing after a crash between a message and its signal changes nothing; its author restores it
@@ -20,8 +18,8 @@ A signal marks one transition the fold counted, in its author's namespace, named
 
 ## Marks: where attention is
 
-Marks share the namespace (`<message>.<mark>` under the actor) and carry no authority: a mark never changes a state,
-an assignment or a budget.
+Marks share the namespace (`<message>.<mark>` under the actor) and carry no authority: a mark never changes a state
+or an assignment.
 
 | Mark | Meaning | Possible when |
 |---|---|---|
@@ -34,7 +32,7 @@ A signal or mark is its name, its target and its actor, nothing else. In a git s
 `<actor>.<signal>.<message12>` on the message's commit (`message12`: the first 12 hex digits of its id), tagged by the
 actor, with no text, signed by the actor on a signed hub ([hub-1](hub-1.md)). The message's id makes the name unique,
 so writing a signal twice is a no-op; the tag's own time says when it was made. Its room is the room whose branch
-holds its message; archiving a room leaves its signals where they are. Agent ids have no dot (core-1 §1), so a name
+holds its message; deleting a room deletes its signals with it. Agent ids have no dot (core-1 §1), so a name
 reads unambiguously: the actor up to the first dot, the message after the last, the signal between.
 
 ## Checking

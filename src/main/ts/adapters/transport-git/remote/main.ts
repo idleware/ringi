@@ -2,7 +2,7 @@
 
 import * as C from '../../../lib/index.ts'
 import {memo} from './cache.ts'
-import {git, isRemote, rev} from './git.ts'
+import {isRemote, rev} from './git.ts'
 import {parseKey, rootKey} from './keys.ts'
 import {blobText} from './roster.ts'
 import {chain, checkSignature, linear} from './signature.ts'
@@ -33,6 +33,4 @@ const checkContract = (H: Handle, sha: string, key: Key): void => {
   const name = 'contract.json'
   const meta = C.strictJson<{schema: string, trust: string, root: string}>(blobText(H, sha, name), name)
   if (meta.schema !== 'ringi-hub' || meta.trust !== 'signed' || parseKey(meta.root).line !== key.line) C.fail(`${name} must declare signed trust and the pinned root key`)
-  const authority = git(H, ['cat-file', '-e', `${sha}:authority.json`], {ok: true})
-  if (authority.status === 0) C.strictJson(blobText(H, sha, 'authority.json'), 'authority.json')
 }

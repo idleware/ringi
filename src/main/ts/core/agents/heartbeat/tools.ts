@@ -1,7 +1,6 @@
 // tools: which agent tool a session runs in, and when that tool last wrote the session's trace, asked of the tools
 // this machine knows (core/agents/ports/tools.ts). Its modification time is the session's own activity, unlike the CPU of an app
-// process that hosts many sessions. A ringi watcher writes no trace of its own: the CPU of its process tree speaks for
-// its turn (index.ts).
+// process that hosts many sessions.
 
 import {agentPorts} from '../ports/index.ts'
 import type {AgentTool, SessionRef} from '../ports/index.ts'

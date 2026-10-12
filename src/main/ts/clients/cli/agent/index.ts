@@ -1,9 +1,9 @@
-// agent: the commands only an agent runs, as the agent its session is bound to (`ringi agent inbox`, whoami, card,
-// ping, wait, take); joining and leaving a room are session.ts.
+// agent: the commands only an agent runs, as the agent its session is bound to (`ringi agent inbox`, whoami, wait,
+// take); joining and leaving a room are session.ts.
 import * as Agent from '../../../core/agents/sessions/agent.ts'
 import {asJson, render} from '../../../core/hub/usecases/view.ts'
-import {fail, short, when} from '../../../lib/index.ts'
-import {dump, flag, list, opt, out, textOf} from '../args.ts'
+import {fail, short} from '../../../lib/index.ts'
+import {dump, flag, opt, out} from '../args.ts'
 import type {Opts} from '../args.ts'
 import type {Ctx} from '../context.ts'
 import {scopeLine, waiting} from '../shared/index.ts'
@@ -28,12 +28,6 @@ export const take = (a: Ctx, o: Opts) => {
 export const whoami = (a: Ctx) => {
   const {session: s, profile, members} = Agent.whoami(a)
   out(`${s.agent} in ${s.hub}/${s.room} (genesis ${short(s.genesis)}, profile ${profile}), session ${s.handle}, ${s.state}\nscope: ${scopeLine(s, a.R.quorum !== null)}\nmembers: ${members.join(', ')}`)
-}
-export const card = (a: Ctx, o: Opts) => out(`card ${short(Agent.card(a, textOf(o)))}`)
-export const ping = (a: Ctx, o: Opts) => {
-  const r = Agent.ping(a, {to: o._[0] ?? fail('usage: ringi agent ping <id> [-m <note>] [--next <s>] [--re <msg>]'),
-    text: list(o, 'm').length ? list(o, 'm').join('\n\n') : undefined, next: opt(o, 'next') ? Number(opt(o, 'next')) : undefined, re: opt(o, 're')})
-  out(`ping ${short(r.id)} to ${r.to}${r.previous ? (r.previous.answeredAt !== null ? `; ${r.to} answered the previous one at ${when(r.previous.answeredAt)}` : `; no pong to the previous one (${short(r.previous.id)})`) : ''}`)
 }
 export const wait = async (a: Ctx, o: Opts) => {
   const r = await Agent.wait(a, {...options(o), max: opt(o, 'max') === undefined ? undefined : Number(opt(o, 'max'))})

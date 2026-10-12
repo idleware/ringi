@@ -10,8 +10,7 @@ import {link} from '../protocol/index.ts'
 import type {All, Logs} from '../protocol/index.ts'
 import type {Rev} from '../ports/store.ts'
 
-// One reader's record of one room has four owners. It is kept as one record, so that a turn that crashes leaves all
-// four as they were together (crash recovery restores `inflight` into `seen`).
+// One reader's record of one room has three owners, kept as one record.
 // What the reader accepted of the room's history (history): its control head, each log's head, the stored objects of
 // the signals it accepted (core/hub/signals), and the alarms already told.
 export type Accepted = {
@@ -20,26 +19,15 @@ export type Accepted = {
   signals?: Record<string, string>
   alarms?: string[]
 }
-// What was delivered to it: the last message of each log it has seen. Delivery does not end a pending turn.
+// What was delivered to it: the last message of each log it has seen.
 export type Delivered = {
   seen?: Record<string, string>
-}
-// Its headless turns (watch): what the watcher has seen, wakeups scheduled until their turn succeeds, the inbox of a
-// turn in flight (a failed or crashed turn delivers it again), when its runs started, the grants it found exhausted, and
-// the last ping of each author it answered.
-export type Turns = {
-  watched?: Record<string, string>
-  pending?: string[]
-  inflight?: {seen: Record<string, string>}
-  runs?: number[]
-  exhausted?: Record<string, boolean>
-  heartbeatSeen?: Record<string, string>
 }
 // Files it staged for its next message (core/hub/usecases/staging.ts).
 export type Outgoing = {
   staged?: Staged[]
 }
-export type ReaderState = Accepted & Delivered & Turns & Outgoing
+export type ReaderState = Accepted & Delivered & Outgoing
 export type Staged = {path: string, blob: string, mode: string, size: number}
 // What one reader accepted of one room: a record of the machine's state.
 const readerKey = (R: Room, reader: string) => ['readers', R.hub.name, R.genesis, reader]

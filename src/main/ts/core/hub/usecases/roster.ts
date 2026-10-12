@@ -8,7 +8,7 @@ import {fail} from '../../../lib/index.ts'
 import {AGENT_RE, ID_RE} from '../protocol/index.ts'
 import {loadState, readerLock, saveState} from '../history/index.ts'
 
-// Removing, archiving or deleting in a signed hub needs revocation published to every replica: not in this version.
+// Removing or deleting in a signed hub needs revocation published to every replica: not in this version.
 export const notSigned = (H: Hub, what: string) => { if (H.signed) fail(`room ${what} is not supported on signed hubs yet: a local change would come back with the next fetch`) }
 export const admit = (H: Hub, R: Room, who: string, key: string): void => {
   if (!H.signed || !H.store.admit) fail('room admit is for signed hubs; on a local hub the operator\'s join adds members')

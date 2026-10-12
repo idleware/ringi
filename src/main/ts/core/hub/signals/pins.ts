@@ -2,7 +2,7 @@
 
 import type {Checked, SignalRecord} from './model.ts'
 
-// A signal's identity in any store and after an archive: its tag's name `<actor>.<signal>.<message12>`.
+// A signal's identity in any store: its tag's name `<actor>.<signal>.<message12>`.
 const keyOf = (ref: string): string => ref.split('/').at(-1)!
 export const pins = (records: SignalRecord[], checked: Checked[], accepted: Record<string, string> = {}): {accepted: Record<string, string>, alarms: string[]} => {
   const now = new Map(records.map(x => [`${x.actor}.${x.name}`, x]))
