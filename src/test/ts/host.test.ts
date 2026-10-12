@@ -49,7 +49,7 @@ describe('ProcessHost', () => {
     assert.equal(result.timedOut, false)
   })
 
-  it('rejects corrupt JSON owners while retaining a valid legacy pulse PID', t => {
+  it('rejects corrupt pulse records and keeps a valid owner', t => {
     const agents = agentPorts(), hub = hubPorts()
     t.after(() => { wireAgents(agents); wireHub(hub) })
     let record: unknown

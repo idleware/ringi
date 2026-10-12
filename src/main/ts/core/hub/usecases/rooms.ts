@@ -55,10 +55,6 @@ export const use = (H: Hub, name: string): Room => {
   setConfig({hub: H.name, room: R.name})
   return R
 }
-export const migrate = (H: Hub, name: string): string => {
-  if (!H.store.migrateRoom) fail(`store ${H.store.type} cannot migrate rooms`)
-  return locked(`hub-${H.name}`, () => H.store.migrateRoom!(name))
-}
 export const archive = (H: Hub, R: Room): string => {
   notSigned(H, 'archive')
   if (R.archived) fail(`${R.name} is already archived`)

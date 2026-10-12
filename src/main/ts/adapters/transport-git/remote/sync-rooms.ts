@@ -9,7 +9,7 @@ import {ACCEPT, TRACK} from './types.ts'
 
 export type RoomsIndex = {byGenesis: Map<string, Room>, byTarget: Map<string, Room>}
 export const syncRooms = (H: Handle, fetched: Map<string, string>): RoomsIndex => {
-  // Every other branch is a room. Branches of ringi 0.1 (`<room>/control`, `<room>/log/<agent>`) are not read.
+  // Every other branch is a room.
   const names = roomNames(H, fetched)
   const byGenesis = new Map<string, Room>(), byTarget = new Map<string, Room>()
   for (const name of names) {

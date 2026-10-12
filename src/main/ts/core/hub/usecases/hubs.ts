@@ -79,7 +79,7 @@ const needsProfiles = (contract: Contract, files: Record<string, unknown>, set: 
 }
 // A new version of the shared contract on `main`. Rooms keep their base until moved (rooms.rebase).
 export const amend = (H: Hub, x: AmendInput): {version: string} => {
-  const name = H.store.contractFile(H.main, 'contract.json') !== null ? 'contract.json' : 'hub.json'
+  const name = 'contract.json'
   const contract = strictJson<Contract>(H.store.contractFile(H.main, name)!, name)
   setKeys(contract, x.set ?? [])
   const files = extraFiles(x)

@@ -12,8 +12,12 @@ const context = (d: {trust: string}, opt: Options) => d.trust === 'signed'
   ? typeof opt.signer === 'function' ? opt.signer() : opt.signer
   : undefined
 
-// `home`: where this machine keeps its state; the git store keeps its keys, scratch indexes and migration backups there.
+// `home`: where this machine keeps its state; the git store keeps its keys and scratch indexes there.
 export const gitTransport = (home: string, opt: Options = {}): Transport => ({
+  // One branch per room with its messages and control records, signals as tags on them (hub-1, Layout).
+  layout: 'git/2',
+  // Before contracts named it: ringi 0.1 kept a room as branches under `<room>/` (git/1).
+  layoutOf: store => (store as GitStore).roomBranches().some(b => b.includes('/')) ? 'git/1' : 'git/2',
   open: (at, d) => new GitStore(at, d, home, context(d, opt)),
   create: (at, d, genesis) => {
     const signing = context(d, opt)

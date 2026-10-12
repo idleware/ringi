@@ -24,7 +24,7 @@ puts them together when a program starts; nothing else imports an adapter. Core 
 | signing | `core/signing/` | `Signer`: a key's public identity and a signature over exact bytes, apart from where the key is kept | lib |
 | adapters | `adapters/<name>/` | `transport-git` (local and signed; `transport-kafka`, `transport-temporal` planned), `state-fs` (`$RINGI_HOME`), `host-posix` (macOS, Linux), `tool-claude`, `tool-codex`, `tool-cursor`, `keys-file`; shared: `fs` (files, locks), `tool-traces` | core, the shared adapters, lib |
 | clients | `clients/cli/` (the entry is `cli.ts`), `clients/panel/` (planned) | parse, call core's use cases, render. The command line is one for both: `operator/` (as the operator), `agent/` (`ringi agent …`, as the agent a session is bound to), `shared/` (under both), `skill/` (installs the skill: the agents' manual for this same command line, `src/main/resources/skill/`, where each agent tool reads skills) | hub, agents, lib |
-| composition | `composition/` | this build, which adapters, the home's migrations | everything |
+| composition | `composition/` | this build and which adapters | everything |
 
 `index.ts` is the library; importing it wires the defaults through composition. Every import counts, type-only ones
 and re-exports too: `src/test/ts/layers.test.ts` checks the rule on every build, and that `lib`, `protocol`, `work`,
@@ -59,14 +59,21 @@ signed hub's keys.
 
 ## Evolution
 
-| What | Version | Declared in | Rule |
+Every format that can change has a gate: a version, checked in one place, that refuses what this build cannot read
+and says what to do. ringi migrates nothing. A hub it cannot read stays as it is; the operator makes a new hub beside
+it (`ringi hub create local2`) or a new root branch on a forge. A home it cannot read stays too; a new `RINGI_HOME`
+starts fresh. A migration, if one is ever worth it, is a tool beside ringi that reads the old format and writes the
+new; ringi never imports it.
+
+| What | Version | Declared in | Gate |
 |---|---|---|---|
-| protocol core | `1` | contract `protocol` | a reader refuses an unknown major |
-| capability | `<name>/<major>` | contract `capabilities` | see below |
-| hub contract | `1.x` | `contract.json` `version` | a minor only adds optional data without authority; a major is refused by older readers |
-| hub descriptor | `ringi-hub/2` | `hub.json` `schema` | read the previous schema, write the current |
+| protocol core | `1` | contract `protocol` | `core/hub/rooms/compat.ts`: another major is refused |
+| capability | `<name>/<major>` | contract `capabilities` | `compat.ts`: an id this build does not register is refused (see below) |
+| hub contract | `1.x` | `contract.json` `version` | `compat.ts`: another major is refused; a minor only adds optional data without authority |
+| store layout | `git/2` | contract `store`; none: what the store type finds (`Transport.layoutOf`) | `compat.ts`, once when a hub opens, against `Transport.layout` |
+| hub descriptor | `ringi-hub/2` | `hub.json` `schema` | `compat.ts`: another schema is refused |
 | profile | `ringi-profile/1` | the profile's `schema` | a room keeps the profile it was made with |
-| home | `3` | `home.json` | migrated in place on first use (`adapters/state-fs`, with the steps composition gives it) |
+| home | `3` | `home.json` | `adapters/state-fs`: another version is refused; a change to any durable record (config, readers, sessions, descriptors) is a new version |
 | package | semver | `package.json` | `ringi --version` names the majors it reads |
 
 - **Capabilities.** A contract lists the capabilities its rooms need, at most one major of each name. The registry
@@ -79,8 +86,11 @@ signed hub's keys.
 - **Code mirrors specs.** Each spec has one module that implements it and names it in its first line.
 - **Fail closed.** Unknown majors and capabilities are refused with the version needed; nothing that grants or
   restricts is ever ignored.
-- **Migrations are code with a test.** Local state migrates on first use; shared state moves only by an explicit
-  operator command (`hub amend`, `room rebase-contract`).
+- **Gates, not migrations.** A format that changes gets a new version at its gate (above); old state is refused with
+  what to do, never migrated in place. A gate protects only readers that know it: a layout older ringi cannot read
+  also raises the contract major, which every ringi checks. Markers of running processes (locks, the pulse's pid)
+  carry no version; changing one means stopping that process once. Shared state moves only by an explicit operator command (`hub amend`, `room
+  rebase-contract`).
 
 ## Portability
 
@@ -92,7 +102,7 @@ ringi will likely be rewritten in Go or Rust, so as not to need Node. It stays s
 - Formats are message text with trailers and small JSON files; no protobuf, gRPC or binary encodings in the core.
   Anything heavier is an optional adapter.
 - Tests that go through the command line (`flow`, `ringi`, `model`) are a conformance suite for any implementation:
-  `RINGI_BIN=<executable> npm run test:conformance` runs them against it (`src/test/ts/cli.ts`). `node.test.ts`, `remote.test.ts`, `host.test.ts`, `signer.test.ts` and
+  `RINGI_BIN=<executable> npm run test:conformance` runs them against it (`src/test/ts/cli.ts`). `node.test.ts`, `remote.test.ts`, `host.test.ts`, `signer.test.ts`, `compat.test.ts` and
   `layers.test.ts` test this implementation.
 - What a port would still have to read from the code is listed in [DECISIONS.md](DECISIONS.md) (Porting gaps).
 

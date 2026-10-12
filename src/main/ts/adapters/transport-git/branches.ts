@@ -1,13 +1,10 @@
 // branches: a room is one linear branch from its genesis. What its commits are (messages or control records), the
-// room's control files, and the room's life: create, migrate, archive, delete.
+// room's control files, and the room's life: create, archive, delete.
 
-import fs from 'node:fs'
-import path from 'node:path'
 import {fail} from '../../lib/index.ts'
 import * as Remote from './remote.ts'
 import {ZERO} from './run.ts'
 import {Repo} from './repo.ts'
-import {migrateRoom} from './migrate.ts'
 import type {Roster, StoredRoom} from '../../core/hub/ports/store.ts'
 import {ID_RE, parse} from '../../core/hub/protocol/index.ts'
 import type {Entry} from '../../core/hub/protocol/files.ts'
@@ -21,14 +18,17 @@ type Named = Pick<StoredRoom, 'name' | 'genesis' | 'archived'>
 
 export class Branches extends Repo {
   protected ref(name: string) { return name.includes('@') ? `refs/archive/${name}` : `refs/heads/${name}` }
-  protected transition(name: string) { return `refs/ringi/migrating/${name}` }
-  protected tip(name: string) { return this.rev(this.ref(name)) ?? this.rev(this.transition(name)) }
-  // Rooms in ringi 0.1's layout (`<room>/control` and a branch per agent) are listed, and refused when opened.
+  protected tip(name: string) { return this.rev(this.ref(name)) }
+  // Every branch but the contract's, by name.
+  roomBranches(): string[] {
+    return this.git(['for-each-ref', '--format=%(refname:lstrip=2)', 'refs/heads/']).split('\n').filter(b => b && b !== 'main')
+  }
+  // Every branch but the contract's is a room; an archive is `<room>@<genesis8>`.
   roomNames(archived: boolean): string[] {
     const prefix = archived ? 'refs/archive/' : 'refs/heads/'
     const names = this.git(['for-each-ref', '--format=%(refname)', prefix]).split('\n').filter(Boolean).map(r => r.slice(prefix.length))
-      .map(n => n.replace(/\/control$/, '')).filter(n => ID_RE.test(n.split('@')[0]) && n !== 'main' && n.includes('@') === archived)
-    return [...new Set(names)].sort()
+      .filter(n => ID_RE.test(n.split('@')[0]) && n !== 'main' && n.includes('@') === archived)
+    return names.sort()
   }
   // A control record: the room's genesis, or a root commit of Kind: room.
   protected isControl(room: Pick<StoredRoom, 'genesis'>, sha: string, author: string, text: string): boolean {
@@ -65,7 +65,6 @@ export class Branches extends Repo {
   room(name: string): StoredRoom | null {
     const ref = this.ref(name)
     const tip = this.tip(name)
-    if (!tip && this.rev(`${ref}/control`)) fail(`room ${name} is in the layout of ringi 0.1; run ringi room migrate ${name} --hub ${this.d.name} to keep its history in one branch`)
     if (!tip) return null
     const genesis = this.git(['rev-list', '--first-parent', '--reverse', tip, '^refs/heads/main']).split('\n')[0]
       || this.git(['rev-list', '--first-parent', '--reverse', tip]).split('\n').filter(Boolean).at(-1)!
@@ -86,12 +85,6 @@ export class Branches extends Repo {
     if (!this.advance(ref, sha, null)) fail(`room ${name} was created meanwhile`)
     return sha
   }
-  // Migration uses a narrow port so validation and ref transactions stay outside the live Store implementation.
-  migrateRoom(name: string): string {
-    return migrateRoom({home: this.home, name: this.d.name, trust: this.trust,
-      git: this.git.bind(this), rev: this.rev.bind(this), extends: this.extends.bind(this),
-      isRef: this.isRef.bind(this), commit: this.commit.bind(this)}, name)
-  }
   // A control record on top of the branch: the control files come from the last control record, never from the tip,
   // and the messages' files are kept.
   updateControl(room: StoredRoom, who: string, text: string, files: Record<string, string>): string {
@@ -108,20 +101,19 @@ export class Branches extends Repo {
     this.git(['update-ref', `refs/archive/${as}`, tip, ZERO])
     this.git(['update-ref', '-d', this.ref(room.name), tip])
   }
-  // Every ref of the room in one transaction: its branch (or archive) and a pending migration, every tag on its
-  // commits (signals, ringi 0.1's, anyone's), what the store keeps under its genesis (pins, ringi 0.1's refs, evidence)
-  // and its unpublished commits; then the migration's backup of its readers. Objects are left to the repository.
+  // Every ref of the room in one transaction: its branch (or archive), every tag on its commits (signals, heartbeats,
+  // anyone's), what the store keeps under its genesis (pins, evidence) and its unpublished commits. Objects are left to
+  // the repository.
   deleteRoom(room: StoredRoom): void {
     const commits = this.commitsOf(room)
     const tags = this.git(['for-each-ref', '--format=%(refname) %(objectname) %(*objectname)', 'refs/tags/']).split('\n').filter(Boolean)
-      .map(l => l.split(' ')).filter(([ref, object, target]) => commits.has(target || object) || ref.startsWith(`refs/tags/ringi/${room.genesis}/`)).map(([ref]) => ref)
+      .map(l => l.split(' ')).filter(([, object, target]) => commits.has(target || object)).map(([ref]) => ref)
     const kept = this.refsUnder('refs/ringi/').map(([ref]) => ref).filter(ref => {
       const [, , kind, key] = ref.split('/')
       return key === room.genesis || (kind === 'unpublished' && commits.has(key))
     })
-    const refs = [this.ref(room.name), this.transition(room.name)].filter(r => this.rev(r)).concat(tags, kept)
+    const refs = [this.ref(room.name), ...tags, ...kept]
     this.git(['update-ref', '--stdin'], {input: ['start', ...refs.map(r => `delete ${r}`), 'prepare', 'commit', ''].join('\n')})
-    fs.rmSync(path.join(this.home, 'migration', this.d.name, room.genesis), {recursive: true, force: true})
   }
   protected remote(room: StoredRoom): Remote.Room {
     return {name: room.name, ref: this.ref(room.name), head: room.head, genesis: room.genesis, archived: room.archived}

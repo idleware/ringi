@@ -12,6 +12,7 @@ import type {Descriptor, Member, Rev, Store, StoredRoom} from '../ports/store.ts
 export const OPERATOR = 'operator'
 
 export const HUB_MAJOR = 1
+export const PROTOCOL_MAJOR = 1
 export const CAPS = new Set(Object.keys(CAPABILITIES))
 export const RESERVED_ROOMS = new Set(['main', 'archive'])
 
@@ -21,6 +22,8 @@ export type Contract = {
   protocol: number
   trust: 'asserted' | 'signed'
   capabilities?: string[]
+  // How its store lays out what it keeps (`git/2`); none: the first layout of its type.
+  store?: string
   // The profile rooms use unless they name another (core/hub/work).
   profile?: string
   root?: string
@@ -49,6 +52,7 @@ export const start = (R: Pick<Room, 'members' | 'quorum'>): {quorum: number | nu
 }
 
 export * from './hubs.ts'
+export * from './compat.ts'
 export * from './rooms.ts'
 export * from './messages.ts'
 export * from '../usecases/config.ts'

@@ -25,10 +25,10 @@ hubs: the contract's `version`, not the tool's, decides compatibility. Nothing h
 
 ```
 $RINGI_HOME/                         unset: ~/.ringi
-  home.json                          {"version": 3}; a version 2 home is moved on first use
+  home.json                          {"version": 3}; a home of another version is refused
   config.json                        the operator's terminal context: {"hub": "local", "room": "…"}
   hub/<name>/hub.json                the descriptor: {schema: ringi-hub/2, name, trust, root?, genesis?, store: {type, path, remote?}}
-  hub/<name>/store/                  the store; for type git, the bare repository store/.git
+  hub/<name>/store/                  the store; for type git, a repository (store/.git) with the contract checked out
   readers/<hub>/<room-genesis>/<agent>.json   that reader's accepted heads and signals, cursors, run budget
   sessions/<handle>.json             {hub, room, genesis, agent, scope, state, since, lastSeen, pid}
   keys/<hub>/<agent>                 agent keys, signed hubs only
@@ -59,20 +59,49 @@ A writer commits on the branch's tip and moves it with compare-and-set; when ano
 its commit again on the new tip. Ref components are agent ids (core-1 §1), valid git ref names and file names;
 `operator` is reserved. A new store type implements the same port (docs/ARCHITECTURE.md).
 
-ringi 0.1 kept a room as a control branch and a branch per agent (`<room>/control`, `<room>/log/<agent>`). Such a room
-is named and refused until the operator runs `ringi room migrate <room>` (local hubs): one control record joins the
-old branches into the room's branch, every message keeps its id and its readers' pins, the old refs stay under
-`refs/ringi/legacy/<genesis>/`, and everything after it is linear. A migration that would lose accepted history stops.
+## What a store guarantees
+
+A store type is an adapter of the `Store` port (core/hub/ports/store.ts), split by what each part does:
+
+| Part | What it does | Required |
+|---|---|---|
+| Log | the shared contract; rooms and their control records; each member's log; `extends` | yes |
+| Attachments | files stored for messages, and what a member staged for its next one | yes |
+| Signals | immutable markers on messages (signals-1) | yes |
+| Evidence | what a reader accepted, kept reachable | yes |
+| Administration | archive and delete a room | yes |
+| Verification | why history may not be accepted; nothing for asserted senders | yes |
+| Presence | one heartbeat per agent and room, replaced on every beat | no |
+| Signed | the root, members' keys, a transport alarm forgotten after review | signed hubs |
+
+Order alone is not enough. A log guarantees:
+
+1. **Identity.** A room, a control record, a message and an author's log have ids that do not change; a room made
+   again is another room.
+2. **Immutable content.** What a message said, who wrote it and what it carries never changes under its id.
+3. **Replay with an outcome.** Reading on from what a reader accepted says whether it continues, is unreachable for
+   now, lost a range, or no longer extends it; a gap in a cursor alone proves nothing.
+4. **Evidence.** What a reader accepted stays reachable, or the store says why it cannot.
+5. **Idempotent append.** A write whose result is unknown can be made again without a second message, or the store
+   says how to reconcile it.
+6. **Concurrency and failures.** Two writers on one room do not overwrite each other (compare-and-set), and a failure
+   says what kind it is.
+
+A backend that cannot give one of these needs a replica that does: a Telegram group keeps a bot's updates a day and
+may drop messages, so it needs its own replica and checkpoints; Kafka orders within a partition only.
 
 ## The contract and its versions
 
 - **Genesis.** The contract's first version holds `contract.json`
-  (`{"schema": "ringi-hub", "version": "1.1", "protocol": 1, "trust": "asserted", "capabilities": ["decisions/1", "profiles/1"], "profile": "a2a-1"}`),
+  (`{"schema": "ringi-hub", "version": "1.2", "protocol": 1, "trust": "asserted", "store": "git/2", "capabilities": ["decisions/1", "profiles/1"], "profile": "a2a-1"}`),
   `authority.json`, `profiles/a2a-1.json` and `HUB.md`. A signed hub adds its root key and signs every version with
-  it. Hubs made before the rename carry the contract as `hub.json`, still read.
+  it. `store` names how the store lays out what it keeps; for a contract without it (before 1.2) the store type looks
+  (a git store with room branches under `<room>/` is ringi 0.1's, `git/1`, and refused).
 - **Versions.** `version` is major.minor. A minor only adds optional data without authority; older tools keep reading
   and writing. Anything that grants or restricts is a required capability (core-1 §8) or a major. A tool refuses a
-  hub or a room whose major it does not know, and says which version it needs.
+  hub or a room whose contract major, protocol major, capabilities or store layout it does not know, and says what to
+  do: upgrade the tool for a newer hub; for an older one, make a new hub beside it or a new root branch on a forge.
+  Nothing is migrated.
 - **Amending.** `ringi hub amend` changes version, capabilities, the default profile, the authority table and
   profiles (each checked before it lands). A room follows the contract as of its base until the operator moves it
   (`ringi room rebase-contract <room>`, a control entry naming the new base) or archives it.
@@ -102,11 +131,11 @@ old branches into the room's branch, every message keeps its id and its readers'
    reach the watcher; plain `continue` in that chat takes the seat back once the watcher has ended. A seat another
    chat holds is never taken.
 8. End: `ringi room archive fix-badge` moves the room under `refs/archive/`, keeps it readable. `ringi room delete
-   fix-badge --yes` erases it, irreversibly: its branch, every tag on its commits, every ref the store keeps under its
-   genesis (pins, ringi 0.1's refs, evidence), its unpublished commits, its readers' state and a migration's backup;
-   git objects are left to the repository. Without an id both take the room of the current context. Either way the room's branch is gone, and every session and watcher bound
-   to it, on this machine or another, leaves its seat on its own when it finds that. A hub that cannot be reached is
-   not a gone room: it fails, and waiting or retrying is the orchestrator's concern.
+   fix-badge --yes` erases it, irreversibly: its branch, every tag on its commits, every ref the store keeps under
+   its genesis (pins, evidence), its unpublished commits and its readers' state; git objects are left to the
+   repository. Without an id both take the room of the current context. Either way the room's branch is gone, and
+   every session and watcher bound to it, on this machine or another, leaves its seat on its own when it finds that.
+   A hub that cannot be reached is not a gone room: it fails, and waiting or retrying is the orchestrator's concern.
 
 ## Commands, seats and locks
 

@@ -248,47 +248,6 @@ describe('signals: what happened, beside the messages', () => {
     assert.match(w.run(['signals', '--all']).err, /ALARM signal .*codex.*did not make usage\.reserve/)
   })
 
-  it('reports two disagreeing old pins of one signal on every read', (t) => {
-    const w = world(t)
-    w.ok(['room', 'create', 'r'])
-    w.ok(['send', '--task', '--assign', 'alice', '-m', 'Job'])
-    w.ok(['signals'])
-    // A reader state from before pins were keyed by name: the live ref and an archive ref of one signal disagree.
-    const dir = path.join(w.home, 'readers', 'local')
-    const genesis = fs.readdirSync(dir)[0]
-    const file = path.join(dir, genesis, 'operator.json')
-    const st = JSON.parse(fs.readFileSync(file, 'utf8'))
-    const [, object] = Object.entries(st.signals as Record<string, string>).find(([k]) => k.startsWith('operator.opened.'))!
-    const name = `operator/${w.json(['signals']).find(s => s.signal === 'opened')!.target}.opened`
-    // Pins of the layout before tags were named by their message: the live pin holds what was accepted first; the
-    // archive pin holds what is there now. Without care the second would quietly win after one read.
-    st.signals = {[`refs/tags/ringi/${genesis}/${name}`]: '0'.repeat(40), [`refs/archive/r@${genesis.slice(0, 8)}/signals/${name}`]: object}
-    fs.writeFileSync(file, JSON.stringify(st))
-    for (let i = 0; i < 2; i++) assert.match(w.run(['signals']).err, /ALARM signal operator\.opened\.[0-9a-f]{12} has two different accepted objects/)
-  })
-
-  it('reads pins an older reader kept under each actor\'s full message id', (t) => {
-    const w = world(t)
-    w.ok(['room', 'create', 'r'])
-    w.ok(['join', 'local', 'r', '--as', 'alice'], {as: 'A'})
-    w.ok(['send', '--task', '--assign', 'alice', '-m', 'Job'])
-    w.ok(['agent', 'inbox'], {as: 'A'})
-    assert.equal(w.run(['signals']).err, '')
-    const dir = path.join(w.home, 'readers', 'local')
-    const file = path.join(dir, fs.readdirSync(dir)[0], 'operator.json')
-    const st = JSON.parse(fs.readFileSync(file, 'utf8'))
-    const full = w.json(['signals']).find(s => s.signal === 'opened')!.target
-    // `<actor>/<message>.<signal>`: alice's read and the operator's signals on one message stay apart.
-    st.signals = Object.fromEntries(Object.entries(st.signals as Record<string, string>).map(([k, v]) => {
-      const [actor, signal] = /^([^.]+)\.(.+)\.[0-9a-f]{12}$/.exec(k)!.slice(1)
-      return [`${actor}/${full}.${signal}`, v]
-    }))
-    fs.writeFileSync(file, JSON.stringify(st))
-    assert.equal(w.run(['signals']).err, '')
-    assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file, 'utf8')).signals).sort(),
-      ['alice.read', 'operator.assigned', 'operator.opened'].map(k => `${k}.${full.slice(0, 12)}`))
-  })
-
   it('keeps a reader\'s pins when the room is archived', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
@@ -368,16 +327,6 @@ describe('hubs: a descriptor beside a store', () => {
     w.no(['where'], /selects two majors of decisions, which this ringi .* cannot enforce/)
   })
 
-  it('names a room in the layout of ringi 0.1 instead of hiding it', (t) => {
-    const w = world(t)
-    w.ok(['room', 'create', 'r'])
-    w.git('update-ref', 'refs/heads/old/control', w.git('rev-parse', 'refs/heads/r'))
-    const list = w.run(['room', 'list'])
-    assert.equal(list.code, 0, list.err)
-    assert.match(list.err, /ALARM room old is in the layout of ringi 0\.1/)
-    w.no(['log', '--room', 'old'], /layout of ringi 0\.1/)
-  })
-
   it('refuses a room\'s history offered under another name', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
@@ -421,19 +370,4 @@ describe('hubs: a descriptor beside a store', () => {
     w.no(['where'], /hub local uses a teleport store; this ringi .* knows git, kafka, temporal/)
   })
 
-  it('moves a home of the previous layout into descriptor and store, room and sessions intact', (t) => {
-    const w = world(t)
-    w.ok(['room', 'create', 'r'])
-    w.ok(['join', 'local', 'r', '--as', 'alice'], {as: 'A'})
-    w.ok(['send', '--to', 'alice', '-m', 'before the move'])
-    // Back to the old layout: hub/local.git with no descriptor, home version 2.
-    fs.renameSync(path.join(w.home, 'hub', 'local', 'store', '.git'), path.join(w.home, 'hub', 'local.git'))
-    fs.rmSync(path.join(w.home, 'hub', 'local'), {recursive: true})
-    fs.writeFileSync(path.join(w.home, 'home.json'), '{"version":2}')
-    const r = w.run(['agent', 'inbox'], {as: 'A'})
-    assert.equal(r.code, 0, r.err)
-    assert.match(r.err, /moved hub local to .*hub\/local \(descriptor hub\.json, store\/\.git\)/)
-    assert.match(r.out, /before the move/)
-    assert.equal(JSON.parse(fs.readFileSync(path.join(w.home, 'home.json'), 'utf8')).version, 3)
-  })
 })

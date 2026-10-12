@@ -37,9 +37,6 @@ so writing a signal twice is a no-op; the tag's own time says when it was made. 
 holds its message; archiving a room leaves its signals where they are. Agent ids have no dot (core-1 §1), so a name
 reads unambiguously: the actor up to the first dot, the message after the last, the signal between.
 
-ringi 0.1 named tags `ringi/<genesis>/<actor>/<message>.<signal>` and gave them a body; those are not read, and
-`ringi room migrate` converts them.
-
 ## Checking
 
 A reader checks every signal and mark: the tagger is the actor; the name's message is a prefix of the target; a

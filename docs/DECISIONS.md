@@ -359,3 +359,14 @@ Git covers several of these by construction. That is the bet here.
   exists, keys stay files (`keys-file`).
 - **Names.** `kernel` beside `core` read as two cores (the operator); the helpers that know nothing of ringi are `lib`
   again, now without files and locks (`adapters/fs`).
+- **Gates, not migrations (later the same day).** The operator: what matters is a compatibility check; a hub the new
+  ringi cannot read is replaced by a new one beside it (`local2`) or a new root branch on a forge; migrations only if
+  cheap, and beside the code, not through it. They were not cheap: about 700 lines reaching into branches, deletion,
+  signal pins, push alarms, the home and the CLI. Gone: `room migrate` and the 0.1 room layout, the home v2 move, pins
+  in old key formats, push alarms kept in git config, the renamed pulse pidfile (`pulse.json` now), the contract named
+  `hub.json`, the library's `STORES`. In their place, gates in one place (`core/hub/rooms/compat.ts`, the home's in
+  `adapters/state-fs`): descriptor schema, contract major, protocol major (promised before, now checked),
+  capabilities, and the store's layout, which a new contract names (`store: git/2`, contract 1.2) and the store type
+  finds by looking when an older one does not (codex: no field proves nothing). Each refuses with what to do; a layout
+  older ringi cannot read also raises the contract major. A migration, if ever worth it, is a tool beside ringi. The
+  `Store` port is split by what each part does, and hub-1 states what a log must guarantee.

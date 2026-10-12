@@ -1,4 +1,4 @@
-// branch-control: the scan of a room's branch and its control records, each signed by the root.
+// branch-control: root-signed control records and the room's roster, as a branch scan meets them.
 
 import * as C from '../../../lib/index.ts'
 import * as P from '../../../core/hub/protocol/index.ts'

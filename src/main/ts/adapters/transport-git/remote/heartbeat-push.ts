@@ -1,4 +1,4 @@
-// heartbeat-push: a beat published with the object it replaces; a newer beat on the remote wins.
+// heartbeat-push: a beat published with a lease on the object it replaces; a stale update loses.
 
 import * as C from '../../../lib/index.ts'
 import {git, isRemote, locked, object, origin} from './git.ts'

@@ -30,8 +30,7 @@ export const verifyHub = (H: Handle) => {
 
 const checkContract = (H: Handle, sha: string, key: Key): void => {
   checkSignature(H, sha, ROOT, key)
-  // The shared contract is contract.json; hubs made before the rename carry it as hub.json.
-  const name = git(H, ['cat-file', '-e', `${sha}:contract.json`], {ok: true}).status === 0 ? 'contract.json' : 'hub.json'
+  const name = 'contract.json'
   const meta = C.strictJson<{schema: string, trust: string, root: string}>(blobText(H, sha, name), name)
   if (meta.schema !== 'ringi-hub' || meta.trust !== 'signed' || parseKey(meta.root).line !== key.line) C.fail(`${name} must declare signed trust and the pinned root key`)
   const authority = git(H, ['cat-file', '-e', `${sha}:authority.json`], {ok: true})

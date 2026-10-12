@@ -109,7 +109,7 @@ const world = (t: TestContext, profile?: string, spec?: Profile) => {
   const op = hub(opHome)
   const setup = Remote.setupSigned(op, opHome, url)
   const meta = {schema: 'ringi-hub', version: spec ? '1.1' : '1.0', protocol: 1, capabilities: ['decisions/1', ...(spec ? ['profiles/1'] : [])], trust: 'signed', root: setup.root, ...(profile ? {profile} : {})}
-  const mainTree = tree(op, {[spec ? 'contract.json' : 'hub.json']: JSON.stringify(meta), 'authority.json': '{"decide":{}}', 'HUB.md': '# independent fixture\n'}, spec ? {profiles: tree(op, {[`${spec.name}.json`]: JSON.stringify(spec)})} : {})
+  const mainTree = tree(op, {'contract.json': JSON.stringify(meta), 'authority.json': '{"decide":{}}', 'HUB.md': '# independent fixture\n'}, spec ? {profiles: tree(op, {[`${spec.name}.json`]: JSON.stringify(spec)})} : {})
   const genesis = commit(op, opHome, 'operator', 'fixture hub\n\nTo: *\nKind: hub\n', mainTree, [])
   op.git(['update-ref', 'refs/heads/main', genesis]); op.main = genesis; op.d.genesis = genesis
   op.git(['remote', 'add', 'origin', url])
@@ -141,6 +141,12 @@ const world = (t: TestContext, profile?: string, spec?: Profile) => {
   }
   const ok = (machine: string, args: string[], session?: string) => { const r = run(machine, args, session); assert.equal(r.code, 0, `ringi ${args.join(' ')}: ${r.err}`); return r.out }
   return {base, remote, url, home, op, opHome, meta, genesis, replica, agent, run, ok}
+}
+
+// A hub's push alarms as kept in its store; none kept means none.
+const pushAlarmsOf = (H: {dir: string}): Record<string, string> => {
+  const file = path.join(H.dir, 'ringi', 'push-alarms.json')
+  return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {}
 }
 
 describe('signed remote hubs', () => {
@@ -281,7 +287,7 @@ describe('signed remote hubs', () => {
       Remote.sync(w.op)
       assert.match(Remote.branch(w.op, room(w.op), fakeControl).skipped.get(fakeControl)!, /control files/)
       assert.ok(!Remote.verifyRoom(w.op, room(w.op)).members.mallory)
-      const tr = tree(w.op, {'hub.json': JSON.stringify(w.meta), 'authority.json': '{"decide":{},"decide":{"bob":{"runs":999}}}'})
+      const tr = tree(w.op, {'contract.json': JSON.stringify(w.meta), 'authority.json': '{"decide":{},"decide":{"bob":{"runs":999}}}'})
       const bad = commit(w.op, w.opHome, 'operator', 'ambiguous authority\n\nTo: *\nKind: hub\n', tr, [w.genesis])
       publish(w.op, 'refs/heads/main', bad)
       assert.throws(() => Remote.sync(w.op), /ALARM.*duplicate JSON/)
@@ -367,8 +373,8 @@ describe('signed remote hubs', () => {
           limits.length = 0
           assert.equal(Remote.verifyHub(w.op)!.genesis, w.genesis)
           assert.match(runGit(['--version']), /git version/)
-          assert.equal(store.contractFile(w.genesis, 'hub.json'), JSON.stringify(w.meta))
-          assert.equal(store.file(w.genesis, 'hub.json').toString(), JSON.stringify(w.meta))
+          assert.equal(store.contractFile(w.genesis, 'contract.json'), JSON.stringify(w.meta))
+          assert.equal(store.file(w.genesis, 'contract.json').toString(), JSON.stringify(w.meta))
           assert.ok(limits.length > 3)
           assert.ok(limits.every(ms => ms === (value ? 12345 : 30000)), JSON.stringify(limits))
         }
@@ -393,7 +399,7 @@ describe('signed remote hubs', () => {
       syncBuiltinESMExports()
       try {
         for (const invoke of [() => Remote.verifyHub(w.op), () => runGit(['--version']),
-          () => store.contractFile(w.genesis, 'hub.json'), () => store.file(w.genesis, 'hub.json')]) {
+          () => store.contractFile(w.genesis, 'contract.json'), () => store.file(w.genesis, 'contract.json')]) {
           assert.throws(invoke, {code: 'ETIMEDOUT', message: /git timed out.*RINGI_GIT_TIMEOUT_MS/})
         }
       } finally { mock.mock.restore(); syncBuiltinESMExports() }
@@ -401,39 +407,16 @@ describe('signed remote hubs', () => {
   })
 
   describe('replication and recovery', () => {
-    it('migrates legacy push alarms once and thereafter reads store state', t => {
-      const w = world(t), ref = room(w.op).ref, file = path.join(w.op.dir, 'ringi', 'push-alarms.json')
-      const alarms = {[ref]: 'legacy publication awaiting recovery'}
-      fs.rmSync(file)
-      w.op.git(['config', 'ringi.pushAlarms', JSON.stringify(alarms)])
-      Remote.sync(w.op)
-      assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), alarms)
-      assert.deepEqual(w.op.remoteAlarms, alarms)
-      assert.equal(w.op.git(['config', '--get', 'ringi.pushAlarms'], {ok: true}).status, 1)
-      w.op.git(['config', 'ringi.pushAlarms', '{"ignored":"new config value"}'])
-      Remote.sync(w.op)
-      assert.deepEqual(w.op.remoteAlarms, alarms)
-      assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), alarms)
-    })
-
-    it('refuses corrupt push alarm state before publishing and preserves malformed legacy data', t => {
+    it('refuses corrupt push alarm state before publishing', t => {
       const w = world(t), sha = openTask(w.op, w.opHome, 'operator'), s = tag(w.op, w.opHome, 'operator', sha)
       const file = path.join(w.op.dir, 'ringi', 'push-alarms.json')
       const malformed = ['', 'null', '[]', '{"a":1}', '{"a":"first","a":"second"}']
-      w.op.git(['config', 'ringi.pushAlarms', '{}'])
       for (const text of malformed) {
         fs.writeFileSync(file, text)
         assert.throws(() => Remote.sync(w.op), /push-alarms\.json/)
         assert.throws(() => Remote.push(w.op, s.ref), /push-alarms\.json/)
         assert.equal(fs.readFileSync(file, 'utf8'), text)
         assert.equal(git(w.remote, ['rev-parse', '-q', '--verify', s.ref], {ok: true}).status, 1)
-      }
-      fs.rmSync(file)
-      for (const text of malformed) {
-        w.op.git(['config', 'ringi.pushAlarms', text])
-        assert.throws(() => Remote.sync(w.op), /legacy ringi\.pushAlarms/)
-        assert.equal(fs.existsSync(file), false)
-        assert.equal(w.op.git(['config', '--get', 'ringi.pushAlarms']).trim(), text)
       }
     })
 
@@ -484,7 +467,6 @@ describe('signed remote hubs', () => {
       assert.match(bob.H.remoteAlarms?.[R.ref] ?? '', /push rejected|diverges/)
       const file = path.join(bob.H.dir, 'ringi', 'push-alarms.json')
       assert.match(JSON.parse(fs.readFileSync(file, 'utf8'))[R.ref], /push rejected/)
-      assert.equal(bob.H.git(['config', '--get', 'ringi.pushAlarms'], {ok: true}).status, 1)
       publish(bob.H, R.ref, ours, true)
       Remote.push(bob.H, R.ref)
       Remote.sync(bob.H)
@@ -552,7 +534,7 @@ describe('signed remote hubs', () => {
       assert.equal(raw.split('\n\n').slice(1).join('\n\n').split('-----BEGIN SSH SIGNATURE-----')[0], '')
     })
 
-    it('ignores legacy room-scoped and ordinary tags, and refuses them on explicit signal pushes', t => {
+    it('ignores tags that are no signals, and refuses them on explicit signal pushes', t => {
       const w = world(t), bob = w.agent('bob')
       const sha = openTask(bob.H, bob.home, 'bob'), R = room(bob.H)
       for (const name of [`ringi/${R.genesis}/bob/${sha}.opened`, `ringi/bob/${sha.slice(0, 12)}.opened`, `bob.opened.${sha}`, 'release-v1']) {
@@ -801,7 +783,7 @@ describe('signed remote hubs', () => {
       assert.ok(intercepted)
       assert.equal(git(w.remote, ['rev-parse', 'refs/heads/r']).trim(), sha)
       assert.equal(bob.H.git(['for-each-ref', '--format=%(refname)', 'refs/ringi/unpublished/']).trim(), '')
-      assert.deepEqual(JSON.parse(fs.readFileSync(path.join(bob.H.dir, 'ringi', 'push-alarms.json'), 'utf8')), {})
+      assert.deepEqual(pushAlarmsOf(bob.H), {})
     })
 
     it('refuses automatic retry onto a rollback and retains the unreturned local commit', t => {
@@ -1088,7 +1070,7 @@ describe('signed remote heartbeats', () => {
     assert.equal(Remote.pushHeartbeat(bob.H, second.R, 'bob', second.object, first.object), false, 'an older local writer cannot publish over a newer one')
     assert.equal(Remote.pushHeartbeat(bob.H, third.R, 'bob', third.object, first.object), false, 'stale replacement does not overwrite the remote')
     assert.equal(Remote.pushHeartbeat(bob.H, third.R, 'bob', third.object, second.object), true)
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(bob.H.dir, 'ringi', 'push-alarms.json'), 'utf8')), {})
+    assert.deepEqual(pushAlarmsOf(bob.H), {})
   })
 
   it('withholds forged replacements and recovers valid telemetry without poisoning room history', t => {

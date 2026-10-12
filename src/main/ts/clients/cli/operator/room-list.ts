@@ -1,4 +1,4 @@
-// room-list: `ringi room list | create | switch | migrate`.
+// room-list: `ringi room list | create | switch`.
 
 import {roomsActive} from '../../../core/agents/overview.ts'
 import * as Rooms from '../../../core/hub/usecases/rooms.ts'
@@ -25,9 +25,4 @@ export const createRoom = (H: Hub, arg: string | undefined, o: Opts) => {
 export const switchRoom = (H: Hub, arg: string | undefined, o: Opts) => {
   const R = Rooms.use(H, arg ?? fail('usage: ringi room switch <id>'))
   return out(`current room: ${H.name}/${R.name}; agents keep their own rooms`)
-}
-
-export const migrateRoom = (H: Hub, arg: string | undefined, o: Opts) => {
-  const rev = Rooms.migrate(H, arg ?? fail('usage: ringi room migrate <id>'))
-  return out(`room ${arg} uses one branch; its genesis, message ids and session bindings are kept (${short(rev)})`)
 }

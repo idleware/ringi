@@ -4,4 +4,4 @@ import type {Transport} from '../../core/hub/ports/store.ts'
 import {fail} from '../../lib/index.ts'
 
 const planned = (d: {name: string}): never => fail(`hub ${d.name}: the kafka store is planned and not implemented in this ringi`)
-export const kafka: Transport = {open: (_at, d) => planned(d), create: (_at, d) => planned(d)}
+export const kafka: Transport = {layout: 'kafka/1', open: (_at, d) => planned(d), create: (_at, d) => planned(d)}

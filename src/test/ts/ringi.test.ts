@@ -211,13 +211,9 @@ describe('rooms', () => {
     const genesis = w.git('rev-list', '--reverse', 'refs/heads/r', '^refs/heads/main').split('\n')[0]
     const commits = new Set(w.git('rev-list', 'refs/heads/r', '^refs/heads/main').split('\n'))
     const full = [...commits].find(c => c.startsWith(task))!
-    // What else may hang on the room: anyone's tag, ringi 0.1's tag and refs, evidence, a migration's backup.
+    // What else may hang on the room: anyone's tag, evidence, an unpublished commit.
     w.git('tag', 'release-x', full)
-    w.git('update-ref', `refs/tags/ringi/${genesis}/codex/${full}.read`, full)
-    for (const ref of [`refs/ringi/legacy/${genesis}/control`, `refs/ringi/quarantine/${genesis}/${full}`, `refs/ringi/unpublished/${full}`]) w.git('update-ref', ref, full)
-    const backup = path.join(w.home, 'migration', 'local', genesis)
-    fs.mkdirSync(path.join(backup, 'readers'), {recursive: true})
-    fs.writeFileSync(path.join(backup, 'readers', 'codex.json'), '{}')
+    for (const ref of [`refs/ringi/quarantine/${genesis}/${full}`, `refs/ringi/unpublished/${full}`]) w.git('update-ref', ref, full)
     // Another room stays as it is.
     w.ok(['room', 'create', 'other'])
     w.ok(['join', 'local', 'other', '--as', 'claude'], {as: 'L'})
@@ -231,7 +227,6 @@ describe('rooms', () => {
     assert.deepEqual(left.filter(l => l.includes(genesis) || l.split(' ').some(x => commits.has(x))), [])
     assert.deepEqual(outside(), kept)
     assert.ok(kept.some(l => l.startsWith('refs/tags/claude.read.')))
-    assert.equal(fs.existsSync(backup), false)
     assert.equal(fs.existsSync(path.join(w.home, 'readers', 'local', genesis)), false)
     assert.match(w.ok(['log', '--room', 'other']), /stays/)
     // The session finds the branch gone and leaves on its own; the other room's session is untouched.
@@ -498,9 +493,9 @@ describe('contracts and decisions', () => {
   it('accepts minor versions and refuses unknown contracts', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
-    assert.match(w.ok(['hub']), /\* local +git, asserted, contract 1\.1/)
-    w.ok(['hub', 'amend', '-m', 'note', '--set', 'version=1.2'])
-    assert.match(w.ok(['where']), /contract 1\.2/)
+    assert.match(w.ok(['hub']), /\* local +git, asserted, contract 1\.2/)
+    w.ok(['hub', 'amend', '-m', 'note', '--set', 'version=1.3'])
+    assert.match(w.ok(['where']), /contract 1\.3/)
     w.ok(['hub', 'amend', '-m', 'teleport', '--set', 'capabilities=decisions/1,teleport/1'])
     w.no(['where'], /requires teleport\/1, which this ringi .* cannot enforce/)
     const w2 = world(t)
@@ -510,6 +505,9 @@ describe('contracts and decisions', () => {
     const w3 = world(t)
     fs.writeFileSync(path.join(w3.home, 'stray'), 'x')
     w3.no(['room', 'create', 'r'], /not a ringi home \(no home\.json\)/)
+    const w4 = world(t)
+    fs.writeFileSync(path.join(w4.home, 'home.json'), JSON.stringify({version: 2}))
+    w4.no(['room', 'list'], /ringi home of version 2; this ringi .* needs version 3/)
   })
 
   it('limits stamps and decisions to authorized participants', (t) => {

@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import * as C from '../../../lib/index.ts'
 import * as FS from '../../fs/index.ts'
-import {git, mkdir} from './git.ts'
+import {mkdir} from './git.ts'
 import type {Handle} from './types.ts'
 
 const pushAlarmsFile = (H: Handle): string => path.join(H.dir, 'ringi', 'push-alarms.json')
@@ -25,11 +25,6 @@ export const pushAlarms = (H: Handle): Record<string, string> => {
   const file = pushAlarmsFile(H)
   try {return alarmState(fs.readFileSync(file, 'utf8'), file)} catch (e) {
     if (C.errno(e) !== 'ENOENT') throw e
+    return {}
   }
-  const old = git(H, ['config', '--get', 'ringi.pushAlarms'], {ok: true})
-  if (old.status !== 0 && old.status !== 1) C.fail(`cannot read legacy push alarm state: ${old.stderr.trim()}`)
-  const alarms = alarmState(old.status === 1 ? '{}' : old.stdout, 'legacy ringi.pushAlarms')
-  savePushAlarms(H, alarms)
-  if (old.status === 0) git(H, ['config', '--unset-all', 'ringi.pushAlarms'])
-  return alarms
 }

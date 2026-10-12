@@ -1,4 +1,5 @@
-// push-retry: a rejected push recovered: fetch what the remote has, rebase only what extends it, or alarm.
+// push-retry: a lost acknowledgement reconciled, or one unpublished append kept and its caller moved onto the
+// verified remote tip to make it again.
 
 import * as C from '../../../lib/index.ts'
 import {savePushAlarms} from './alarms.ts'

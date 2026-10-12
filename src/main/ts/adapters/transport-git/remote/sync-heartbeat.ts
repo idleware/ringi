@@ -1,4 +1,5 @@
-// sync-heartbeat: a fetched heartbeat accepted when it verifies and is newer than the one here.
+// sync-heartbeat: a fetched heartbeat verified and installed as the remote's current object; its errors stay apart
+// from signal alarms.
 
 import * as C from '../../../lib/index.ts'
 import {git, reason} from './git.ts'

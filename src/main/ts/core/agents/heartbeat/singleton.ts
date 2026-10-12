@@ -1,5 +1,5 @@
-// pulse singleton: one daemon for this machine, using the legacy numeric marker via LocalState. Process facts and
-// detached launch belong to ProcessHost; a corrupt marker never invents an owner (heartbeat-1, hub-1).
+// singleton: one pulse for this machine, its process id kept in the state as `pulse`. Process facts and the detached
+// launch belong to ProcessHost; a corrupt record never invents an owner.
 
 import {agentPorts} from '../ports/index.ts'
 import {hubPorts, locked} from '../../hub/ports/index.ts'

@@ -6,7 +6,8 @@ import {locked} from '../ports/index.ts'
 import {fail, strictJson} from '../../../lib/index.ts'
 import {compose} from '../protocol/index.ts'
 import type {Member, Rev, StoredRoom} from '../ports/store.ts'
-import {contractAt, readProfileResource} from './hubs.ts'
+import {readProfileResource} from './hubs.ts'
+import {contractAt} from './compat.ts'
 import type {Hub, Room} from './index.ts'
 
 export const roomNames = (H: Hub, archived = false): string[] => H.store.roomNames(archived)
