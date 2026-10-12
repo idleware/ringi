@@ -1,15 +1,15 @@
 // Node implementation tests: direct imports and source-level fault injection.
 import {describe, it} from 'node:test'
 import type {TestContext} from 'node:test'
-import type {Session} from '../../main/ts/runtime/session.ts'
-import type {asJson} from '../../main/ts/app/view.ts'
+import type {Session} from '../../main/ts/core/agents/sessions/index.ts'
+import type {asJson} from '../../main/ts/core/hub/usecases/view.ts'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {spawn, spawnSync} from 'node:child_process'
 import {fileURLToPath, pathToFileURL} from 'node:url'
-import {locked} from '../../main/ts/lib/index.ts'
+import {locked} from '../../main/ts/adapters/fs/index.ts'
 import {BASE, quote} from './cli.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -94,7 +94,7 @@ describe('Node implementation: file locks', () => {
     fs.writeFileSync(file, '999999.dead')
     fs.writeFileSync(count, '0')
     const code = `import fs from 'node:fs';
-      import {locked} from ${JSON.stringify(pathToFileURL(path.join(HERE, '../../../target/esm/lib/index.js')).href)};
+      import {locked} from ${JSON.stringify(pathToFileURL(path.join(HERE, '../../../target/esm/adapters/fs/index.js')).href)};
       for (let i = 0; i < 10; i++) locked(${JSON.stringify(file)}, () => {
         const n = Number(fs.readFileSync(${JSON.stringify(count)}, 'utf8'));
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2);

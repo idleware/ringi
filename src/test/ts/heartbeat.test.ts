@@ -6,10 +6,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {spawn} from 'node:child_process'
-import {body, judge, probe} from '../../main/ts/heartbeat/index.ts'
-import type {Facts} from '../../main/ts/heartbeat/index.ts'
-import {SUPPORTED, procStat, seconds, table, treeCpu} from '../../main/ts/heartbeat/platform.ts'
-import {toolOf, traceTime} from '../../main/ts/heartbeat/tools.ts'
+import '../../main/ts/composition/index.ts'
+import {body, judge, probe} from '../../main/ts/core/agents/heartbeat/index.ts'
+import type {Facts} from '../../main/ts/core/agents/heartbeat/index.ts'
+import {SUPPORTED, procStat, seconds, table, treeCpu} from '../../main/ts/adapters/host-posix/platform.ts'
+import {toolOf, traceTime} from '../../main/ts/core/agents/heartbeat/tools.ts'
 
 const facts = (o: Partial<Facts> = {}): Facts => ({at: 1000, alive: true, cpu: null, trace: null, seen: 0, stopped: false, waits: null, ...o})
 const scratch = (t: TestContext): string => {

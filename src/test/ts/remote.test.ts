@@ -2,9 +2,9 @@
 import {describe, it} from 'node:test'
 import type {TestContext} from 'node:test'
 import type {SpawnSyncOptions, SpawnSyncReturns} from 'node:child_process'
-import type {Descriptor} from '../../main/ts/store/index.ts'
-import type {asJson} from '../../main/ts/app/view.ts'
-import type {Profile} from '../../main/ts/domain/profiles.ts'
+import type {Descriptor} from '../../main/ts/core/hub/ports/store.ts'
+import type {asJson} from '../../main/ts/core/hub/usecases/view.ts'
+import type {Profile} from '../../main/ts/core/hub/work/index.ts'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -13,8 +13,8 @@ import crypto from 'node:crypto'
 import childProcess, {spawn, spawnSync} from 'node:child_process'
 import {syncBuiltinESMExports} from 'node:module'
 import {fileURLToPath, pathToFileURL} from 'node:url'
-import * as Remote from '../../main/ts/store/git/remote.ts'
-import {GitStore, runGit} from '../../main/ts/store/git/index.ts'
+import * as Remote from '../../main/ts/adapters/transport-git/remote.ts'
+import {GitStore, runGit} from '../../main/ts/adapters/transport-git/index.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const CLI = path.join(HERE, '../../../target/esm/cli.js')
@@ -861,7 +861,7 @@ describe('signed remote hubs', () => {
       const w = world(t)
       const lock = path.join(w.op.dir, 'ringi', 'transport.lock')
       const ready = path.join(w.base, 'ready'), released = path.join(w.base, 'released')
-      const util = pathToFileURL(path.join(HERE, '../../main/ts/lib/index.ts')).href
+      const util = pathToFileURL(path.join(HERE, '../../main/ts/adapters/fs/index.ts')).href
       const holder = spawn(process.execPath, ['--input-type=module', '-e', `
         import fs from 'node:fs';
         import {locked} from ${JSON.stringify(util)};

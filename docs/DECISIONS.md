@@ -331,3 +331,31 @@ Git covers several of these by construction. That is the bet here.
   first, no runtime dependencies, text and small JSON formats, optional adapters for anything heavy, and the CLI tests
   as a conformance suite (`RINGI_BIN`).
 
+
+## ringi: core, adapters, clients (2026-10-12)
+
+- **Quality first.** Qlty rated the code F (91 smells); the operator: write it properly from the start. Fixed by
+  splitting modules, never by raising thresholds; every commit is checked with `qlty smells --all` and the CI command
+  in a Linux container.
+- **The operator's correction.** The top level mixed layers (lib, protocol, domain, app, runtime), contexts (hub,
+  heartbeat, home) and adapters (store/git): heartbeat and home were not where they belonged, `domain` named nothing,
+  and replacing git with Telegram groups, n8n rails or Kafka topics would have meant edits across the tree. Now three
+  roles, each a future package: `core/` (hub, agents, signing), `adapters/` (one per way ringi meets the world),
+  `clients/`, with `lib/` beneath them; `composition/` alone knows the adapters. Agreed with codex over three rounds
+  (`ddd/` in the room).
+- **Ports beside their owners.** `hubPorts()` (this build, the machine's state, the store types) and `agentPorts()`
+  (agent tools, processes); a `Signer` is given to the signed transport only. Rejected: one registry for all (the hub
+  would depend on the agents' contracts), and the names `coordination`/`execution`/`telemetry` (the operator's words
+  are hub, agents, heartbeat).
+- **One module per spec and capability.** `work` (profiles), `decisions`, `signals`, `history` stay apart inside the
+  hub, so a capability's second major is a module beside the first.
+- **What a store must guarantee** is stated before another one is written: a Telegram group (updates kept 24 hours,
+  messages that may vanish) needs its own replica and checkpoints; Kafka orders only within a partition. Order alone
+  is not enough: identity, immutable content, replay with an explicit outcome, evidence, idempotent append.
+- **Keys.** On an asserted hub nothing is signed: whoever can write its repository can delete it or write as anyone
+  (the operator), so a signature would protect nothing. Its rules still coordinate: the watcher checks grants
+  (approval, revocation, spending, concurrency) on either kind of hub; only a signed hub also proves who wrote what.
+  A signed hub's root key may live in an SSH agent such as 1Password, unlocked by fingerprint; until that adapter
+  exists, keys stay files (`keys-file`).
+- **Names.** `kernel` beside `core` read as two cores (the operator); the helpers that know nothing of ringi are `lib`
+  again, now without files and locks (`adapters/fs`).

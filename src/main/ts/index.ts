@@ -1,10 +1,13 @@
 // The library: the message protocol, profiles, decisions, signals and the Store port, for programs that coordinate
 // through ringi without its command line (a framework's own runner, another store, another client).
-export * from './protocol/index.ts'
-export * from './domain/profiles.ts'
-export * as decide from './domain/decisions.ts'
-export * as signals from './domain/signals.ts'
-export type {Store, StoreFactory, Descriptor, StoredRoom, StoredMessage, SignalRecord, Rev} from './store/index.ts'
-export {STORES} from './store/index.ts'
-export {openHub, openRoom, createHub, contractAt} from './hub/index.ts'
-export type {Hub, Room, Contract} from './hub/index.ts'
+// Importing it wires this machine's defaults (composition/); a program that brings its own adapters calls wire().
+import './composition/index.ts'
+
+export * from './core/hub/protocol/index.ts'
+export * from './core/hub/work/index.ts'
+export * as decide from './core/hub/decisions/index.ts'
+export * as signals from './core/hub/signals/index.ts'
+export type {Store, StoreFactory, Descriptor, StoredRoom, StoredMessage, SignalRecord, Rev} from './core/hub/ports/store.ts'
+export {STORES} from './composition/index.ts'
+export {openHub, openRoom, createHub, contractAt} from './core/hub/rooms/index.ts'
+export type {Hub, Room, Contract} from './core/hub/rooms/index.ts'
