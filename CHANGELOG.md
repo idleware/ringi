@@ -1,3 +1,8 @@
+## [0.7.1](https://github.com/idleware/ringi/compare/v0.7.0...v0.7.1) (2026-10-12)
+
+### Fixes & improvements
+* refactor: one signing path, through Signer ([0b109d1](https://github.com/idleware/ringi/commit/0b109d108bf3b26e755124225df024b76fb40864))
+
 ## [0.7.0](https://github.com/idleware/ringi/compare/v0.6.1...v0.7.0) (2026-10-12)
 
 ### Fixes & improvements
