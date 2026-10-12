@@ -73,7 +73,9 @@ const acceptSignals = (R: Room, logs: Logs, st: ReaderState, alarms: string[]): 
 }
 // What follows from an alarm, by what it is about.
 const remedy = (R: Room, alarm: string): string => {
-  if (alarm.startsWith('signal ')) return 'the messages stay the truth; the author restores a missing signal with ringi agent signals --repair'
+  if (alarm.startsWith('signal ')) return alarm.endsWith('was removed after it was accepted')
+    ? 'the messages stay the truth; its author restores it with ringi agent signals --repair'
+    : 'the messages stay the truth; the signal is ignored'
   if (alarm.startsWith('commit ')) return 'it is skipped; the room reads on without it'
   return `it is quarantined and withheld. Restore it, or the operator runs ringi forget ${R.name}/<log>`
 }

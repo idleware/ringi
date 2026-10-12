@@ -336,8 +336,9 @@ Git covers several of these by construction. That is the bet here.
   `transport-kafka` and `transport-temporal` stubs; reader budgets and run times. 34 files, about 2,200 lines.
 - **No major.** ringi is 0.x and used in one project. `decisions/1` stays registered as a retired capability that
   restricts nothing, so a contract that names it (the live hub's) opens. A profile's `grant` rule is still accepted and
-  allows nothing. Rooms holding decision records are not supported: their signals would read as alarms, so such a
-  room is replaced by a new one, not read; the live hub has none (no such kinds, tags or archives, checked). `ping`,
+  allows nothing. Rooms holding decision records are not supported, and nothing refuses them: they read on, their
+  messages as plain ones and their signals as ignored alarms (codex's fixture), until the operator replaces such a
+  room with a new one. The live hub has none (no such kinds, tags or archives, checked). `ping`,
   `pong`, `usage` and `card` are plain kinds again (core-1 lost its heartbeat and waking rules: ringi starts no
   turns). Archived rooms' refs, where they exist, stay in the store unlisted; a reader's old watcher fields are
   ignored. Presence stays: it is the store's heartbeat, written by the pulse, not a message.

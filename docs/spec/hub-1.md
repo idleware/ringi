@@ -103,7 +103,8 @@ only.
   hub or a room whose contract major, protocol major, capabilities or store layout it does not know, and says what to
   do: upgrade the tool for a newer hub; for an older one, make a new hub beside it or a new root branch on a forge.
   Nothing is migrated. A retired capability (`decisions/1`) stays known and restricts nothing, so a contract that
-  names it opens; a room that holds its records is not supported (start a new room).
+  names it opens; a room that holds its records is not supported: it reads on, its records as plain messages and
+  their signals as ignored alarms, until the operator starts a new room.
 - **Amending.** `ringi hub amend` changes version, capabilities, the default profile and profiles (each checked
   before it lands). A room follows the contract as of its base until the operator moves it (`ringi room
   rebase-contract <room>`, a control entry naming the new base) or deletes it.

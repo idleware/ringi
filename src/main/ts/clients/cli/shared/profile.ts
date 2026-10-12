@@ -1,4 +1,4 @@
-// profile: `profile` (what work is in the room) and `who` (its members and their cards).
+// profile: `profile` (what work is in the room) and `who` (its members).
 
 import * as Room from '../../../core/hub/usecases/room.ts'
 import type {Opts} from '../args.ts'
@@ -14,5 +14,5 @@ export const profileCmd = ({R}: Ctx, o: Opts) => {
 }
 
 export const who = (a: Ctx) => {
-  for (const x of Room.members(a)) out(`${x.id.padEnd(12)} ${x.role.padEnd(7)} ${String(x.messages).padStart(4)} msg${x.card ? `  ${x.card}` : ''}`)
+  for (const x of Room.members(a)) out(`${x.id.padEnd(12)} ${x.role.padEnd(7)} ${String(x.messages).padStart(4)} msg`)
 }

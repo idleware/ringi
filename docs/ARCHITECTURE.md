@@ -29,7 +29,7 @@ puts them together when a program starts; nothing else imports an adapter. Core 
 `index.ts` is the library; importing it wires the defaults through composition. Every import counts, type-only ones
 and re-exports too: `src/test/ts/layers.test.ts` checks the rule on every build, and that `lib`, `protocol`, `work`,
 `signals` and `signing` touch no host (no `node:` module, no `process`). Time is not behind a port yet: a
-fold may default `now` to the clock, and `lib` may wait and date; the process host has its own clock. A store checks
+fold may default `now` to the clock, and `lib` may wait and date. A store checks
 structure (ids, text, signatures, ancestry, a room's name and roster) but folds no work or profile. Nothing
 but the clients writes stdout; notes and alarms go where composition sends them (stderr). On an asserted hub nothing
 is signed: signing exists for signed hubs only, and the rules of an asserted hub (roles, quorum) coordinate honest

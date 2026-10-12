@@ -58,12 +58,11 @@ export const files = ({R, me}: Actor, ref: string, path?: string): {m: Message, 
   if (path && !m.files.some(f => f.path === path)) fail(`no ${path} in ${short(m.id)}`)
   return {m, files: m.files.filter(f => !path || f.path === path).map(f => ({path: f.path, content: R.hub.store.file(m.id, f.path)}))}
 }
-export type MemberView = {id: string, role: string, messages: number, card: string | null}
+export type MemberView = {id: string, role: string, messages: number}
 export const members = ({R, me}: Actor): MemberView[] => {
-  const {logs, all} = linked(R, me)
-  const cards = new Map(ordered([...all.values()].filter(m => m.kind === 'card' && !m.bad)).map(m => [m.from, m]))
+  const {logs} = linked(R, me)
   return Object.entries(R.members).map(([id, info]) => ({id, role: info.role ?? 'member',
-    messages: (logs.get(id) ?? []).filter(m => !(m.kind && HIDDEN.has(m.kind))).length, card: cards.get(id)?.subject ?? null}))
+    messages: (logs.get(id) ?? []).filter(m => !(m.kind && HIDDEN.has(m.kind))).length}))
 }
 
 // --- signals ---
