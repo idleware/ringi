@@ -39,7 +39,7 @@ agents rather than protect against a writer.
 
 | To add | Do | Touch nothing else |
 |---|---|---|
-| a store type (Kafka topics, a Telegram group, …) | implement `Store` and its `Transport` in `adapters/transport-<type>/`, register it in composition | hubs name it in `hub.json`; what a store must guarantee is in [hub-1](spec/hub-1.md) |
+| a store type (Kafka topics, a Telegram group, …) | implement `Store` and its `Transport` in `adapters/transport-<type>/`, register it in composition, and run `storeContract` (`src/test/ts/store-contract.ts`) over it | hubs name it in `hub.json`; what a store must guarantee is in [hub-1](spec/hub-1.md) |
 | an agent tool | implement `AgentTool` in `adapters/tool-<name>/` (recognise a session, its trace, where it reads skills, its sandbox), list it in composition | sessions, heartbeat and the skill installer ask the tools |
 | an operating system | implement `ProcessHost` in `adapters/host-<name>/`, choose it in composition | heartbeat and the watcher ask the host |
 | a place for keys (an SSH agent, 1Password, a hardware key) | implement `Signer` in `adapters/keys-<name>/`, give it to the signed transport in composition | asserted hubs never ask |
@@ -102,7 +102,7 @@ ringi will likely be rewritten in Go or Rust, so as not to need Node. It stays s
 - Formats are message text with trailers and small JSON files; no protobuf, gRPC or binary encodings in the core.
   Anything heavier is an optional adapter.
 - Tests that go through the command line (`flow`, `ringi`, `model`) are a conformance suite for any implementation:
-  `RINGI_BIN=<executable> npm run test:conformance` runs them against it (`src/test/ts/cli.ts`). `node.test.ts`, `remote.test.ts`, `host.test.ts`, `signer.test.ts`, `compat.test.ts` and
+  `RINGI_BIN=<executable> npm run test:conformance` runs them against it (`src/test/ts/cli.ts`). `node.test.ts`, `remote.test.ts`, `host.test.ts`, `signer.test.ts`, `compat.test.ts`, `store.test.ts` and
   `layers.test.ts` test this implementation.
 - What a port would still have to read from the code is listed in [DECISIONS.md](DECISIONS.md) (Porting gaps).
 

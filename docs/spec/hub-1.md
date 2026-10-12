@@ -87,8 +87,10 @@ Order alone is not enough. A log guarantees:
 6. **Concurrency and failures.** Two writers on one room do not overwrite each other (compare-and-set), and a failure
    says what kind it is.
 
-A backend that cannot give one of these needs a replica that does: a Telegram group keeps a bot's updates a day and
-may drop messages, so it needs its own replica and checkpoints; Kafka orders within a partition only.
+`src/test/ts/store-contract.ts` checks these and the required parts over any store type; the git store passes it
+(`store.test.ts`). A backend that cannot give one of these needs a replica that does: a Telegram group keeps a bot's
+updates a day and may drop messages, so it needs its own replica and checkpoints; Kafka orders within a partition
+only.
 
 ## The contract and its versions
 
