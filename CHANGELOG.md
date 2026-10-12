@@ -1,3 +1,8 @@
+## [0.6.1](https://github.com/idleware/ringi/compare/v0.6.0...v0.6.1) (2026-10-12)
+
+### Fixes & improvements
+* fix: read a hub's historic contract revisions under their old name ([ddb4df6](https://github.com/idleware/ringi/commit/ddb4df67e679d31d8da47271e9e03aa8d36855ee))
+
 ## [0.6.0](https://github.com/idleware/ringi/compare/v0.5.0...v0.6.0) (2026-10-12)
 
 ### Fixes & improvements
