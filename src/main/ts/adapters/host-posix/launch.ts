@@ -4,12 +4,10 @@
 import {spawn} from 'node:child_process'
 import {sleep} from '../../lib/index.ts'
 import type {Clock, Ended, Launch} from '../../core/agents/ports/host.ts'
+import {groupAlive} from './groups.ts'
 
 const GRACE = 5000
 type Running = {done: Promise<Ended>, stop(): void}
-const groupAlive = (pid: number): boolean => {
-  try { process.kill(-pid, 0); return true } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM' }
-}
 const signalGroup = (pid: number | undefined, sig: NodeJS.Signals): void => {
   if (pid) try { process.kill(-pid, sig) } catch {}
 }

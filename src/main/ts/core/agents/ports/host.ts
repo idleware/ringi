@@ -21,7 +21,7 @@ export interface ProcessHost {
   inspect(pid: number, rows?: ProcessRows | null): {alive: boolean | null, cpu: number | null}
   start(request: Launch): ProcessHandle
   stop(process: ProcessHandle): void
-  // null: the caller's observation deadline expired; it does not silently stop the process. Omitting it preserves
-  // the existing watcher's wait for the entire group (including the known zombie-without-reaper limitation).
+  // null: the caller's observation deadline expired; it does not silently stop the process. Without a deadline it
+  // waits until every member of the group has ended; a zombie that no init reaps has ended.
   awaitQuiescence(process: ProcessHandle, deadline?: number): Promise<Ended | null>
 }
