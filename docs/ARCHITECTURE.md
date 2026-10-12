@@ -47,6 +47,9 @@ agents rather than protect against a writer.
 | a capability, or a new major of one | a module in `core/hub/` exporting its id (`profiles/2`), registered in `CAPABILITIES`; for a second major, also the dispatch to it | the old major stays beside it |
 | an interface (control panel, MCP, HTTP API) | a client over core's use cases | never reads a store or the machine's state directly |
 
+A signed Git store signs only through its injected `Signer` and verifies each signature before a ref moves; key
+files are `keys-file`'s alone.
+
 ## The control panel (planned)
 
 It lands in `src/main/ts/clients/panel/` as another client: `ringi panel` serves a local page and a JSON API on

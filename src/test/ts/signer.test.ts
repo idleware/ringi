@@ -54,7 +54,7 @@ it('injected Signer produces verifiable commits, admission, signals and heartbea
       calls.push(r)
       if (deny) throw Object.assign(new Error('fixture denied'), {reason: 'denied'})
       const signature = custody.signer.sign(r)
-      return corrupt ? {...signature, bytes: Buffer.from('malformed signature')} : signature
+      return corrupt ? {...signature, bytes: Buffer.from(Buffer.from(signature.bytes).toString().replace(/\n([A-Za-z0-9+/])/, (_, first) => '\n' + (first === 'A' ? 'B' : 'A')))} : signature
     },
   }}
   const d = descriptor('signed'), transport = gitTransport(home, {signer: context})
@@ -65,7 +65,7 @@ it('injected Signer produces verifiable commits, admission, signals and heartbea
     'ROOM.md': '# r\n', 'members.json': '{"operator":{"role":"root"}}', allowed_signers: store.rootRoster(),
   })
   let room = store.room('r')!
-  const actor = identityKey(store.h, 'codex', home, true)
+  const actor = identityKey(store.h, 'codex', true)
   assert.equal(store.joinKey(room, 'codex').admitted, false)
   store.admit(room, 'codex', actor.line)
   room = store.room('r')!
@@ -82,15 +82,25 @@ it('injected Signer produces verifiable commits, admission, signals and heartbea
   assert(calls.length >= 6)
   assert(calls.every(r => r.namespace === 'git' && r.interaction === 'forbidden' && !String(r.key).includes(home)))
   const tip = store.rev('refs/heads/r')
+  const bob = identityKey(store.h, 'bob', true)
+  const refs = () => git(store.h, ['for-each-ref', '--format=%(refname) %(objectname)'])
+  const before = refs()
   deny = true
   assert.throws(() => store.append(room, 'codex', 'denied\n\nTo: operator\nKind: task\n', []), /fixture denied/)
   assert.equal(store.rev('refs/heads/r'), tip)
   assert.throws(() => store.signal(room, 'codex', sha, `read.${sha.slice(0, 12)}`), /fixture denied/)
   assert.equal(git(store.h, ['rev-parse', '--verify', `refs/tags/codex.read.${sha.slice(0, 12)}`], {ok: true}).status, 128)
+  assert.throws(() => store.heartbeat(room, 'codex', sha, 'Session: test\nState: working\nAlive: yes\nNext: 60\n'), /fixture denied/)
+  assert.throws(() => store.admit(room, 'bob', bob.line), /fixture denied/)
+  assert.equal(refs(), before)
   deny = false
   corrupt = true
   assert.throws(() => store.append(room, 'codex', 'corrupt\n\nTo: operator\nKind: task\n', []), /bad or missing signature/)
   assert.equal(store.rev('refs/heads/r'), tip)
+  assert.throws(() => store.signal(room, 'codex', sha, `read.${sha.slice(0, 12)}`), /bad or missing signature/)
+  assert.throws(() => store.heartbeat(room, 'codex', sha, 'Session: test\nState: working\nAlive: yes\nNext: 60\n'), /bad or missing signature/)
+  assert.throws(() => store.admit(room, 'bob', bob.line), /bad or missing signature/)
+  assert.equal(refs(), before)
   corrupt = false
   const replacement = keysFile(path.join(home, 'replacement'))
   replacement.resolve('team', 'operator', true)
@@ -98,6 +108,30 @@ it('injected Signer produces verifiable commits, admission, signals and heartbea
   assert.throws(() => store.amendContract('operator', 'wrong root', {}), /does not match/)
   assert.equal(store.contractHead(), d.genesis)
   assert.match(signerLine('codex', actor), /namespaces="git"/)
+})
+
+it('signed entrypoints refuse missing Signer even when local custody files exist, preserving every ref', t => {
+  const home = temp(t), d = descriptor('signed'), context = keysFile(home)
+  const at = path.join(home, 'hub', 'team')
+  const store = gitTransport(home, {signer: context}).create(at, d, genesis).store as GitStore
+  store.createRoom('r', 'operator', 'room r\n\nTo: *\nKind: room\nRoom-Id: 0123456789abcdef0123456789abcdef\n', {
+    'ROOM.md': '# r\n', 'members.json': '{"operator":{"role":"root"}}', allowed_signers: store.rootRoster(),
+  })
+  const room = store.room('r')!, refs = git(store.h, ['for-each-ref', '--format=%(refname) %(objectname)'])
+  assert(fs.existsSync(context.custody!('team', 'operator')!))
+  assert.throws(() => gitTransport(home).open(at, d), /injected Signer/)
+  assert.throws(() => gitTransport(home).create(at, d, genesis), /injected Signer/)
+  assert.throws(() => new GitStore(at, d, home), /injected Signer/)
+  assert.throws(() => GitStore.create(at, d, home, {}, 'unsigned bootstrap'), /injected Signer/)
+  delete store.h.signing
+  assert.throws(() => identityKey(store.h, 'operator'), /injected Signer/)
+  assert.throws(() => store.append(room, 'operator', 'must not sign\n\nTo: *\n', []), /injected Signer/)
+  assert.throws(() => store.signal(room, 'operator', room.genesis, `read.${room.genesis.slice(0, 12)}`), /injected Signer/)
+  assert.throws(() => store.heartbeat(room, 'operator', room.genesis, 'Session: test\nState: working\nAlive: yes\nNext: 60\n'), /injected Signer/)
+  assert.equal(git(store.h, ['for-each-ref', '--format=%(refname) %(objectname)']), refs)
+  const fresh = path.join(home, 'fresh')
+  assert.throws(() => GitStore.create(fresh, descriptor('signed'), home, {}, 'unsigned bootstrap'), /injected Signer/)
+  assert.equal(fs.existsSync(fresh), false)
 })
 
 it('asserted transport never constructs a Signer or generates keys', t => {

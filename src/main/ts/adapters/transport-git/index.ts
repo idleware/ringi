@@ -26,11 +26,13 @@ import type {Descriptor, JoinKey, Store, StoredMessage, StoredRoom} from '../../
 import {TEXT_MAX, checkOutgoing} from '../../core/hub/protocol/index.ts'
 import type {Entry} from '../../core/hub/protocol/files.ts'
 import type {SigningContext} from '../../core/signing/index.ts'
+import {signingContext} from './remote/keys.ts'
 
 export class GitStore extends Marks implements Store {
   readonly type = 'git'
   static create(hubDir: string, d: Descriptor, connection: string | {home: string, signing?: SigningContext}, contract: Record<string, string>, text: string): GitStore {
     const {home, signing} = typeof connection === 'string' ? {home: connection, signing: undefined} : connection
+    if (d.trust === 'signed') signingContext({name: d.name, signing})
     const dir = path.join(hubDir, d.store.path, '.git')
     // A signed hub's repository already exists: rootFor made it with the root key.
     if (!fs.existsSync(dir)) {
@@ -45,11 +47,12 @@ export class GitStore extends Marks implements Store {
     return s
   }
   // A new signed hub: the root key is generated on this machine and pinned in the descriptor.
-  static rootFor(hubDir: string, d: Descriptor, home: string, signing?: SigningContext): string {
+  static rootFor(hubDir: string, d: Descriptor, home: string, signing: SigningContext): string {
+    signingContext({name: d.name, signing})
     const dir = path.join(hubDir, d.store.path, '.git')
     mkdirIn(home, path.dirname(dir))
     init(dir, home)
-    return Remote.setupSigned({name: d.name, dir, d, signing}, home, d.store.remote).root
+    return Remote.setupSigned({name: d.name, dir, d, signing}, d.store.remote).root
   }
   logIds(room: StoredRoom): string[] { return [...new Set(this.live(room).map(e => e.author))] }
   logHead(room: StoredRoom, id: string): string | null { return this.live(room).filter(e => e.author === id).at(-1)?.sha ?? null }
@@ -108,8 +111,8 @@ export class GitStore extends Marks implements Store {
       .map(b => /^\d+ blob [0-9a-f]+ +(\d+)\t(.*)$/s.exec(b.toString('utf8'))).filter((x): x is RegExpExecArray => !!x)
       .filter(([, , p]) => wanted.has(p)).map(([, n, p]) => [p, Number(n)] as [string, number]))
   }
-  admit(room: StoredRoom, who: string, key: string): string { return Remote.roomAdmit(this.h, this.remote(room), who, key, this.home) }
-  joinKey(room: StoredRoom, who: string): JoinKey { return Remote.join(this.h, this.remote(room), who, this.home) }
+  admit(room: StoredRoom, who: string, key: string): string { return Remote.roomAdmit(this.h, this.remote(room), who, key) }
+  joinKey(room: StoredRoom, who: string): JoinKey { return Remote.join(this.h, this.remote(room), who) }
   // A room's transport alarm is the room's, whichever author the operator forgets.
   forgetLog(room: StoredRoom, _id: string): void { Remote.forget(this.h, this.remote(room)) }
   rootRoster(): string { return Remote.rootRoster(this.h) }

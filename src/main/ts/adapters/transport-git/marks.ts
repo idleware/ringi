@@ -3,7 +3,7 @@
 
 import * as Remote from './remote.ts'
 import {signedTag} from './signing.ts'
-import {ZERO, frames, ident, runGitRaw} from './run.ts'
+import {ZERO, frames, runGitRaw} from './run.ts'
 import {signalTags, tagObject} from './tags.ts'
 import {Branches} from './branches.ts'
 import type {SignalRecord, StoredRoom} from '../../core/hub/ports/store.ts'
@@ -18,7 +18,7 @@ export class Marks extends Branches {
   heartbeat(room: StoredRoom, who: string, target: string, text: string): string {
     const ref = Remote.heartbeatRef(who, room.genesis), name = ref.slice('refs/tags/'.length)
     const old = this.rev(`${ref}^{tag}`) ? this.git(['rev-parse', ref]).trim() : null
-    const obj = this.trust === 'signed' ? Remote.makeHeartbeat(this.h, this.remote(room), who, target, text, this.home)
+    const obj = this.trust === 'signed' ? Remote.makeHeartbeat(this.h, this.remote(room), who, target, text)
       : this.git(['mktag'], {input: `object ${target}\ntype commit\ntag ${name}\ntagger ${who} <${who}@ringi> ${Math.floor(Date.now() / 1000)} +0000\n\n${text}`}).trim()
     if (this.gitOk(['update-ref', ref, obj, old ?? ZERO]).status !== 0) fail(`${name} moved meanwhile; the next beat writes it`)
     if (this.trust === 'signed' && !Remote.pushHeartbeat(this.h, this.remote(room), who, obj, old)) this.gitOk(['update-ref', ...(old ? [ref, old, obj] : ['-d', ref, obj])])
@@ -46,12 +46,7 @@ export class Marks extends Branches {
       Remote.push(this.h, ref)
       return
     }
-    if (this.h.signing) this.git(['update-ref', ref, signedTag(this.h, who, tag, target, this.home), ZERO])
-    else {
-      const sign = Remote.sign(this.h, who, this.home)
-      const key = sign[0]?.slice(2)
-      this.git([...(key ? ['-c', `user.signingkey=${key}`] : []), 'tag', key ? '-s' : '-a', '-F', '-', tag, target], {input: '', env: ident(who)})
-    }
+    this.git(['update-ref', ref, signedTag(this.h, who, tag, target), ZERO])
     Remote.push(this.h, ref)
   }
   // The tags named `<actor>.<signal>.<message12>`, with the objects they name; a heartbeat is no signal (heartbeats()).

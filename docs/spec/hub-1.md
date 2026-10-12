@@ -193,6 +193,10 @@ in different directories apart. So the home is one place with one grant:
 - Each machine makes its agent key at `$RINGI_HOME/keys/<hub>/<agent>` when joining; an unadmitted join prints the
   public key and takes no seat. The operator runs `ringi room admit <agent> '<key>' --room <room>`; the agent joins
   again. Private keys never travel.
+- The default `keys-file` adapter owns those files. The Git transport requires an injected `Signer` for public
+  identity and for all commit, admission, signal and heartbeat signatures; it never reads a private-key path or
+  falls back to Git's file-key signing. Returned signatures are verified before any ref moves. Asserted hubs do
+  not construct a signer.
 - Only the root signs `main` and the control records; each message is signed by the key the room's `allowed_signers`
   assigned to that literal principal at the preceding verified control record, and `members.json` agrees with it.
   Admission never validates earlier messages retroactively. Signals and marks are signed by their actors.

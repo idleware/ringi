@@ -13,6 +13,7 @@ import type {Descriptor} from '../../core/hub/ports/store.ts'
 import type {Entry} from '../../core/hub/protocol/files.ts'
 import type {SigningContext} from '../../core/signing/index.ts'
 import {signCommit} from './signing.ts'
+import {signingContext} from './remote/keys.ts'
 
 // The store is a repository whose work tree holds the contract (`main`) as it is now, so Git clients (SourceTree, IDEs)
 // open `store/` without errors, on the contract, with every room's branch beside it; `git status` stays clean.
@@ -31,6 +32,7 @@ export class Repo {
     this.trust = d.trust
     this.dir = path.join(hubDir, d.store.path, '.git')
     this.h = {name: d.name, dir: this.dir, d, ...(d.trust === 'signed' && signing ? {signing} : {})}
+    if (this.trust === 'signed') signingContext(this.h)
     if (!fs.existsSync(this.dir)) fail(`hub ${d.name}: no git store at ${this.dir}`)
     this.openable()
   }
@@ -75,8 +77,8 @@ export class Repo {
   }
   // Every commit is made here: on a signed hub, signed by its author's key on this machine.
   protected commit(who: string, text: string, tree: string, parents: string[]): string {
-    const sha = this.git(['commit-tree', ...(this.h.signing ? [] : Remote.sign(this.h, who, this.home)), tree, ...parents.flatMap(p => ['-p', p])], {input: text, env: ident(who)}).trim()
-    return signCommit(this.h, who, sha, this.home)
+    const sha = this.git(['commit-tree', tree, ...parents.flatMap(p => ['-p', p])], {input: text, env: ident(who)}).trim()
+    return signCommit(this.h, who, sha)
   }
   protected advance(ref: string, sha: string, old: string | null): boolean {
     if (this.gitOk(['update-ref', ref, sha, old ?? ZERO]).status !== 0) return false

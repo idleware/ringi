@@ -15,6 +15,8 @@ import {syncBuiltinESMExports} from 'node:module'
 import {fileURLToPath, pathToFileURL} from 'node:url'
 import * as Remote from '../../main/ts/adapters/transport-git/remote.ts'
 import {GitStore, runGit} from '../../main/ts/adapters/transport-git/index.ts'
+import {keysFile} from '../../main/ts/adapters/keys-file/index.ts'
+import {identityKey} from '../../main/ts/adapters/transport-git/remote/keys.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const CLI = path.join(HERE, '../../../target/esm/cli.js')
@@ -41,7 +43,7 @@ const hub = (home: string, name = 'team'): Hub => {
   const d: Descriptor = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {schema: 'ringi-hub/2', name, trust: 'signed', store: {type: 'git', path: 'store'}}
   if (d.store.remote) git(dir, ['remote', 'add', 'origin', d.store.remote], {ok: true})
   const rev = (ref: string) => { const r = git(dir, ['rev-parse', '-q', '--verify', `${ref}^{commit}`], {ok: true}); return r.status === 0 ? r.stdout.trim() : null }
-  return {name, dir, d, git: ((args: string[], opt?: GitOpt) => git(dir, args, opt)) as Hub['git'], rev,
+  return {name, dir, d, signing: keysFile(home), git: ((args: string[], opt?: GitOpt) => git(dir, args, opt)) as Hub['git'], rev,
     isAncestor: (a, b) => !!a && !!b && git(dir, ['merge-base', '--is-ancestor', a, b], {ok: true}).status === 0,
     main: rev('refs/heads/main') ?? undefined}
 }
@@ -107,7 +109,7 @@ const world = (t: TestContext, profile?: string, spec?: Profile) => {
   const opHome = home('root')
   initBare(path.join(opHome, 'hub', 'team', 'store', '.git'))
   const op = hub(opHome)
-  const setup = Remote.setupSigned(op, opHome, url)
+  const setup = Remote.setupSigned(op, url)
   const meta = {schema: 'ringi-hub', version: spec ? '1.1' : '1.0', protocol: 1, capabilities: spec ? ['profiles/1'] : [], trust: 'signed', root: setup.root, ...(profile ? {profile} : {})}
   const mainTree = tree(op, {'contract.json': JSON.stringify(meta), 'HUB.md': '# independent fixture\n'}, spec ? {profiles: tree(op, {[`${spec.name}.json`]: JSON.stringify(spec)})} : {})
   const genesis = commit(op, opHome, 'operator', 'fixture hub\n\nTo: *\nKind: hub\n', mainTree, [])
@@ -128,11 +130,11 @@ const world = (t: TestContext, profile?: string, spec?: Profile) => {
   }
   const agent = (who: string, machine = who) => {
     const a = replica(machine)
-    const pending = Remote.join(a.H, room(a.H), who, a.home)
+    const pending = Remote.join(a.H, room(a.H), who)
     assert.equal(pending.admitted, false)
-    Remote.roomAdmit(op, room(op), who, pending.publicKey, opHome)
+    Remote.roomAdmit(op, room(op), who, pending.publicKey)
     Remote.sync(a.H)
-    assert.equal(Remote.join(a.H, room(a.H), who, a.home).admitted, true)
+    assert.equal(Remote.join(a.H, room(a.H), who).admitted, true)
     return a
   }
   const run = (machine: string, args: string[], session?: string) => {
@@ -165,26 +167,26 @@ describe('signed remote hubs', () => {
       const alienHome = w.home('alien')
       initBare(path.join(alienHome, 'hub', 'alien', 'store', '.git'))
       const alien = hub(alienHome, 'alien')
-      const key = Remote.setupSigned(alien, alienHome).root
+      const key = Remote.setupSigned(alien).root
       assert.throws(() => w.replica('wrong-pin', {root: key}), /ALARM.*signature/)
       assert.equal(fs.existsSync(path.join(w.home('wrong-pin'), 'hub', 'team')), false)
       assert.throws(() => w.replica('wrong-genesis', {pin: '0'.repeat(40)}), /pinned genesis/)
       const a = w.replica('reader')
       assert.equal(Remote.verifyHub(a.H)!.genesis, w.genesis)
       assert.equal(fs.existsSync(path.join(a.home, 'keys')), false, 'cloning public history must not acquire a root private key')
-      assert.throws(() => Remote.sign(a.H, 'operator', a.home), /no private key.*operator/)
+      assert.throws(() => identityKey(a.H, 'operator'), /no private key.*operator/)
     })
 
     it('checks admission at the preceding control, without retroactively accepting messages', t => {
       const w = world(t), a = w.replica('bob'), R = room(a.H)
-      const key = Remote.join(a.H, R, 'bob', a.home)
+      const key = Remote.join(a.H, R, 'bob')
       assert.equal(key.admitted, false)
       const pending = message(a.H, a.home, 'bob', 'pending\n\nTo: operator\n', [R.genesis])
       publish(a.H, R.ref, pending)
       Remote.sync(w.op)
       assert.equal(w.op.rev(R.ref), pending)
       assert.match(Remote.verify(w.op, room(w.op), 'bob', pending)!, /unadmitted/)
-      const admitted = Remote.roomAdmit(w.op, room(w.op), 'bob', key.publicKey, w.opHome)
+      const admitted = Remote.roomAdmit(w.op, room(w.op), 'bob', key.publicKey)
       Remote.sync(a.H)
       const good = openTask(a.H, a.home, 'bob', 'after admission')
       Remote.sync(w.op)
@@ -270,7 +272,7 @@ describe('signed remote hubs', () => {
       assert.match(b.skipped.get(unsigned)!, /signature/)
       assert.deepEqual([...b.authors.keys()], [good, next])
       assert.equal(alice.H.rev('refs/ringi/remote-accepted/r'), next)
-      const store = new GitStore(path.join(alice.home, 'hub', 'team'), alice.H.d, alice.home)
+      const store = new GitStore(path.join(alice.home, 'hub', 'team'), alice.H.d, alice.home, alice.H.signing)
       const stored = store.room('r')!
       assert.equal(store.logHead(stored, 'alice'), good)
       assert.deepEqual(store.messages(stored, 'bob', next).map(m => m.id), [next])
@@ -303,7 +305,7 @@ describe('signed remote hubs', () => {
       const bad = message(bob.H, bob.home, 'bob', injection, [victim])
       publish(bob.H, R.ref, bad)
       const next = openTask(w.op, w.opHome, 'operator', 'authentic descendant')
-      const store = new GitStore(path.join(w.opHome, 'hub', 'team'), w.op.d, w.opHome), stored = store.room('r')!
+      const store = new GitStore(path.join(w.opHome, 'hub', 'team'), w.op.d, w.opHome, w.op.signing), stored = store.room('r')!
       assert.ok(stored.control.every(c => !c.text.includes('FORGED')), 'only real Git objects supply control records')
       assert.equal(new Set(stored.control.map(c => c.rev)).size, stored.control.length)
       const messages = store.messages(stored, 'operator', next)
@@ -333,8 +335,8 @@ describe('signed remote hubs', () => {
       const bad = commit(bob.H, bob.home, 'bob', 'poison control files\n\nTo: operator\n', poisoned, [old])
       publish(bob.H, R.ref, bad)
       Remote.sync(w.op)
-      const alice = w.replica('alice'), key = Remote.join(alice.H, room(alice.H), 'alice', alice.home).publicKey
-      const fixed = Remote.roomAdmit(w.op, room(w.op), 'alice', key, w.opHome)
+      const alice = w.replica('alice'), key = Remote.join(alice.H, room(alice.H), 'alice').publicKey
+      const fixed = Remote.roomAdmit(w.op, room(w.op), 'alice', key)
       const verified = Remote.branch(w.op, room(w.op), fixed)
       assert.match(verified.skipped.get(bad)!, /control files/)
       assert.deepEqual(Object.keys(verified.members).sort(), ['alice', 'bob', 'operator'])
@@ -359,7 +361,7 @@ describe('signed remote hubs', () => {
 
   describe('Git command limits', () => {
     it('applies finite defaults and overrides to all Git paths, refusing invalid values before spawn', t => {
-      const w = world(t), store = new GitStore(path.join(w.opHome, 'hub', 'team'), w.op.d, w.opHome)
+      const w = world(t), store = new GitStore(path.join(w.opHome, 'hub', 'team'), w.op.d, w.opHome, w.op.signing)
       const before = process.env.RINGI_GIT_TIMEOUT_MS, original = childProcess.spawnSync, limits: number[] = []
       const mock = t.mock.method(childProcess, 'spawnSync', (cmd: string, args: readonly string[], opt: SpawnSyncOptions) => {
         if (cmd === 'git') limits.push(opt.timeout!)
@@ -393,7 +395,7 @@ describe('signed remote hubs', () => {
     })
 
     it('names the timeout setting even when Git probes ordinarily allow failure', t => {
-      const w = world(t), store = new GitStore(path.join(w.opHome, 'hub', 'team'), w.op.d, w.opHome)
+      const w = world(t), store = new GitStore(path.join(w.opHome, 'hub', 'team'), w.op.d, w.opHome, w.op.signing)
       const error = Object.assign(new Error('spawnSync git ETIMEDOUT'), {code: 'ETIMEDOUT'})
       const mock = t.mock.method(childProcess, 'spawnSync', () => ({error, status: null, signal: 'SIGTERM', stdout: '', stderr: ''}))
       syncBuiltinESMExports()
@@ -716,7 +718,7 @@ describe('signed remote hubs', () => {
   })
 
   describe('one shared branch', () => {
-    const store = (a: {H: Hub, home: string}) => new GitStore(path.join(a.home, 'hub', 'team'), a.H.d, a.home)
+    const store = (a: {H: Hub, home: string}) => new GitStore(path.join(a.home, 'hub', 'team'), a.H.d, a.home, a.H.signing)
 
     it('retries a stale replica and returns published message ids with both attachments and signals intact', t => {
       const w = world(t), bob = w.agent('bob'), alice = w.agent('alice')
@@ -746,21 +748,21 @@ describe('signed remote hubs', () => {
 
     it('recomputes admission after concurrent root writes without losing either member', t => {
       const w = world(t), pendingBob = w.replica('bob'), pendingAlice = w.replica('alice')
-      const bobKey = Remote.join(pendingBob.H, room(pendingBob.H), 'bob', pendingBob.home).publicKey
-      const aliceKey = Remote.join(pendingAlice.H, room(pendingAlice.H), 'alice', pendingAlice.home).publicKey
+      const bobKey = Remote.join(pendingBob.H, room(pendingBob.H), 'bob').publicKey
+      const aliceKey = Remote.join(pendingAlice.H, room(pendingAlice.H), 'alice').publicKey
       const secondRoot = w.replica('root-two')
       const keyDir = path.join(secondRoot.home, 'keys', 'team')
       fs.mkdirSync(keyDir, {recursive: true})
       fs.copyFileSync(path.join(w.opHome, 'keys', 'team', 'operator'), path.join(keyDir, 'operator'))
       fs.copyFileSync(path.join(w.opHome, 'keys', 'team', 'operator.pub'), path.join(keyDir, 'operator.pub'))
-      const first = Remote.roomAdmit(w.op, room(w.op), 'bob', bobKey, w.opHome)
-      const second = Remote.roomAdmit(secondRoot.H, room(secondRoot.H), 'alice', aliceKey, secondRoot.home)
+      const first = Remote.roomAdmit(w.op, room(w.op), 'bob', bobKey)
+      const second = Remote.roomAdmit(secondRoot.H, room(secondRoot.H), 'alice', aliceKey)
       assert.equal(secondRoot.H.git(['show', '-s', '--format=%P', second]).trim(), first)
       Remote.sync(pendingBob.H); Remote.sync(pendingAlice.H)
       const members = Remote.verifyRoom(pendingBob.H, room(pendingBob.H)).members
       assert.deepEqual(Object.keys(members).sort(), ['alice', 'bob', 'operator'])
-      assert.equal(Remote.join(pendingBob.H, room(pendingBob.H), 'bob', pendingBob.home).admitted, true)
-      assert.equal(Remote.join(pendingAlice.H, room(pendingAlice.H), 'alice', pendingAlice.home).admitted, true)
+      assert.equal(Remote.join(pendingBob.H, room(pendingBob.H), 'bob').admitted, true)
+      assert.equal(Remote.join(pendingAlice.H, room(pendingAlice.H), 'alice').admitted, true)
     })
 
     it('recognizes a lost push acknowledgement without changing the published id', t => {
@@ -874,7 +876,7 @@ describe('signed remote hubs', () => {
       w.ok('root', ['room', 'create', 'chosen', '--profile', review.name])
       const chosen = room(w.op, 'chosen')
       assert.deepEqual(JSON.parse(w.op.git(['show', `${chosen.genesis}:profile.json`])), review)
-      const key = Remote.join(codex.H, room(codex.H), 'codex', codex.home).publicKey
+      const key = Remote.join(codex.H, room(codex.H), 'codex').publicKey
       w.ok('root', ['room', 'admit', 'codex', key, '--room', 'chosen'])
       w.ok('worker', ['join', 'team', 'chosen', '--as', 'codex'], 'chat-codex')
       assert.match(w.ok('worker', ['agent', 'profile'], 'chat-codex'), /follows profile review-1[\s\S]*opens with Kind: change/)
@@ -940,7 +942,7 @@ describe('signed remote heartbeats', () => {
     const R = room(a.H), ref = Remote.heartbeatRef(who, R.genesis)
     const prev = a.H.git(['rev-parse', '-q', '--verify', ref], {ok: true})
     const old = prev.status === 0 ? prev.stdout.trim() : null
-    const object = Remote.makeHeartbeat(a.H, R, who, target ?? a.H.rev(R.ref)!, text, a.home)
+    const object = Remote.makeHeartbeat(a.H, R, who, target ?? a.H.rev(R.ref)!, text)
     a.H.git(['update-ref', ref, object, old ?? '0'.repeat(40)])
     return {R, ref, object, old}
   }
@@ -1012,8 +1014,8 @@ describe('signed remote heartbeats', () => {
     const valid = put(bob, 'bob')
     assert.match(Remote.verifyHeartbeat(bob.H, {...R, genesis: other}, ref, valid.object)!, /another room genesis/)
     const eve = w.replica('eve')
-    Remote.join(eve.H, room(eve.H), 'eve', eve.home) // a key exists, but has never been admitted
-    assert.throws(() => Remote.makeHeartbeat(eve.H, room(eve.H), 'eve', eve.H.rev(R.ref)!, facts(), eve.home), /unadmitted/)
+    Remote.join(eve.H, room(eve.H), 'eve') // a key exists, but has never been admitted
+    assert.throws(() => Remote.makeHeartbeat(eve.H, room(eve.H), 'eve', eve.H.rev(R.ref)!, facts()), /unadmitted/)
   })
 
   it('uses explicit creation and replacement leases and refuses a superseded local beat', t => {
