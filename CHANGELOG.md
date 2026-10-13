@@ -1,3 +1,8 @@
+## [0.7.2](https://github.com/idleware/ringi/compare/v0.7.1...v0.7.2) (2026-10-13)
+
+### Fixes & improvements
+* fix: never show a URL's credentials in remote listings, refusals or notes ([40ba9e5](https://github.com/idleware/ringi/commit/40ba9e5e7a2ec7e593329465b3c8f6f64c7e475b))
+
 ## [0.7.1](https://github.com/idleware/ringi/compare/v0.7.0...v0.7.1) (2026-10-12)
 
 ### Fixes & improvements
