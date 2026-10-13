@@ -11,7 +11,7 @@ export const briefing = (s: Session.Session) => {
   const r = Session.briefing(s)
   const auto = r.start.quorum !== null
   out(`${s.agent} in ${s.room}; scope: ${scopeLine(s, auto)}`)
-  out('agent commands: ringi agent inbox | reply <id> … | send … | tasks | proposals | whoami. A turn: inbox, your part, replies, end the turn. Never block on a peer.')
+  out('agent commands: ringi agent inbox | reply <id> … | send … | tasks | whoami. A turn: inbox, your part, replies, end the turn. Never block on a peer.')
   if (!r.start.started) return out(waiting(s.room, r.start))
   if (auto) out(`started: room ${s.room} has its quorum (${r.start.agents} of ${r.start.quorum} agents); your first turn starts now, on the work and inbox below; nothing to confirm with the operator`)
   if (!r.tasks.length) out(`no open work (profile ${r.actor.R.profile.name}; tasks --all for everything)`)

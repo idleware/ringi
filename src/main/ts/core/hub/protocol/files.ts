@@ -3,7 +3,7 @@
 import {fail} from '../../../lib/index.ts'
 
 export const CC_RE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/
-// An attachment: its content from a file, from text, or already in the store (`blob`, staged with add).
+// An attachment: its content from a file, from text, or already in the store (`blob`).
 export type Entry = {path: string, file?: string, content?: string, blob?: string, mode: string}
 // A path component that is empty, a directory alias or git's own, too long, or holds control characters.
 const RESERVED_COMPONENTS = new Set(['', '.', '..', '.git'])

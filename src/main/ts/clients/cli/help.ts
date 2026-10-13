@@ -19,7 +19,7 @@ export const TABLE: Array<[string, 'operator' | 'session' | 'agent' | 'both', st
   ['tasks [--all] | log [-n n] | read <msg> | thread <msg> | cat <msg> [<path>] | get <msg> [-o <dir>]', 'both', 'reading the room (agents: ringi agent …)'],
   ['signals [--all] [--repair]', 'both', 'what happened (signals) and where attention is (read and taken marks), each checked; --repair restores your missing signals'],
   ['profile', 'both', 'the room\'s profile: what a piece of work is, its states, who may move it'],
-  ['heartbeats [--json] | heartbeats --published [--room <id>]', 'operator', 'each session\'s pulse on this machine, from its process and its tool\'s trace, without the model: working, waiting (for what) or gone; --published: the room\'s heartbeat tags as an orchestrator reads them'],
+  ['heartbeats [--json] | heartbeats --published [--room <id>]', 'operator', 'each session\'s pulse on this machine, from its process and its tool\'s trace, without the model: working, waiting (for what) or gone; --published: the room\'s telemetry as an orchestrator reads it'],
   ['pulse [--beat <s>] [--once]', 'operator', 'beat for every session here: sync its room, append its telemetry, naming the last pulled message of its room; join and continue start it (RINGI_PULSE=off: not)'],
   ['forget <room>/<log>', 'operator', 'after a changed-history alarm: accept a new baseline for that log'],
   ['skill install | uninstall', 'operator', 'the skill for Claude Code, Codex and Cursor'],
