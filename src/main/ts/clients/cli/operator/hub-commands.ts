@@ -17,7 +17,7 @@ export const createHub = (o: Opts) => {
 
   const r = Hubs.create(arg ?? '', {signed: flag(o, 'signed'), url: opt(o, 'url')})
   if (!r.add) return out(`created hub ${arg} (${r.H.dir})`)
-  return out(`created signed hub ${arg}${r.H.d.store.remote ? `, published to ${r.H.d.store.remote}` : ''}. Its root key stays on this machine (${r.rootKey}).
+  return out(`created signed hub ${arg}${r.remote ? `, published to ${r.remote}` : ''}. Its root key stays on this machine (${r.rootKey}).
 Give every machine that joins it, out of band:
   ${r.add}`)
 }

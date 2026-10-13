@@ -86,10 +86,10 @@ Order alone is not enough. A log guarantees:
 6. **Concurrency and failures.** Two writers on one room do not overwrite each other (compare-and-set), and a failure
    says what kind it is.
 
-`src/test/ts/store-contract.ts` checks these and the required parts over any store type; the git store passes it
-(`store.test.ts`). A backend that cannot give one of these needs a replica that does: a Telegram group keeps a bot's
-updates a day and may drop messages, so it needs its own replica and checkpoints; Kafka orders within a partition
-only.
+`src/test/ts/store-contract.ts` checks these and the required parts over any store type; the git store passes it,
+asserted and signed (`store.test.ts`). A backend that cannot give one of these needs a replica that does: a Telegram
+group keeps a bot's updates a day and may drop messages, so it needs its own replica and checkpoints; Kafka orders
+within a partition only.
 
 ## The contract and its versions
 
@@ -213,7 +213,9 @@ in different directories apart. So the home is one place with one grant:
   already contains the commit after a lost acknowledgement, its id stays unchanged. A rollback, invalid branch,
   multiple pending commits or another rejected push keeps the local commit and alarms. Pushes name one ref and
   never force. `forget` keeps the displaced head as evidence and never waives a signature. Transport is `file://`,
-  `ssh` or `https`; cleartext HTTP and redirects are refused.
+  `ssh` or `https`; cleartext HTTP and redirects are refused. A token in an `https` URL stays in this machine's
+  descriptor; ringi never shows it: the URLs it prints, its refusals and its notes (git's diagnostics included) drop
+  whatever precedes a URL's host but an SSH login, and the line for other machines carries the URL without it.
 - Every git command of a store and its transport has a time limit: 30 s by default, `RINGI_GIT_TIMEOUT_MS` (a
   positive integer) to change it; an invalid value is refused before git runs, and a timeout names the setting.
 - Not yet on signed hubs: delete and member removal, key rotation and revocation, freezes, seals, automatic

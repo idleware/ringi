@@ -1,8 +1,10 @@
 // lib: helpers that know nothing of ringi and touch no host: failing (fail.ts), notes, formatting, strict JSON
 // (json.ts). Files and locks are the adapters' (adapters/fs).
 
-// Notes and alarms go where the program sends them (composition/: stderr). Those written before it says where wait
-// for it, so none is lost to the order modules load in.
+import {withoutCredentials} from './fail.ts'
+
+// Notes and alarms go where the program sends them (composition/: stderr), never with a URL's credentials. Those
+// written before it says where wait for it, so none is lost to the order modules load in.
 const notes: string[] = []
 let sink: ((line: string) => void) | null = null
 export const notesTo = (fn: (line: string) => void): void => {
@@ -10,7 +12,7 @@ export const notesTo = (fn: (line: string) => void): void => {
   for (const line of notes.splice(0)) fn(line)
 }
 export const note = (s: string): void => {
-  const line = `ringi: ${s}\n`
+  const line = `ringi: ${withoutCredentials(s)}\n`
   if (sink) sink(line)
   else notes.push(line)
 }

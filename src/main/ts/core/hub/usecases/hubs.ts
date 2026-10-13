@@ -4,9 +4,11 @@ import {DEFAULT_PROFILE, PROFILES_CAPABILITY, parseProfile} from '../work/index.
 import {OPERATOR, config, createHub, hubNames, openHub, roomNames, setConfig, transportOf} from '../rooms/index.ts'
 import {hubPorts} from '../ports/index.ts'
 import type {Hub} from '../rooms/index.ts'
-import {fail, strictJson, words} from '../../../lib/index.ts'
+import {fail, strictJson, withoutCredentials, words} from '../../../lib/index.ts'
 import {ID_RE, compose} from '../protocol/index.ts'
 
+// A remote as shown and handed to other machines: never with a password or token in it; each machine has its own.
+const shown = (url: string | undefined): string | null => url ? withoutCredentials(url) : null
 // The operator's terminal context picks the hub unless one is named.
 export const hubOf = (name?: string): Hub => openHub(name ?? config().hub)
 
@@ -18,16 +20,16 @@ export const hubs = (): HubView[] => {
   return hubNames().map(n => {
     const H = openHub(n)
     return {name: H.name, current: H.name === cur, store: H.d.store.type, trust: H.contract.trust, contract: H.contract.version,
-      rooms: roomNames(H).length, remote: H.d.store.remote ?? null, dir: H.dir}
+      rooms: roomNames(H).length, remote: shown(H.d.store.remote), dir: H.dir}
   })
 }
 // A new hub; a signed one makes its root key here and returns what other machines need to pin it.
-export const create = (name: string, {signed = false, url}: {signed?: boolean, url?: string} = {}): {H: Hub, rootKey: string | null, add: string | null} => {
+export const create = (name: string, {signed = false, url}: {signed?: boolean, url?: string} = {}): {H: Hub, rootKey: string | null, remote: string | null, add: string | null} => {
   if (!ID_RE.test(name)) fail('usage: ringi hub create <name> [--signed [--url <git url>]]')
   const {custody} = createHub(name, {signed, url})
-  const H = openHub(name)
-  return {H, rootKey: custody,
-    add: H.signed ? `ringi hub add ${name} ${H.d.store.remote ?? '<url>'} --root '${H.d.root}' --genesis ${H.d.genesis}` : null}
+  const H = openHub(name), remote = shown(H.d.store.remote)
+  return {H, rootKey: custody, remote,
+    add: H.signed ? `ringi hub add ${name} ${remote ?? '<url>'} --root '${H.d.root}' --genesis ${H.d.genesis}` : null}
 }
 export const use = (name: string): void => {
   openHub(name)

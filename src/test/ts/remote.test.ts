@@ -17,6 +17,7 @@ import * as Remote from '../../main/ts/adapters/transport-git/remote.ts'
 import {GitStore, runGit} from '../../main/ts/adapters/transport-git/index.ts'
 import {keysFile} from '../../main/ts/adapters/keys-file/index.ts'
 import {identityKey} from '../../main/ts/adapters/transport-git/remote/keys.ts'
+import {Fail, fail, withoutCredentials} from '../../main/ts/lib/index.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const CLI = path.join(HERE, '../../../target/esm/cli.js')
@@ -153,6 +154,17 @@ const pushAlarmsOf = (H: {dir: string}): Record<string, string> => {
 
 describe('signed remote hubs', () => {
   describe('bootstrap and admission', () => {
+    it('never shows a URL\'s credentials, in a remote or in git\'s diagnostics, keeping an SSH login', () => {
+      const clean = 'https://forge.example/ringi/team.git'
+      for (const url of ['https://claude:t0k3n@forge.example/ringi/team.git', 'https://t0k3n@forge.example/ringi/team.git',
+        'https://claude:t0k3n@still@forge.example/ringi/team.git']) assert.equal(withoutCredentials(url), clean)
+      assert.equal(withoutCredentials('HTTPS://claude:t0k3n@forge.example/r.git'), 'HTTPS://forge.example/r.git')
+      for (const url of ['ssh://git@forge.example:2222/ringi/team.git', 'git@forge.example:ringi/team.git', clean]) assert.equal(withoutCredentials(url), url)
+      assert.equal(withoutCredentials('ssh://git:t0k3n@forge.example/ringi/team.git'), 'ssh://forge.example/ringi/team.git')
+      assert.throws(() => fail("git: fatal: unable to access 'https://claude:t0k3n@forge.example/ringi/team.git/': 403"),
+        (e: Error) => e instanceof Fail && !e.message.includes('t0k3n') && e.message.includes("'https://forge.example/ringi/team.git/'"))
+    })
+
     it('refuses cleartext HTTP before creating a replica', t => {
       const w = world(t)
       for (const url of ['http://example.invalid/ringi.git', 'HTTP://example.invalid/ringi.git']) {
