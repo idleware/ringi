@@ -1,3 +1,8 @@
+## [0.8.1](https://github.com/idleware/ringi/compare/v0.8.0...v0.8.1) (2026-10-13)
+
+### Fixes & improvements
+* fix: drop stale proposals and tag mentions from the join hint, help and comments ([769f08a](https://github.com/idleware/ringi/commit/769f08a632fbf506f95e5a50e11678750f09224f))
+
 ## [0.8.0](https://github.com/idleware/ringi/compare/v0.7.2...v0.8.0) (2026-10-13)
 
 ### Features
