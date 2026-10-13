@@ -6,6 +6,7 @@ import path from 'node:path'
 import * as C from '../../../lib/index.ts'
 import * as FS from '../../fs/index.ts'
 import * as P from '../../../core/hub/protocol/index.ts'
+import {storeOf} from '../../../core/hub/rooms/address.ts'
 import {withVerification} from './cache.ts'
 import {BASE, command} from './process.ts'
 import type {CommandOpt, Handle} from './types.ts'
@@ -53,7 +54,12 @@ export const isRemote = (H: Handle): boolean => {
   return H.d.trust === 'signed'
 }
 
-export const origin = (H: Handle): string | undefined => H.d.store.remote
+export const origin = (H: Handle): string | undefined => {
+  const address = H.endpoint ? H.endpoint.store.remote : H.d.contract?.remote
+  if (!address) return undefined
+  const {type, locator} = storeOf(address)
+  return type === 'git' ? locator : C.fail(`git cannot open a ${type} address`)
+}
 
 export const suffix = (ref: string): string => ref.replace(/^refs\/heads\//, '')
 

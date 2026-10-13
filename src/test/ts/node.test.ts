@@ -1,7 +1,6 @@
 // Node implementation tests: direct imports and source-level fault injection.
 import {describe, it} from 'node:test'
 import type {TestContext} from 'node:test'
-import type {Session} from '../../main/ts/core/agents/sessions/index.ts'
 import type {asJson} from '../../main/ts/core/hub/usecases/view.ts'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -10,6 +9,7 @@ import path from 'node:path'
 import {spawn, spawnSync} from 'node:child_process'
 import {fileURLToPath, pathToFileURL} from 'node:url'
 import {locked} from '../../main/ts/adapters/fs/index.ts'
+import {readInvite} from '../../main/ts/core/hub/usecases/invite.ts'
 import {BASE, quote} from './cli.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -23,7 +23,6 @@ const world = (t: TestContext) => {
     assert.equal(r.status, 0, `ringi ${args.join(' ')}: ${r.stderr}`)
     return r.stdout
   }
-  function json(args: ['sessions', ...string[]]): Session[]
   function json(args: ['log', ...string[]]): ReturnType<typeof asJson>[]
   function json(args: string[]): unknown { return JSON.parse(ok([...args, '--json'])) }
   const lastId = (args: string[]): string => /(?:sent|proposed) ([0-9a-f]{12})/.exec(ok(args))?.[1] ?? assert.fail('CLI returned no message id')
@@ -76,4 +75,19 @@ describe('Node implementation: file locks', () => {
     }
   })
 
+})
+
+describe('invitations', () => {
+  const oid = 'a'.repeat(40)
+  const line = (x: unknown) => 'ringi:' + Buffer.from(JSON.stringify(x)).toString('base64url')
+  const good = {schema: 'ringi-invite/1', room: 'fix', address: 'git+ssh://git@forge.example/ringi/fix.git', genesis: oid, hubGenesis: oid, trust: 'signed', root: 'ssh-ed25519 AAAA'}
+  it('reads one with its pins, keeping an SSH login', () => {
+    assert.deepEqual(readInvite(line(good)), good)
+    assert.equal(readInvite('fix'), null)
+  })
+  it('refuses credentials, another schema and anything but an object, with the same words', () => {
+    for (const x of [{...good, address: 'git+https://claude:t0k3n@forge.example/ringi/fix.git'}, {...good, address: 'git+https://t0k3n@forge.example/ringi/fix.git'},
+      {...good, schema: 'ringi-invite/2'}, {...good, genesis: 'x'}, null, 'text', []])
+      assert.throws(() => readInvite(line(x)), /not one this ringi reads/)
+  })
 })

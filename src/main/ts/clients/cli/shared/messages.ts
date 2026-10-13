@@ -1,9 +1,9 @@
-// messages: `add` (staging), `send`, `reply`, `read`, `thread`.
+// messages: `send`, `reply`, `read`, `thread`.
 
 import * as Room from '../../../core/hub/usecases/room.ts'
 import {withSizes} from '../../../core/hub/usecases/room.ts'
 import {asJson, render} from '../../../core/hub/usecases/view.ts'
-import {bytes, fail, short, words} from '../../../lib/index.ts'
+import {fail, short, words} from '../../../lib/index.ts'
 import type {Opts} from '../args.ts'
 import {attachments, dump, flag, list, opt, out, textOf} from '../args.ts'
 import type {Ctx} from '../context.ts'
@@ -15,15 +15,6 @@ const sendInput = (o: Opts): Room.SendInput => ({
 })
 
 const sent = (r: Room.Sent) => out(`sent ${short(r.id)} to ${r.to.join(', ')}${r.files ? ` with ${r.files} file(s)` : ''}`)
-
-// Stages files for the actor's next message, like git add: their content is taken into the hub now. Without files it
-// lists what is staged; --drop <path> and --clear take files back out.
-export const add = (a: Ctx, o: Opts) => {
-  if (flag(o, 'clear')) Room.unstage(a, null)
-  else if (list(o, 'drop').length) Room.unstage(a, list(o, 'drop'))
-  const staged = o._.length ? Room.stage(a, o._.flatMap(attachments)) : Room.staged(a)
-  out(staged.length ? `staged for your next message:\n${staged.map(s => `  ${s.path} (${bytes(s.size)})`).join('\n')}` : 'nothing staged')
-}
 
 export const send = (a: Ctx, o: Opts) => sent(Room.send(a, {...sendInput(o), re: opt(o, 're')}))
 

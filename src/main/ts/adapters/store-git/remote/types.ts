@@ -1,9 +1,9 @@
 // types: what the signed transport's modules share: the hub handle, a room, keys, signers, a verified branch.
 
-import type {Descriptor, Member} from '../../../core/hub/ports/store.ts'
+import type {Descriptor, Member, RoomEndpoint} from '../../../core/hub/ports/store.ts'
 import type {SigningContext} from '../../../core/signing/index.ts'
 
-export type Handle = {name: string, dir: string, d: Descriptor, signing?: SigningContext, main?: string, remoteAlarms?: Record<string, string>, heartbeatErrors?: Record<string, string>, bootstrap?: boolean}
+export type Handle = {name: string, dir: string, d: Descriptor, endpoint?: RoomEndpoint, signing?: SigningContext, main?: string, remoteAlarms?: Record<string, string>, heartbeatErrors?: Record<string, string>, bootstrap?: boolean}
 
 // A room: its one branch (`ref`), its latest control record (`head`) and its genesis.
 export type Room = {name: string, ref: string, head: string, genesis: string, members?: Record<string, Member>}
@@ -30,13 +30,7 @@ export const TRACK = 'refs/remotes/origin/'
 
 export const ACCEPT = 'refs/ringi/remote-accepted/'
 
-export const TAGS = 'refs/tags/'
-
-export const TAG_TRACK = 'refs/ringi/remote-tags/'
-
-export const TAG_ACCEPT = 'refs/ringi/remote-accepted-tags/'
-
 export type Commit = {sha: string, parents: string[]}
 
 // Commits read raw, without trusting any separator inside them: parents, author name and message text.
-export type Raw = {sha: string, parents: string[], author: string, text: string, body: Buffer}
+export type Raw = {sha: string, parents: string[], author: string, committer: string, tree: string, time: number, text: string, body: Buffer}

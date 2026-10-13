@@ -79,7 +79,8 @@ export const seatHolder = (hub: string, genesis: string, agent: string, except: 
 
 export const ownSession = (handle: string): Session | null => readSession(handle)
 
-export const parseSelector = (sel: string | undefined): {hub: string | null, room: string, agent: string} => {
-  const m = /^(?:([a-z0-9._-]+):)?([^/]+)\/([^/]+)$/.exec(sel ?? '')
-  return m ? {hub: m[1] ?? null, room: m[2], agent: m[3]} : fail('a session is named <room>/<agent> or <hub>:<room>/<agent>')
+// A seat is named by its room and agent: a room's name is unique on a machine, whatever hub keeps it.
+export const parseSelector = (sel: string | undefined): {room: string, agent: string} => {
+  const m = /^([^/]+)\/([^/]+)$/.exec(sel ?? '')
+  return m ? {room: m[1], agent: m[2]} : fail('a session is named <room>/<agent>')
 }

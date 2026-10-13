@@ -22,9 +22,7 @@ const selectTarget = (me: Me, selector?: string): Session => {
     return ownTarget(me)
   } else {
     const sel = parseSelector(selector)
-    const hits = allSessions().filter(s => s.room === sel.room && s.agent === sel.agent && (!sel.hub || s.hub === sel.hub))
-    if (hits.length > 1) fail(`several hubs have ${sel.room}/${sel.agent}; name one: <hub>:${sel.room}/${sel.agent}`)
-    return hits[0] ?? fail(`no session holds ${selector}; the operator joins this chat with ringi join`)
+    return allSessions().find(s => s.room === sel.room && s.agent === sel.agent) ?? fail(`no session holds ${selector}; the operator joins this chat with ringi join`)
   }
 }
 
@@ -33,7 +31,7 @@ const ownTarget = (me: Me): Session => {
   if (!mine) {
     const cands = allSessions().filter(s => liveness(s) !== 'active').sort((a, b) => Number(b.product === me.product) - Number(a.product === me.product))
     if (!cands.length) fail('nothing to continue: this chat was never joined, and no paused or gone session waits. The operator says "join <room> as <id>"')
-    fail(`this chat has no binding of its own. Say which one to take over:\n${cands.map(s => `  ringi continue ${s.hub}:${s.room}/${s.agent}   (${liveness(s)}, ${s.product ?? '?'}, ${s.handle}${s.scope ? `, scope: ${s.scope}` : ''})`).join('\n')}`)
+    fail(`this chat has no binding of its own. Say which one to take over:\n${cands.map(s => `  ringi continue ${s.room}/${s.agent}   (${liveness(s)}, ${s.product ?? '?'}, ${s.handle}${s.scope ? `, scope: ${s.scope}` : ''})`).join('\n')}`)
   }
   return mine!
 }
@@ -42,7 +40,7 @@ const takeOver = (me: Me, target: Session): void => {
   if (target.handle !== me.handle) {
     if (liveness(target) === 'active') fail(`${target.room}/${target.agent} is held by a live session (${target.handle}); it is not taken over`)
     dropSession(target.handle)
-    note(`took over ${target.hub}/${target.room}/${target.agent} from ${target.handle}`)
+    note(`took over ${target.room}/${target.agent} from ${target.handle}`)
   }
 }
 

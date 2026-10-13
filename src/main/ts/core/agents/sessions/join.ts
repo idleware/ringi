@@ -2,25 +2,35 @@
 
 import {locked} from '../../hub/ports/index.ts'
 import type {Hub, Room} from '../../hub/rooms/index.ts'
-import {OPERATOR, controlChange, openHub, room as roomOf} from '../../hub/rooms/index.ts'
+import {OPERATOR, attachRoom, adoptHub, controlChange} from '../../hub/rooms/index.ts'
+import {roomNamed} from '../../hub/usecases/rooms.ts'
+import {readInvite} from '../../hub/usecases/invite.ts'
 import {fail, note, stamp} from '../../../lib/index.ts'
-import {AGENT_RE} from '../../hub/protocol/index.ts'
+import {agentId} from '../../hub/usecases/roster.ts'
 import type {Me, Session} from './index.ts'
 import {dropSession, liveness, ownSession, readSession, saveSession, seatHolder, whoAmI} from './index.ts'
 import type {JoinKey} from '../../hub/ports/store.ts'
 
-export type JoinInput = {hub: string, room: string, agent?: string, scope?: string}
+// `room`: a room's name on this machine, or the operator's invitation to one elsewhere; an agent never names a hub.
+export type JoinInput = {room: string, agent?: string, scope?: string}
 
 export type JoinResult = {agent: string, hub: string, room: string} & ({session: Session, key: null} | {session: null, key: JoinKey})
 
-export const join = ({hub, room, agent: id, scope}: JoinInput): JoinResult => {
+// The room an invitation names, attached on first use; or the one room of that name on this machine.
+const roomFor = (target: string): Room => {
+  const x = readInvite(target)
+  if (x) return attachRoom(adoptHub({trust: x.trust, root: x.root, genesis: x.hubGenesis}), x.room,
+    {schema: 'ringi-room/1', name: x.room, hubGenesis: x.hubGenesis, genesis: x.genesis, store: {path: 'store', remote: x.address}})
+  return roomNamed(target)
+}
+export const join = ({room: target, agent: id, scope}: JoinInput): JoinResult => {
   const me = whoAmI()
   const agent = id ?? me.product ?? fail('--as <id> is required: this session\'s product is unknown')
-  if (!AGENT_RE.test(agent) || agent === OPERATOR) fail(`bad agent id ${agent}: lowercase letters, digits, - and _, no dot`)
-  const H = openHub(hub), R = roomOf(H, room)
+  agentId(agent)
+  const R = roomFor(target), H = R.hub, room = R.name
   if (H.signed) {
-    if (!H.store.joinKey) fail(`hub ${H.name}: its store cannot make keys`)
-    const key = H.store.joinKey!(R.s, agent)
+    if (!R.store.joinKey) fail(`hub ${H.name}: its store cannot make keys`)
+    const key = R.store.joinKey!(R.s, agent)
     if (!key.admitted) return {agent, hub: H.name, room: R.name, session: null, key}
   }
   locked('sessions', () => claimSession({me, H, R, agent, room, scope}))
@@ -33,7 +43,7 @@ const claimSession = (c: JoinContext): void => {
   const mine = previousSession(c)
   const same = !!mine && mine.hub === H.name && mine.genesis === R.genesis && mine.agent === agent
   ensureMember(c)
-  if (mine && !same) note(`left ${mine.hub}/${mine.room} as ${mine.agent}: one room per session`)
+  if (mine && !same) note(`left ${mine.room} as ${mine.agent}: one room per session`)
   saveSession({
     handle: me.handle, product: me.product, hub: H.name, room: R.name, genesis: R.genesis, agent,
     scope: scope ?? (same ? mine!.scope : null), state: 'active', since: same ? mine!.since : stamp(), lastSeen: stamp(), pid: me.pid

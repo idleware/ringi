@@ -3,10 +3,7 @@
 // contract base selects (docs/ARCHITECTURE.md, Evolution).
 import * as profiles from './work/index.ts'
 
-// decisions/1 (proposals, grants, budgets) is retired: nothing in this build creates, decides or spends what it
-// governs, so a contract that still names it restricts nothing here and is read.
-const RETIRED = {}
-export const CAPABILITIES: Record<string, object> = {[profiles.PROFILES_CAPABILITY]: profiles, 'decisions/1': RETIRED}
+export const CAPABILITIES: Record<string, object> = {[profiles.PROFILES_CAPABILITY]: profiles}
 // Why a contract's capability list cannot be enforced by this build, or nothing.
 export const unenforceable = (ids: string[]): string | null => {
   const names = ids.map(id => id.split('/')[0])

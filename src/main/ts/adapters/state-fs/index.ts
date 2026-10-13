@@ -8,7 +8,7 @@ import {errno, fail, strictJson} from '../../lib/index.ts'
 import {guardWrite, locked as lockFile, mkdirIn, writeJsonAtomic} from '../fs/index.ts'
 import type {Build, Key, LocalState} from '../../core/hub/ports/index.ts'
 
-const HOME_VERSION = 3
+const HOME_VERSION = 4
 
 // State fails closed: unreadable JSON is an error, never a silent fresh start.
 const readJson = <T>(f: string, dflt: T): T => {
@@ -37,7 +37,7 @@ export const stateFs = ({root, build}: {root: string, build: Build}): LocalState
     ensure: () => {
       if (fs.existsSync(marker)) {
         const v = readJson<{version?: number}>(marker, {}).version
-        if (v !== HOME_VERSION) fail(`${root} is a ringi home of version ${v}; this ringi ${build.version} needs version ${HOME_VERSION}: set RINGI_HOME to a new directory for a fresh home; ringi does not migrate`)
+        if (v !== HOME_VERSION) fail(`${root} is a ringi home of version ${v}; this ringi ${build.version} needs version ${HOME_VERSION}. Move it away (the ringi that made it still reads it with RINGI_HOME pointing there) or set RINGI_HOME to a new directory; ringi does not migrate`)
         return
       }
       if (fs.existsSync(root) && fs.readdirSync(root).length) fail(`${root} exists and is not a ringi home (no home.json); move it away or set RINGI_HOME`)

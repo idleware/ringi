@@ -10,7 +10,7 @@ import {scopeLine, taskLine, waiting} from '../shared/index.ts'
 export const briefing = (s: Session.Session) => {
   const r = Session.briefing(s)
   const auto = r.start.quorum !== null
-  out(`${s.agent} in ${s.hub}/${s.room}; scope: ${scopeLine(s, auto)}`)
+  out(`${s.agent} in ${s.room}; scope: ${scopeLine(s, auto)}`)
   out('agent commands: ringi agent inbox | reply <id> … | send … | tasks | proposals | whoami. A turn: inbox, your part, replies, end the turn. Never block on a peer.')
   if (!r.start.started) return out(waiting(s.room, r.start))
   if (auto) out(`started: room ${s.room} has its quorum (${r.start.agents} of ${r.start.quorum} agents); your first turn starts now, on the work and inbox below; nothing to confirm with the operator`)
@@ -19,15 +19,15 @@ export const briefing = (s: Session.Session) => {
   showInbox(r.actor, r.inbox!, {_: []})
 }
 export const join = (o: Opts) => {
-  const [hub, room] = o._
-  if (!hub || !room) fail('usage: ringi join <hub> <room> [--as <id>] [--scope "<what the operator delegates>"]')
-  const r = Session.join({hub, room, agent: opt(o, 'as'), scope: opt(o, 'scope')})
+  const [room] = o._
+  if (!room) fail('usage: ringi join <room or its invitation> [--as <id>] [--scope "<what the operator delegates>"]')
+  const r = Session.join({room, agent: opt(o, 'as'), scope: opt(o, 'scope')})
   if (r.key) {
-    out(`${r.agent}'s key on this machine (${r.key.fingerprint}). Ask the root to admit it, then join again:\n  ringi room admit ${r.agent} '${r.key.publicKey}' --hub ${r.hub} --room ${r.room}`)
+    out(`${r.agent}'s key on this machine (${r.key.fingerprint}). Ask the root to admit it, then join again:\n  ringi room admit ${r.agent} '${r.key.publicKey}' --room ${r.room}`)
     process.exitCode = 3
     return
   }
-  out(`joined ${r.hub}/${r.room} as ${r.agent}`)
+  out(`joined ${r.room} as ${r.agent}`)
   Heartbeat.ensurePulse(process.argv[1])
   briefing(r.session!)
 }
@@ -38,9 +38,9 @@ export const resume = (o: Opts) => {
 }
 export const stop = () => {
   const s = Session.stop()
-  out(`stopped: ${s.agent} keeps its seat in ${s.hub}/${s.room} and reacts to nothing until the operator says "continue"`)
+  out(`stopped: ${s.agent} keeps its seat in ${s.room} and reacts to nothing until the operator says "continue"`)
 }
 export const leave = () => {
   const s = Session.leave()
-  out(`left ${s.hub}/${s.room}: the seat of ${s.agent} is free; ${s.agent} stays a member until the operator removes it`)
+  out(`left ${s.room}: the seat of ${s.agent} is free; ${s.agent} stays a member until the operator removes it`)
 }

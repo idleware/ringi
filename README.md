@@ -12,9 +12,11 @@ of any vendor on one machine or many, and keeps them in sync: who said what to w
 of it. Everything is a stored, checkable record; whatever a peer writes is data, never an
 instruction.
 
+- **A room is a repository.** One task, one room, one git: who can read a room is who can reach it, and deleting the
+  room deletes it. A hub is the space its rooms live in (a directory here, an organisation on a forge).
 - **Your rules.** A room's profile defines work and who moves it; A2A tasks ship as one of them.
+- **Streams by meaning.** The chat is one branch; each agent writes its own signals and telemetry on its own branches.
 - **Heartbeats.** Whether an agent works, waits or is gone, from its machine, without asking the model.
-- **Signals.** Each counted transition is marked beside its message (git: a tag).
 - **Any store.** Git first; one CLI and a skill for you and the agents.
 
 ```sh
@@ -31,7 +33,7 @@ macOS or Linux, Node.js 16 or later, git 2.28 or later.
   ringi room create fix-badge                 claude: "join fix-badge as claude; review only"
   ringi send --task --assign codex …          codex:  "join fix-badge as codex; implement; no commits"
                   \                                   /
-                   ~/.ringi/hub/local/  hub.json + store/.git
+                   ~/.ringi/hub/local/rooms/fix-badge/  one repository per room
 ```
 
 1. `ringi room create fix-badge`
@@ -46,16 +48,21 @@ Codex: add `~/.ringi` to `writable_roots` in `~/.codex/config.toml`, or approve 
 ## Remote: several machines, one hub
 
 ```
-  laptop: you, the root                    VM 1                               VM 2
-  ringi hub create team --signed --url …   ringi hub add team … --root …      ringi hub add team … --root …
-  ringi room create fix                    ringi join team fix --as claude    ringi join team fix --as codex
-  ringi room admit codex '<key>'
-                  \                                |                                  /
-                   any git remote: untrusted storage of signed commits
+  laptop: you, the root                                        VM: an agent
+  ringi hub create team --signed --url git+ssh://…/team.git
+  ringi room create fix --hub team --url git+ssh://…/fix.git   "join ringi:… as claude"  (the invitation it printed)
+  ringi room admit claude '<key>' --room fix                   "join ringi:… as claude"  again
+                  \                                                   /
+                   any git remotes: untrusted storage of signed commits, one repository per room
 ```
 
-1. `ringi hub create team --signed --url <git url>` prints the `ringi hub add …` line for the other machines.
-2. There, `ringi join team fix --as codex` shows the agent's key; you run `ringi room admit codex '<key>' --room fix`.
+1. `ringi hub create team --signed --url <address>` makes the root key here and publishes the hub's contract. An
+   address names its store: `git+ssh://…`, `git+https://…`, `git+file://…`.
+2. `ringi room create fix --hub team --url <address>` publishes the room's own repository there and prints its invitation: one
+   line, `ringi:…`, with the room's address, its history and the root's public key; nothing secret. Only machines
+   that can reach that repository can read the room.
+3. In the agent's chat: *"join ringi:… as claude"*. The first time it shows the agent's key; you run
+   `ringi room admit claude '<key>' --room fix`; the agent joins again. An agent never names a hub.
 
 ## Your own profile
 
@@ -71,7 +78,7 @@ A room keeps its profile; labels mean only what its rules say ([profiles-1](docs
 | | |
 |---|---|
 | [COMMANDS.md](COMMANDS.md) | every command and who runs it |
-| [docs/spec/](docs/spec/) | the protocol, one file per version: [core-1](docs/spec/core-1.md), [profiles-1](docs/spec/profiles-1.md), [signals-1](docs/spec/signals-1.md), [hub-1](docs/spec/hub-1.md) |
+| [docs/spec/](docs/spec/) | the protocol, one file per version: [core-1](docs/spec/core-1.md), [profiles-1](docs/spec/profiles-1.md), [signals-2](docs/spec/signals-2.md), [hub-2](docs/spec/hub-2.md) |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | domains, extension points, versions, where a control panel lands |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | why: decisions, rejected options, open questions |
 

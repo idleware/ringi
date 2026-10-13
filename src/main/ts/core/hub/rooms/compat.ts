@@ -5,43 +5,63 @@
 
 import {unenforceable} from '../capabilities.ts'
 import {hubPorts} from '../ports/index.ts'
-import type {Descriptor, Rev, Store} from '../ports/store.ts'
+import type {Descriptor, Rev, RoomEndpoint, Store} from '../ports/store.ts'
 import {fail, short, strictJson} from '../../../lib/index.ts'
 import {HUB_MAJOR, PROTOCOL_MAJOR} from './index.ts'
 import type {Contract} from './index.ts'
 
 const version = () => hubPorts().build.version
 // What to do with a hub this ringi cannot read.
-const beside = 'make a new hub beside it (ringi hub create <name>), or a new root branch on a forge; ringi does not migrate'
+const beside = 'make a new hub beside it (ringi hub create <name>), or a new space on a forge; ringi does not migrate'
 const newer = (major: number, mine: number) => major > mine ? 'upgrade ringi' : beside
 
 // Why this ringi cannot read the hub's descriptor (hub.json), or nothing.
-const knownSchema = (d: Descriptor, name: string): boolean => d.schema === 'ringi-hub/2' && d.name === name
-const knownStore = (d: Descriptor): boolean => ['signed', 'asserted'].includes(d.trust) && !!d.store?.type && !!d.store.path
+const oid = (s: unknown): boolean => typeof s === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(s)
+const localPath = (s: unknown): boolean => typeof s === 'string' && /^[a-zA-Z0-9._-]+(?:\/[a-zA-Z0-9._-]+)*$/.test(s) && s.split('/').every(p => p !== '.' && p !== '..')
+const knownSchema = (d: Descriptor, name: string): boolean => d?.schema === 'ringi-hub/3' && d.name === name
+const knownTrust = (d: Descriptor): boolean => d.trust === 'signed'
+  ? typeof d.root === 'string' && !!d.root : d.trust === 'asserted' && !d.root
+const knownStore = (d: Descriptor): boolean => {
+  const type = typeof d.store?.type === 'string' && !!d.store.type
+  const pins = oid(d.genesis) && knownTrust(d)
+  const source = !d.contract || localPath(d.contract.path)
+  return type && pins && source
+}
 export const descriptorRefusal = (d: Descriptor, name: string): string | null =>
   knownSchema(d, name) && knownStore(d) ? null : `hub ${name}: its descriptor is not one this ringi ${version()} reads; ${beside}`
 // Why this ringi cannot read the contract, or nothing.
-const refusal = (c: Contract, name: string): string | null => {
+const contractIdentity = (c: Contract, name: string): string | null => {
+  if (!c || typeof c !== 'object') return `hub ${name}: contract must be an object`
   if (c.schema !== 'ringi-hub') return `hub ${name} declares schema ${String(c.schema)}, not ringi-hub`
   const major = Number(String(c.version).split('.')[0])
   if (major !== HUB_MAJOR) return `hub ${name} follows contract version ${c.version}; this ringi ${version()} supports ${HUB_MAJOR}.x: ${newer(major, HUB_MAJOR)}`
   if (c.protocol !== PROTOCOL_MAJOR) return `hub ${name} speaks protocol ${String(c.protocol)}; this ringi ${version()} speaks ${PROTOCOL_MAJOR}: ${newer(Number(c.protocol), PROTOCOL_MAJOR)}`
+  return null
+}
+const contractFields = (c: Contract, name: string): string | null => {
+  if (typeof c.store !== 'string' || !c.store) return `hub ${name}: contract must name an explicit store layout`
+  if (c.trust !== 'signed' && c.trust !== 'asserted') return `hub ${name}: unknown contract trust`
+  if (c.capabilities === undefined) return null
+  const list = Array.isArray(c.capabilities)
+  if (!list || c.capabilities.some(x => typeof x !== 'string')) return `hub ${name}: capabilities must be a list of names`
+  return null
+}
+export const contractRefusal = (c: Contract, name: string): string | null => {
+  const shape = contractIdentity(c, name) ?? contractFields(c, name)
+  if (shape) return shape
   const why = unenforceable(c.capabilities ?? [])
   return why && `hub ${name} ${why}, which this ringi ${version()} cannot enforce. Upgrade ringi`
 }
-// Old contract snapshots stay immutable after an explicit transition. Only ancestors of a readable canonical
-// main may use the old filename; an old current head or a room's attachment is never accepted this way.
-const historicalContract = (store: Store, name: string, rev: Rev): string | null => {
-  const head = store.contractHead()
-  if (rev === head || !store.extends(rev, head)) return null
-  contractAt(store, name, head)
-  return store.contractFile(rev, 'hub.json')
+export const endpointRefusal = (d: Descriptor, name: string, e: RoomEndpoint): string | null => {
+  const identity = e?.schema === 'ringi-room/1' && e.name === name && e.hubGenesis === d.genesis
+  const storage = oid(e?.genesis) && localPath(e?.store?.path)
+  return identity && storage ? null : `room ${name}: its endpoint or genesis pins do not match hub ${d.name}; refusing another room's history`
 }
 // The contract at `rev`, once it passes every gate.
 export const contractAt = (store: Store, name: string, rev: Rev): Contract => {
-  const text = store.contractFile(rev, 'contract.json') ?? historicalContract(store, name, rev) ?? fail(`hub ${name} has no contract at ${short(rev)}`)
+  const text = store.contractFile(rev, 'contract.json') ?? fail(`hub ${name} has no contract at ${short(rev)}`)
   const c = strictJson<Contract>(text, `hub ${name}: contract`)
-  const why = refusal(c, name)
+  const why = contractRefusal(c, name)
   if (why) fail(why)
   return c
 }

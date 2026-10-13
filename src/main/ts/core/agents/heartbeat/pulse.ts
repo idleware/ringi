@@ -31,9 +31,9 @@ const beatAll = (next: number): Beaten[] => allSessions().flatMap((s): Beaten[] 
     const H = openHub(s.hub)
     const R = openRoom(H, s.room, {quiet: true})
     // A gone room: the session leaves it on its own; nothing to beat for.
-    if (!R || R.genesis !== s.genesis || !H.store.heartbeat) return []
+    if (!R || R.genesis !== s.genesis || !R.store.heartbeat) return []
     const b = HB.judge(HB.probe(s, start(R).started ? null : 'quorum'), {next})
-    H.store.heartbeat(R.s, s.agent, R.s.tip, HB.body(b))
+    R.store.heartbeat(R.s, s.agent, R.s.tip, HB.body(b))
     return [{session: s, beat: b}]
   } catch (e) { return [{session: s, error: (e as Error).message}] }
 })
@@ -41,7 +41,7 @@ const beatAll = (next: number): Beaten[] => allSessions().flatMap((s): Beaten[] 
 const beatLoop = async (every: number, once: boolean, log: (s: string) => void): Promise<void> => {
   for (let idle = 0; idle < 2;) {
     const beats = beatAll(every)
-    for (const b of beats) if (b.error) log(`pulse: ${b.session.agent} in ${b.session.hub}/${b.session.room}: ${b.error}`)
+    for (const b of beats) if (b.error) log(`pulse: ${b.session.agent} in ${b.session.room}: ${b.error}`)
     idle = beats.length ? 0 : idle + 1
     if (once || !hubPorts().state.present()) return
     await sleep(every * 1000)
@@ -56,7 +56,7 @@ export const pulse = async ({every = 30, once = false, log}: {every?: number, on
 }
 // What the room's published heartbeats say, as an orchestrator would read them: whose, how old, overdue or not.
 export const published = (R: Room) =>
-  (R.hub.store.heartbeats?.(R.s) ?? []).map(h => {
+  (R.store.heartbeats?.(R.s) ?? []).map(h => {
     const next = Number(/^Next: (\d+)$/m.exec(h.text)?.[1] ?? NaN)
     const age = Math.max(0, Math.round(Date.now() / 1000 - h.time))
     return {...h, state: /^State: (\w+)$/m.exec(h.text)?.[1] ?? '?', waits: /^Waits: (.+)$/m.exec(h.text)?.[1] ?? null, age, overdue: Number.isFinite(next) && age > next * 2}

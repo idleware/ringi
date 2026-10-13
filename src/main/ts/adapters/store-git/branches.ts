@@ -6,7 +6,7 @@ import * as Remote from './remote.ts'
 import {ZERO} from './run.ts'
 import {Repo} from './repo.ts'
 import type {Roster, StoredRoom} from '../../core/hub/ports/store.ts'
-import {ID_RE, parse} from '../../core/hub/protocol/index.ts'
+import {parse} from '../../core/hub/protocol/index.ts'
 import type {Entry} from '../../core/hub/protocol/files.ts'
 
 // The root's principal, and the files only its control records may change.
@@ -17,18 +17,12 @@ type Entry_ = {sha: string, author: string, text: string, control: boolean, skip
 type Named = Pick<StoredRoom, 'name' | 'genesis'>
 
 export class Branches extends Repo {
-  protected ref(name: string) { return `refs/heads/${name}` }
+  protected ref(_name: string) { return 'refs/heads/chat' }
   protected tip(name: string) { return this.rev(this.ref(name)) }
-  // Every branch but the contract's, by name.
-  roomBranches(): string[] {
-    return this.git(['for-each-ref', '--format=%(refname:lstrip=2)', 'refs/heads/']).split('\n').filter(b => b && b !== 'main')
-  }
-  // Every branch but the contract's is a room.
+  // One repository holds one chat. Its logical name is pinned by the local endpoint.
   roomNames(): string[] {
-    const prefix = 'refs/heads/'
-    const names = this.git(['for-each-ref', '--format=%(refname)', prefix]).split('\n').filter(Boolean).map(r => r.slice(prefix.length))
-      .filter(n => ID_RE.test(n) && n !== 'main')
-    return names.sort()
+    const endpoint = this.h.endpoint
+    return endpoint && this.rev('refs/heads/chat') ? [endpoint.name] : []
   }
   // A control record: the room's genesis, or a root commit of Kind: room.
   protected isControl(room: Pick<StoredRoom, 'genesis'>, sha: string, author: string, text: string): boolean {
@@ -57,18 +51,24 @@ export class Branches extends Repo {
   }
   protected scan(room: Pick<StoredRoom, 'genesis'>, tip: string, after?: string): Array<Entry_ & {parent: string}> {
     const shas = this.git(['rev-list', '--topo-order', '--reverse', tip, '--not', after ?? `${room.genesis}^@`]).trim().split('\n').filter(Boolean)
+    let parent = after ?? this.rev(`${room.genesis}^`) ?? fail('room has no contract parent')
     return Remote.readCommits(this.h, shas).map(c => {
+      if (c.parents.length !== 1 || c.parents[0] !== parent) fail('ALARM room chat is not one linear history')
+      parent = c.sha
       const text = c.body.toString('utf8')
+      if (c.sha === room.genesis && (c.author !== ROOT || parse(text, x => this.isRef(x)).kind !== 'room')) fail('ALARM room genesis is not a root control')
       return {sha: c.sha, parent: c.parents[0], author: c.author, text, control: this.isControl(room, c.sha, c.author, text)}
     })
   }
   room(name: string): StoredRoom | null {
+    if (!this.h.endpoint || this.h.endpoint.name !== name) return null
     const ref = this.ref(name)
     const tip = this.tip(name)
     if (!tip) return null
     const genesis = this.git(['rev-list', '--first-parent', '--reverse', tip, '^refs/heads/main']).split('\n')[0]
       || this.git(['rev-list', '--first-parent', '--reverse', tip]).split('\n').filter(Boolean).at(-1)!
-    if (this.trust === 'signed' && this.h.remoteAlarms?.[ref]) fail(`ALARM ${this.h.remoteAlarms[ref]}; room ${name} is quarantined`)
+    if (this.h.endpoint.genesis && genesis !== this.h.endpoint.genesis) fail(`ALARM room ${name}: changed genesis`)
+    if (this.h.remoteAlarms?.[ref]) fail(`ALARM ${this.h.remoteAlarms[ref]}; room ${name} is quarantined`)
     const control = this.entries({name, genesis}, tip).filter(e => e.control).map(e => ({rev: e.sha, text: e.text}))
     return {name, head: control.at(-1)!.rev, genesis, tip, base: this.rev(`${genesis}^`) ?? ZERO, control}
   }
@@ -78,9 +78,12 @@ export class Branches extends Repo {
     return r.status === 0 ? r.stdout : null
   }
   createRoom(name: string, who: string, text: string, files: Record<string, string>): string {
-    const ref = `refs/heads/${name}`
+    const ref = this.ref(name)
+    const endpoint = this.h.endpoint ?? fail('createRoom requires its explicit endpoint')
+    if (endpoint.name !== name) fail('createRoom requires its named endpoint')
     if (this.rev(ref)) fail(`room ${name} exists in hub ${this.d.name}`)
     const sha = this.commit(who, text, this.tree(null, Object.entries(files).map(([p, c]) => ({path: p, content: c, mode: '100644'}))), [this.contractHead()])
+    endpoint.genesis = sha
     if (!this.advance(ref, sha, null)) fail(`room ${name} was created meanwhile`)
     return sha
   }
@@ -93,20 +96,6 @@ export class Branches extends Repo {
   }
   protected refsUnder(prefix: string): Array<[string, string]> {
     return this.git(['for-each-ref', '--format=%(refname) %(objectname)', prefix]).split('\n').filter(Boolean).map(l => l.split(' ') as [string, string])
-  }
-  // Every ref of the room in one transaction: its branch, every tag on its commits (signals, heartbeats,
-  // anyone's), what the store keeps under its genesis (pins, evidence) and its unpublished commits. Objects are left to
-  // the repository.
-  deleteRoom(room: StoredRoom): void {
-    const commits = this.commitsOf(room)
-    const tags = this.git(['for-each-ref', '--format=%(refname) %(objectname) %(*objectname)', 'refs/tags/']).split('\n').filter(Boolean)
-      .map(l => l.split(' ')).filter(([, object, target]) => commits.has(target || object)).map(([ref]) => ref)
-    const kept = this.refsUnder('refs/ringi/').map(([ref]) => ref).filter(ref => {
-      const [, , kind, key] = ref.split('/')
-      return key === room.genesis || (kind === 'unpublished' && commits.has(key))
-    })
-    const refs = [this.ref(room.name), ...tags, ...kept]
-    this.git(['update-ref', '--stdin'], {input: ['start', ...refs.map(r => `delete ${r}`), 'prepare', 'commit', ''].join('\n')})
   }
   protected remote(room: StoredRoom): Remote.Room {
     return {name: room.name, ref: this.ref(room.name), head: room.head, genesis: room.genesis}

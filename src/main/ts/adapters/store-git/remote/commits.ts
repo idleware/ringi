@@ -20,6 +20,8 @@ export const readCommits = (H: Handle, shas: string[]): Raw[] => {
     const parents = [...hdr.matchAll(/^parent ([0-9a-f]+)$/gm)].map(m => m[1])
     const author = /^author (.*?) <[^>\n]*> \d+ [+-]\d{4}$/m.exec(hdr)?.[1] ?? ''
     const message = split < 0 ? Buffer.alloc(0) : body.subarray(split + 2)
-    return {sha, parents, author, body: message, text: P.decodeText(message).text ?? ''}
+    const committer = /^committer (.*?) <[^>\n]*> (\d+) [+-]\d{4}$/m.exec(hdr)
+    const tree = /^tree ([0-9a-f]+)$/m.exec(hdr)?.[1] ?? ''
+    return {sha, parents, author, committer: committer?.[1] ?? '', time: Number(committer?.[2]), tree, body: message, text: P.decodeText(message).text ?? ''}
   })
 }

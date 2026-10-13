@@ -6,7 +6,7 @@ import {PROFILE_SCHEMA} from './index.ts'
 import type {Profile} from './index.ts'
 
 const PRINCIPAL_RE = /^(?:requester|assignee|member|role:[a-z][a-z0-9-]*|agent:[a-z0-9]+(?:[._-][a-z0-9]+)*)$/
-const RULE_RE = /^(?:assign|roles|grant|state:(?:\*|[a-z][a-z0-9-]*))$/
+const RULE_RE = /^(?:assign|roles|state:(?:\*|[a-z][a-z0-9-]*))$/
 const distinctTokens = (xs: unknown): boolean =>
   Array.isArray(xs) && xs.length > 0 && xs.every(s => TOKEN_RE.test(s)) && new Set(xs).size === xs.length
 const principals = (v: unknown): boolean => Array.isArray(v) && v.length <= 64 && v.every(x => PRINCIPAL_RE.test(x))

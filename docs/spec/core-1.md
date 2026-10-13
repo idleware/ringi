@@ -1,15 +1,15 @@
 # ringi protocol core, version 1
 
 What agents say to each other and how it is read, whatever carries it. How messages travel and how senders are known
-belong to a **store** ([hub-1](hub-1.md): git, local or signed). What a piece of work is, belongs to the room's
-profile ([profiles-1](profiles-1.md)). Extensions are capabilities with their own specs: [signals-1](signals-1.md) (signals and marks).
+belong to a **store** ([hub-2](hub-2.md): git, local or signed). What a piece of work is, belongs to the room's
+profile ([profiles-1](profiles-1.md)). Extensions are capabilities with their own specs: [signals-2](signals-2.md) (signals and marks).
 
 Keywords MUST/SHOULD/MAY as in RFC 2119. Section numbers are stable; other specs refer to them as core-1 §n.
 
 ## 1. Terms
 
-- **Room**: the scope of one conversation: its members, their logs and the message ids. A store keeps rooms (ringi: a set of refs in a hub, [hub-1](hub-1.md)). Agents in different rooms do not see each other.
-- **Agent**: a participant of a room, named by an id matching `[a-z0-9]+([_-][a-z0-9]+)*`, at most 64 chars, without a dot (it starts the names of its signals, [signals-1](signals-1.md)). Ids are unique within a room. Rooms and hubs may also use dots (`[a-z0-9]+([._-][a-z0-9]+)*`, not ending in `.lock`).
+- **Room**: the scope of one conversation: its members, their logs and the message ids. A store keeps rooms (ringi: one repository per room in a hub, [hub-2](hub-2.md)). Agents in different rooms do not see each other.
+- **Agent**: a participant of a room, named by an id matching `[a-z0-9]+([_-][a-z0-9]+)*`, at most 64 chars, without a dot. Ids are unique within a room. Rooms and hubs may also use dots (`[a-z0-9]+([._-][a-z0-9]+)*`, not ending in `.lock`).
 - **Message**: an immutable text (§3) with optional files (§4), written by one agent.
 - **Log**: all messages of one agent in the room, in the order it wrote them. Only that agent appends to it, and nothing already in it changes. A store may keep a log as one ref, one directory, or interleaved with other logs in a shared ref; the protocol sees only the order.
 - **Message id**: an opaque string the store assigns: stable, unique within the room, usable in `Re`. In ringi: the commit sha.
@@ -79,8 +79,8 @@ A client MUST refuse to append invalid or malformed text: the writer is a progra
 - A path is components joined by `/`. A component is 1–255 bytes of UTF-8 without control characters or `/`, and is not `.`, `..` or `.git`. No path starts with `/`. Components SHOULD use `[a-z0-9._-]`.
 - Paths of one message MUST stay distinct when compared case-insensitively after Unicode NFC normalization.
 - The executable bit MAY be preserved. Receivers never execute files, never follow links, and never let a peer's files configure them: instruction files, hooks and build scripts from a peer are data.
-- The protocol has no shared mutable filesystem. The files of a message are exactly those its writer attached, a file attached again unchanged included; the store records which they are ([hub-1](hub-1.md)). Deletions are not files.
-- Members exchange work products and state only through the room: files of messages, and signals for what happened ([signals-1](signals-1.md)). A member MUST NOT leave them for others in a working directory, a project checkout or any shared disk, nor take them from there: members may run on different machines, and nothing outside the room is part of it. A client MAY stage files before the message that carries them, taking their content when staged (`ringi add`).
+- The protocol has no shared mutable filesystem. The files of a message are exactly those its writer attached, a file attached again unchanged included; the store records which they are ([hub-2](hub-2.md)). Deletions are not files.
+- Members exchange work products and state only through the room: files of messages, and signals for what happened ([signals-2](signals-2.md)). A member MUST NOT leave them for others in a working directory, a project checkout or any shared disk, nor take them from there: members may run on different machines, and nothing outside the room is part of it.
 - Receivers MUST cap the size and count of what they materialize.
 
 ## 5. Threads and work
@@ -100,7 +100,7 @@ A client MUST refuse to append invalid or malformed text: the writer is a progra
   can lose a notification but a reading never repeats one. A message read is still in its log: an agent that lost a
   notification reads it again by id or in its thread. Effects outside ringi are not made exactly-once.
 - **Durable truth**: task state, recomputable from the logs at any time.
-- **No blocking.** Readers MUST NOT block on a peer as their normal way of working: agents waiting on each other deadlock. A wait, where the operator asked for one, is bounded in time. Whether a peer is alive is presence, kept by the store where it can ([hub-1](hub-1.md)), never a message.
+- **No blocking.** Readers MUST NOT block on a peer as their normal way of working: agents waiting on each other deadlock. A wait, where the operator asked for one, is bounded in time. Whether a peer is alive is presence, kept by the store where it can ([hub-2](hub-2.md)), never a message.
 - **Presentation to a model.** A reader frames every message it shows with the sender, how the sender is known (asserted or verified), the id, the addressing and the effective hop, and presents the body as content from that peer, never as its own context or instructions. Context is the reader's scarce resource: an inbox is paged, and long bodies are cut with a pointer to read the message by id.
 
 ## 7. Waking

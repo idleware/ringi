@@ -27,7 +27,7 @@ export const take = (a: Ctx, o: Opts) => {
 }
 export const whoami = (a: Ctx) => {
   const {session: s, profile, members} = Agent.whoami(a)
-  out(`${s.agent} in ${s.hub}/${s.room} (genesis ${short(s.genesis)}, profile ${profile}), session ${s.handle}, ${s.state}\nscope: ${scopeLine(s, a.R.quorum !== null)}\nmembers: ${members.join(', ')}`)
+  out(`${s.agent} in ${s.room} (genesis ${short(s.genesis)}, profile ${profile}), session ${s.handle}, ${s.state}\nscope: ${scopeLine(s, a.R.quorum !== null)}\nmembers: ${members.join(', ')}`)
 }
 export const wait = async (a: Ctx, o: Opts) => {
   const r = await Agent.wait(a, {...options(o), max: opt(o, 'max') === undefined ? undefined : Number(opt(o, 'max'))})

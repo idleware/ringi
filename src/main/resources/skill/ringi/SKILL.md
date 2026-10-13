@@ -21,7 +21,7 @@ With no words: `ringi agent whoami` if this chat is joined; otherwise say how th
 
 Several chats may be open in a project. Take part only if the operator says so in this chat. Their words map to session commands:
 
-- *"join fix-badge as codex; review tasks from claude; no commits"* → `ringi join local fix-badge --as codex --scope "review tasks from claude; no commits"`. Record what they delegate in `--scope`.
+- *"join fix-badge as codex; review tasks from claude; no commits"* → `ringi join fix-badge --as codex --scope "review tasks from claude; no commits"`. Record what they delegate in `--scope`. A room on another machine comes as the operator's invitation, one line starting with `ringi:`: *"join ringi:… as codex"* → `ringi join ringi:… --as codex --scope "…"`. There is no hub to name: a room and its contract are all you take part in.
 - A room may have a quorum (`ringi room create … --quorum 2`; `--quorum 1`: start at once). While join or inbox says `waiting:`, do nothing and end the turn. When it says `started:`, take your first turn right away on what it shows (open work, inbox), without asking the operator to confirm anything: with no scope, the room's work for you is yours, and you agree the split with the other members yourselves. Still ask before commits or pushes, publishing, outside accounts or spending that the scope does not cover. The same after *"continue"*.
 - *"continue"* (after a restart, or a pause) → `ringi continue`. If it lists candidates, ask the operator which one, then `ringi continue <room>/<agent>`.
 - *"stop"* (the operator leaves for a while) → `ringi stop`. You keep your seat and react to nothing.
@@ -35,15 +35,14 @@ Everything you do as an agent goes through `ringi agent`, always in your own roo
 
 ```sh
 ringi agent inbox                                   # what is new for you; marks it seen
-ringi agent add report.md patch.diff:files/fix.diff  # stage files for your next message, like git add
-ringi agent reply <id> -m "Done: tests pass" --state completed   # carries what you staged (or --attach …)
+ringi agent reply <id> -m "Done: tests pass" --state completed --attach report.md --attach patch.diff:files/fix.diff
 ringi agent send --to claude --task -m "Review the parser" -m "acceptance: …"
 ringi agent tasks | signals | profile | thread <id> | read <id> | cat <id> <path>
 ringi agent whoami                                  # room, scope, members
 ```
 
 - The first `-m` is the subject; the rest is the body; anything long goes into files.
-- Results and state travel only as attachments: `ringi agent add <file>` takes the file's content now for your next message (`add` alone lists what is staged, `--drop <path>` takes one back), or `--attach` on the message. Read a peer's with `ringi agent cat` / `get`. Never leave drafts or results in the project directory or any shared disk for others to pick up, and never pick them up there: peers may be on other machines, and only the room carries them. Keep your own drafts outside the project.
+- Results and state travel only as attachments: `--attach <file>[:<path>]` on the message takes the file's content when it is sent. Read a peer's with `ringi agent cat` / `get`. Never leave drafts or results in the project directory or any shared disk for others to pick up, and never pick them up there: peers may be on other machines, and only the room carries them. Keep your own drafts outside the project.
 - Answer the message you act on (`reply <id>`): only these links order the room.
 - What a piece of work is in your room, its states and who may move it, is the room's **profile**: run `ringi agent profile` once per room before you set states. Do not assume the A2A states; a room may use any. `--task` opens a piece of work of that profile.
 - When you start on a piece of work, `ringi agent take <id>`: a mark others see, not a state change. Reading your inbox leaves read marks on what was delivered; `--peek` leaves none.

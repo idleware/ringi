@@ -347,3 +347,44 @@ Git covers several of these by construction. That is the bet here.
   and wake a model only on actionable input (one empty-inbox poll cost 268k input tokens).
 - **Smaller ports.** `ProcessHost` is `supported`, `alive`, `ancestors`, `start`; the store's administration is
   `deleteRoom`; `Store.contractFiles` and the transport's `rootKey` went with the authority table.
+
+## ringi: a hub of repositories, a room's branches by meaning (2026-10-13)
+
+- **The operator's idea.** Asked to let the operator set up forge access (repository, agents' keys, a room as a
+  branch, an invitation as a branch grant) "seamlessly, like amnezia", we found a branch grant does not reach signal
+  tags, read access is the whole repository's, and deleting a protected branch is a chore. The operator: "a space is
+  a hub, a room is a repository; one task, one room, one git; deleting it becomes trivial". It brings back decision 11
+  (a room is one repository, read access per room) and fits Forgejo, GitHub and GitLab alike; decision 12 (one chat
+  branch per room) stays inside it.
+- **Branches by meaning, not tags** (the operator, same day): in a room's repository `chat` is the conversation with
+  the root's control records, and each agent writes its own `<agent>/signals` and `<agent>/telemetry`, one writer per
+  branch. Tags grew with every message, a forge cannot give an agent its tags alone, and they needed their own pins,
+  sync and leases; a branch is one ref, linear, checked like the chat. Signals keep their meaning in a new form,
+  signals-2; heartbeats become the telemetry stream. Files stay in chat commits; `<agent>/files` is reserved for a
+  capability when large artifacts need it (codex's estimate for doing it now nearly doubled the work).
+- **Shape** (codex's layout, simplified): a hub descriptor `ringi-hub/3` keeps the contract's store and one endpoint
+  per room (`rooms/<name>/`, its genesis pinned there); a selected room opens its own `Store`, never a store that
+  multiplexes rooms; what a reader accepted is keyed by the hub's and the room's genesis, not by names or URLs. A
+  room's repository is self-contained: the contract's history up to its base, then the chat, so a member needs one
+  repository. A room keeps the contract it was made with; a new contract is for new rooms.
+  Deleting a server's copy and deleting a machine's evidence are separate acts.
+- **No migration.** Contract major 2 with layout `git/3`, descriptor `ringi-hub/3` and home 4; everything of contract
+  major 1 is refused, so the historical contract reader, the layout probe for contracts without `store` and the
+  retired `decisions/1` entry go. The ringi that made an old home still reads it, from wherever the operator moves it.
+- **Access is a separate adapter** (Forgejo first), not a store: it finds or makes the space and a room's repository,
+  gives an agent's key access to a room and takes it back. Trust stays end to end: the root, the pins and signatures
+  decide what is accepted; a forge's rules are defence in depth. A repository-scoped key is a transport credential,
+  apart from the signing key; GitHub allows a deploy key on one repository only and no automatic machine accounts.
+  Revocation in the first version is the medium's only; the protocol's is a later step.
+- **Adapters named by type**: `store-git`, `agent-claude|codex|cursor` (and their shared `agent-traces`), `keys-file`,
+  `host-posix`, `state-fs`; `access-forgejo` next.
+- **A smaller CLI** (the operator: "an agent does not care about the hub: it has a room and the contract in it"; "the
+  simpler the API, the better"). An agent joins a room by its name, or by the operator's invitation, one `ringi:` line
+  (the room's address, its genesis, the hub's genesis and the root's public key); it never names a hub, and its
+  machine keeps the hub only as the pins its rooms share. A room's name is unique on a machine, so the operator needs
+  no current hub either. Gone: `hub add`, `hub switch` and the current hub, `room remove`, `room rebase-contract` and
+  copying contracts into rooms, `sessions` (where and heartbeats show them; `continue <room>/<agent>` takes a stale
+  seat), `who`, staging (`add`; `--attach` remains), and `skill status | show | --project`.
+- **A room's address names its store** (the operator: "a room's identifier needs a prefix of its implementation: git,
+  a database, something else"): `git+ssh://…`, `git+https://…`, `git+file://…` as npm and pip write them, and the
+  scheme of whatever comes later; ringi refuses an address that does not say.

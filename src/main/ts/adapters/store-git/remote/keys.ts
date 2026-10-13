@@ -3,6 +3,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import * as C from '../../../lib/index.ts'
+import {storeOf} from '../../../core/hub/rooms/address.ts'
 import {id, rev} from './git.ts'
 import type {Handle, Key} from './types.ts'
 import {ROOT} from './types.ts'
@@ -19,7 +20,7 @@ export const parseKey = (value: unknown): Key => {
 
 export const keyInput = (value: string): Key => parseKey(fs.existsSync(value) && fs.statSync(value).isFile() ? fs.readFileSync(value, 'utf8') : value)
 
-export const rootKey = (H: Handle): Key => parseKey(H.d.root || C.fail(`hub ${H.name} has no out-of-band root pin; use hub add --root <public-key|file>`))
+export const rootKey = (H: Handle): Key => parseKey(H.d.root || C.fail(`hub ${H.name} has no out-of-band root pin; use an invitation carrying the independently pinned root`))
 
 export const signerLine = (who: string, key: Key): string => `${who} namespaces="git" ${key.line}\n`
 
@@ -37,8 +38,11 @@ export const setupSigned = (H: Handle, url?: string): {root: string, allowedSign
   H.d.trust = 'signed'
   H.d.root = key.line
   if (url) {
-    checkUrl(url)
-    H.d.store.remote = url
+    const address = storeOf(url)
+    if (address.type !== 'git') C.fail('git setup requires a git address')
+    checkUrl(address.locator)
+    const source = H.d.contract ?? C.fail('signed setup requires an explicit contract source')
+    source.remote = url
   }
   return {root: key.line, allowedSigners: signerLine(ROOT, key)}
 }

@@ -9,14 +9,14 @@ import {flag, out, parseArgs} from './args.ts'
 import type {Ctx} from './context.ts'
 import {operatorCtx} from './context.ts'
 import {helpMarkdown, helpText} from './help.ts'
-import {forget, heartbeats, hub, pulse, roomCmd, sessions, where} from './operator/index.ts'
+import {forget, heartbeats, hub, pulse, roomCmd, where} from './operator/index.ts'
 import {join, leave, resume, stop} from './agent/session.ts'
-import {add, cat, get, log, profileCmd, read, reply, send, signals, tasks, thread, who} from './shared/index.ts'
+import {cat, get, log, profileCmd, read, reply, send, signals, tasks, thread} from './shared/index.ts'
 import {skill} from './skill/index.ts'
 
 type Cmd = (ctx: Ctx, o: Opts) => void | Promise<void>
-const SHARED: Record<string, Cmd> = {add, send, reply, read, thread, tasks, log, cat, get, who, signals, profile: profileCmd}
-const AGENT: Record<string, Cmd> = {...SHARED, inbox, whoami, status: whoami, wait, take}
+const SHARED: Record<string, Cmd> = {send, reply, read, thread, tasks, log, cat, get, signals, profile: profileCmd}
+const AGENT: Record<string, Cmd> = {...SHARED, inbox, whoami, wait, take}
 const agentCommand = (_: Opts, rest: string[]) => {
   const [sub = 'whoami', ...more] = rest
   const fn = AGENT[sub] ?? fail(`unknown: ringi agent ${sub}; see ringi help`)
@@ -31,7 +31,7 @@ type Direct = (o: Opts, rest: string[]) => void | Promise<void>
 const DIRECT = new Map<string, Direct>([
   ['--version', version], ['-v', version], ['version', version],
   ['help', help], ['--help', help], ['-h', help], ['skill', skill], ['agent', agentCommand],
-  ['hub', hub], ['room', roomCmd], ['where', where], ['sessions', sessions], ['heartbeats', heartbeats],
+  ['hub', hub], ['room', roomCmd], ['where', where], ['heartbeats', heartbeats],
   ['pulse', pulse], ['forget', forget], ['join', join], ['continue', resume], ['stop', stop], ['leave', leave]
 ])
 const unknown = (cmd: string): never => {

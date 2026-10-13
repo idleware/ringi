@@ -1,14 +1,13 @@
 // heartbeat: `ringi heartbeats` (this machine's sessions, or what a room publishes) and `ringi pulse`.
 
 import * as Heartbeat from '../../../core/agents/heartbeat/pulse.ts'
-import * as Hubs from '../../../core/hub/usecases/hubs.ts'
 import * as Rooms from '../../../core/hub/usecases/rooms.ts'
 import type {Opts} from '../args.ts'
 import {dump, flag, opt, out} from '../args.ts'
 import {publishedLine, pulseLine} from './heartbeat-format.ts'
 
 const published = (o: Opts) => {
-  const R = Rooms.roomIn(Hubs.hubOf(opt(o, 'hub')), opt(o, 'room'))
+  const R = Rooms.roomNamed(opt(o, 'room'))
   const hs = Heartbeat.published(R)
   if (flag(o, 'json')) return dump(hs)
   if (!hs.length) return out(`no heartbeats in ${R.name}`)

@@ -16,13 +16,12 @@ import {taskView} from './view.ts'
 import type {TaskView} from './view.ts'
 
 export * from './actor.ts'
-export * from './staging.ts'
 export * from './send.ts'
 
 // --- reading ---
 
 // Who marked a message how (read, taken), from the marks that pass their check.
-export const marks = (R: Room, all: All): Map<string, Record<string, string[]>> => Signals.marksOn(Signals.check(R, all, R.hub.store.signals(R.s)))
+export const marks = (R: Room, all: All): Map<string, Record<string, string[]>> => Signals.marksOn(Signals.check(R, all, R.store.signals(R.s)))
 export const message = ({R, me}: Actor, ref: string): {all: All, m: Message, replies: Message[], marks: Record<string, string[]> | undefined} => {
   const {all} = linked(R, me)
   const m = lookup(all, ref)
@@ -56,7 +55,7 @@ export const files = ({R, me}: Actor, ref: string, path?: string): {m: Message, 
   const {all} = linked(R, me)
   const m = lookup(all, ref)
   if (path && !m.files.some(f => f.path === path)) fail(`no ${path} in ${short(m.id)}`)
-  return {m, files: m.files.filter(f => !path || f.path === path).map(f => ({path: f.path, content: R.hub.store.file(m.id, f.path)}))}
+  return {m, files: m.files.filter(f => !path || f.path === path).map(f => ({path: f.path, content: R.store.file(m.id, f.path)}))}
 }
 export type MemberView = {id: string, role: string, messages: number}
 export const members = ({R, me}: Actor): MemberView[] => {
@@ -78,11 +77,11 @@ export const signals = ({R, me}: Actor, {repair = false}: {repair?: boolean} = {
       repaired = 0
       for (const m of logs.get(me) ?? []) repaired += HubSignals.emit(R, me, all, m)
     }
-    const records = R.hub.store.signals(R.s)
+    const records = R.store.signals(R.s)
     const checked = Signals.check(R, all, records)
     const p = Signals.pins(records, checked, st.signals)
     saveState(R, me, {...loadState(R, me), signals: p.accepted})
-    return {all, checked, alarms: [...p.alarms, ...checked.filter(c => !c.ok).map(c => `signal ${c.ref}: ${c.why}`)], repaired}
+    return {all, checked, alarms: [...p.alarms, ...checked.filter(c => !c.ok && !c.pending).map(c => `signal ${c.actor} ${c.signal} ${short(c.ref)}: ${c.why}`)], repaired}
   })
 
 // What interfaces need to show and store a message's files: their sizes, and a path safe to write under.

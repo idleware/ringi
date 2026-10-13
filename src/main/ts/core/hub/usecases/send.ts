@@ -2,14 +2,15 @@
 
 import type {Profile} from '../work/index.ts'
 import {OPERATOR, append} from '../rooms/index.ts'
+import fs from 'node:fs'
 import {fail, note} from '../../../lib/index.ts'
+import {checkCollisions} from '../protocol/files.ts'
 import type {Entry} from '../protocol/files.ts'
 import {ID_RE, TOKEN_RE, checkOutgoing, compose, lookup} from '../protocol/index.ts'
 import type {Message} from '../protocol/index.ts'
-import {linked, readerLock} from '../history/index.ts'
+import {linked} from '../history/index.ts'
 import {isRef} from './actor.ts'
 import type {Actor} from './actor.ts'
-import {outgoing, shrink, staged} from './staging.ts'
 
 export type SendInput = {
   text: string
@@ -52,6 +53,8 @@ const checkTrailers = (P: Profile, x: SendInput, to: string[], assign: string[] 
   for (const a of assign ?? []) if (!ID_RE.test(a)) fail(`bad assignee ${a}`)
   if (x.roles && !x.roles.split(',').every(role)) fail('--roles takes "<id>=<label>, …"; labels mean what the room profile says')
 }
+const FILE_MAX = 64 << 20
+const tooBig = (path: string, size: number) => size > FILE_MAX && fail(`${path} is ${Math.ceil(size / (1 << 20))} MiB; an attachment is at most ${FILE_MAX >> 20} MiB`)
 // A message from the actor. The operator may omit `to`: the room, or the assignees when there are any.
 export const send = ({R, me}: Actor, x: SendInput): Sent => {
   const P = R.profile
@@ -60,15 +63,15 @@ export const send = ({R, me}: Actor, x: SendInput): Sent => {
   const assign = x.assign ? [...new Set(x.assign)] : null
   const to = recipients(me, x, re, assign)
   checkTrailers(P, x, to, assign, re)
-  const stagedNow = staged({R, me})
-  const entries = outgoing(stagedNow, x.files ?? [])
+  const entries = x.files ?? []
+  for (const e of entries) if (e.file) tooBig(e.path, fs.statSync(e.file).size)
+  checkCollisions(entries.map(e => e.path))
   const text = compose(x.text, [
     ['To', to.join(', ')], ['Re', re?.id], ['Kind', x.task && P.opens], ['State', x.state], ['Assign', assign?.join(', ')],
     ['Roles', x.roles], ['Hop', re && String(re.hopEff + 1)],
   ])
   checkOutgoing(text, isRef(R))
   const id = append(R, me, text, entries)
-  if (stagedNow.length) readerLock(R, me, () => shrink({R, me}, s => !stagedNow.some(t => t.path === s.path && t.blob === s.blob)))
   if (to.length === 1 && to[0] === '*') note(`addressed to the whole room: this ${x.task ? P.opens : 'message'} wakes nobody; name recipients (--to or --assign) to start work`)
   return {id, to, files: entries.length}
 }

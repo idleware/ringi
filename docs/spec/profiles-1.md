@@ -5,7 +5,7 @@ folds whatever profile the room carries. The A2A task model is one profile among
 
 ## Where a profile lives
 
-- A hub carries profiles in its shared contract: `profiles/<name>.json` on `main` ([hub-1](hub-1.md)). The contract's
+- A hub carries profiles in its shared contract: `profiles/<name>.json` on `main` ([hub-2](hub-2.md)). The contract's
   `profile` names the default for new rooms; unset, it is `a2a-1`, which every ringi build knows.
 - A room copies the text of its profile into its genesis control entry (`profile.json`) when it is made, and reads
   it only from there. Later changes to the hub's profiles never reinterpret an existing room.
@@ -24,7 +24,7 @@ folds whatever profile the room carries. The A2A task model is one profile among
 | `initial` | the state work starts in; one of `states` |
 | `terminal` | the states that end work; a subset of `states` |
 | `waiting` | optional: the state of work that cannot go on without input; not terminal |
-| `rules` | who may do what: `assign`, `roles`, and `state:<s>` or `state:*` for reaching a state; `grant` is retired, still accepted and allows nothing |
+| `rules` | who may do what: `assign`, `roles`, and `state:<s>` or `state:*` for reaching a state |
 
 A rule lists **principals**: `requester` (who opened the work), `assignee`, `member` (anyone in the room),
 `role:<label>` (whoever holds that label in this work), `agent:<id>`. An empty or missing rule allows nobody. An exact
@@ -42,7 +42,7 @@ reaches a hub. Fields this schema does not name carry no meaning.
 - The first terminal state is final; assignment and labels may still change after it.
 - A `State` outside the profile makes the message malformed in that room (core-1 §3).
 - What each message actually changed (opened, assigned, roles, `state.<s>`) is its **effect**; signals are
-  made only from effects ([signals-1](signals-1.md)).
+  made only from effects ([signals-2](signals-2.md)).
 
 ## `a2a-1`, the built-in profile
 

@@ -1,17 +1,20 @@
 // skill: the agents' manual for this same command line (src/main/resources/skill/), installed where each agent tool
-// reads skills (targets.ts), checked and removed again.
+// reads skills, and removed again.
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import {about} from '../../../core/hub/usecases/context.ts'
-import {sandboxHints} from '../../../core/agents/sessions/context.ts'
+import {sandboxHints, skillDirs} from '../../../core/agents/sessions/context.ts'
 import {fail} from '../../../lib/index.ts'
 import type {Opts} from '../args.ts'
-import {flag, out} from '../args.ts'
-import {SKILL, sameSkill, skillTargets} from './targets.ts'
-export {SKILL, skillTargets} from './targets.ts'
+import {out} from '../args.ts'
 
-const install = (o: Opts) => {
-  for (const dir of skillTargets(flag(o, 'project'))) {
+export const SKILL = path.join(about().resources, 'skill', 'ringi')
+// Each agent tool's skill directory under the user's home; nothing is written into projects.
+export const skillTargets = (): string[] => skillDirs(os.homedir())
+
+const install = () => {
+  for (const dir of skillTargets()) {
     fs.mkdirSync(dir, {recursive: true})
     fs.cpSync(SKILL, dir, {recursive: true})
     out(`installed ${dir}`)
@@ -19,22 +22,15 @@ const install = (o: Opts) => {
   out([`ringi's home is ${about().home}. A sandboxed agent must be allowed to write it.`, ...sandboxHints(about().home).map(h => `  ${h}`),
     'Otherwise agents re-run ringi commands with sandbox escalation, which you approve.'].join('\n'))
 }
-const status = () => {
-  for (const dir of [...skillTargets(false), ...skillTargets(true)]) {
-    const state = sameSkill(dir) ? 'ok      ' : fs.existsSync(dir) ? 'outdated' : 'missing '
-    out(`${state} ${dir}`)
-  }
-}
-const uninstall = (o: Opts) => {
-  for (const dir of skillTargets(flag(o, 'project'))) {
+const uninstall = () => {
+  for (const dir of skillTargets()) {
     if (!fs.existsSync(dir)) continue
     fs.rmSync(dir, {recursive: true})
     out(`removed ${dir}`)
   }
 }
-const show = () => {process.stdout.write(fs.readFileSync(path.join(SKILL, 'SKILL.md'), 'utf8'))}
-const COMMANDS = new Map<string, (o: Opts) => void>([['install', install], ['status', status], ['uninstall', uninstall], ['show', show]])
+const COMMANDS = new Map<string, () => void>([['install', install], ['uninstall', uninstall]])
 export const skill = (o: Opts) => {
-  const run = COMMANDS.get(o._[0]) ?? fail('usage: ringi skill install [--project] | uninstall [--project] | status | show')
-  run(o)
+  const run = COMMANDS.get(o._[0]) ?? fail('usage: ringi skill install | uninstall')
+  run()
 }

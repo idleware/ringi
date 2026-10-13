@@ -14,7 +14,7 @@ export type Bound = {s: Session, H: Hub, R: Room, me: string}
 export const bound = (): Bound => {
   const me = whoAmI()
   const s = readSession(me.handle) ?? fail(`this session is not in a room. Take part only when the operator says so in this chat:
-  "join <room> as <id>" runs ringi join local <room> --as <id> --scope "<what they delegate>";
+  "join <room> as <id>" runs ringi join <room> --as <id> --scope "<what they delegate>" (<room>: its name, or the invitation);
   after a restart, "continue" runs ringi continue.`)
   if (s.state === 'stopped') fail('this session is stopped: the operator paused it. It reacts to nothing until the operator says "continue" (ringi continue)')
   const H = openHub(s.hub)

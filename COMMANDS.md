@@ -4,38 +4,32 @@ One table. **operator**: the human in a terminal, in the current hub and room. *
 
 | command | who | what |
 |---|---|---|
-| `ringi hub [list]` | operator | the hubs; `local` exists by default; * marks the current one |
-| `ringi hub create <name> [--signed [--url <git url>]]` | operator | another hub: asserted senders, or signed with a root key made on this machine; --url publishes it |
-| `ringi hub add <name> <git url> --root <public key\|file> [--genesis <sha>]` | operator | a replica of a signed hub; the root key comes from you, out of band, never from the hub |
-| `ringi hub switch <name>` | operator | change the terminal's current hub; agents stay where they are |
-| `ringi hub amend -m <subject> [--set <key>=<value>]... [--attach <file>:profiles/<name>.json]...` | operator | refine the shared contract: version, capabilities, default profile, profiles |
-| `ringi room list` | operator | rooms of the current hub |
-| `ringi room create <id> [--profile <name>] [--quorum <agents>]` | operator | a room for one piece of work, following a profile; becomes the current room; --quorum: its work starts by itself once that many agents joined (1: at once) |
+| `ringi hub [list]` | operator | the hubs; `local` exists by default |
+| `ringi hub create <name> [--signed [--url <address>]]` | operator | another hub: asserted senders, or signed with a root key made on this machine; --url publishes its contract (an address names its store: git+ssh://…, git+https://…, git+file://…) |
+| `ringi hub amend [--hub <name>] -m <subject> [--set <key>=<value>]... [--attach <file>:profiles/<name>.json]...` | operator | refine the shared contract (of hub local unless named): version, capabilities, default profile, profiles; rooms made from then on follow it |
+| `ringi room list` | operator | the rooms on this machine; a room's name is unique here, whatever hub keeps it |
+| `ringi room create <id> [--hub <name>] [--profile <name>] [--quorum <agents>] [--url <address>]` | operator | a room for one piece of work, in its own repository (in hub local unless named), following a profile; becomes the current room; --quorum: its work starts by itself once that many agents joined (1: at once); --url: a signed hub publishes the room there and prints the join line for agents elsewhere |
 | `ringi room switch <id>` | operator | change the terminal's current room; agents stay where they are |
 | `ringi room admit <agent> <public key\|file>` | operator | signed hubs: admit the key an agent made on its own machine |
-| `ringi room remove <agent>` | operator | local hubs: take an agent out of the current room |
-| `ringi room delete [<id>] --yes` | operator | local hubs: erase a room (default: the current one) and everything kept for it; its sessions leave on their own |
-| `ringi room rebase-contract <id>` | operator | move a room onto the hub's current contract |
-| `ringi where [-n n] [--short] [--follow]` | operator | hub, room, sessions (active, stopped, gone), open work, latest messages |
+| `ringi room delete [<id>] --yes` | operator | erase a room's store on this machine (default: the current room) and everything kept for it; its sessions leave on their own |
+| `ringi where [-n n] [--short] [--follow]` | operator | the room, its hub and contract, sessions (active, stopped, gone), open work, latest messages |
 | `ringi send -m <subject> [-m <body>]... [--to <ids>] [--task] [--re <msg>] [--state <s>] [--assign <ids>] [--roles <id>=<label>,...] [--attach <src>[:<dest>]]...` | operator | a message as operator; without --to it goes to the room and wakes nobody; --task opens work of the room's profile |
-| `ringi add <src>[:<dest>]... \| add [--drop <path>]... [--clear]` | both | stage files for your next message, like git add: their content is taken now; results and state travel only as attachments |
-| `ringi tasks [--all] \| log [-n n] \| read <msg> \| thread <msg> \| cat <msg> [<path>] \| get <msg> [-o <dir>] \| who` | both | reading the room (agents: ringi agent …) |
+| `ringi tasks [--all] \| log [-n n] \| read <msg> \| thread <msg> \| cat <msg> [<path>] \| get <msg> [-o <dir>]` | both | reading the room (agents: ringi agent …) |
 | `ringi signals [--all] [--repair]` | both | what happened (signals) and where attention is (read and taken marks), each checked; --repair restores your missing signals |
 | `ringi profile` | both | the room's profile: what a piece of work is, its states, who may move it |
-| `ringi sessions \| sessions forget <handle>` | operator | the chats the CLI remembers; drop a stale one |
 | `ringi heartbeats [--json] \| heartbeats --published [--room <id>]` | operator | each session's pulse on this machine, from its process and its tool's trace, without the model: working, waiting (for what) or gone; --published: the room's heartbeat tags as an orchestrator reads them |
-| `ringi pulse [--beat <s>] [--once]` | operator | beat for every session here: sync its hub, put its heartbeat tag on the last pulled commit of its room; join and continue start it (RINGI_PULSE=off: not) |
+| `ringi pulse [--beat <s>] [--once]` | operator | beat for every session here: sync its room, append its telemetry, naming the last pulled message of its room; join and continue start it (RINGI_PULSE=off: not) |
 | `ringi forget <room>/<log>` | operator | after a changed-history alarm: accept a new baseline for that log |
-| `ringi skill install [--project] \| uninstall \| status \| show` | operator | the skill for Claude Code, Codex and Cursor |
-| `ringi join <hub> <room> [--as <id>] [--scope <text>]` | session | bind this chat to a room as an agent, with what the operator delegates |
-| `ringi continue [[<hub>:]<room>/<agent>]` | session | resume this chat's binding, also after a restart; naming one takes over a paused or gone one |
+| `ringi skill install \| uninstall` | operator | the skill for Claude Code, Codex and Cursor |
+| `ringi join <room> [--as <id>] [--scope <text>]` | session | bind this chat to a room as an agent, with what the operator delegates; <room>: its name on this machine, or the operator's invitation (ringi:…) to one elsewhere |
+| `ringi continue [<room>/<agent>]` | session | resume this chat's binding, also after a restart; naming one takes over a paused or gone one |
 | `ringi stop` | session | pause: keep the seat, react to nothing |
 | `ringi leave` | session | release the seat |
 | `ringi agent whoami` | agent | identity, room, profile, scope |
 | `ringi agent inbox [--peek] [--limit n]` | agent | what is new for you; marks it seen and leaves a read mark on each (--peek: neither) |
 | `ringi agent take <work>` | agent | a taken mark: you are on it; others see it in tasks and read. It changes no state |
 | `ringi agent send … \| reply <msg> -m … [--state <s>] [--assign <ids>] [--roles …] [--attach …] [--all]` | agent | write; answer the message you act on |
-| `ringi agent tasks \| log \| read \| thread \| cat \| get \| who \| signals \| profile` | agent | reading, as the joined agent |
+| `ringi agent tasks \| log \| read \| thread \| cat \| get \| signals \| profile` | agent | reading, as the joined agent |
 | `ringi agent wait [--max <s>]` | agent | hold the line only when the operator asks |
 
 Message ids are store revisions (git: commit shas), any unique prefix of 4+ characters. States and roles come from the room's profile (`ringi profile`).

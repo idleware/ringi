@@ -2,7 +2,6 @@
 // hub descriptors and stores, and the move of an older home.
 import {describe, it} from 'node:test'
 import type {TestContext} from 'node:test'
-import type {Session} from '../../main/ts/core/agents/sessions/index.ts'
 import type {asJson} from '../../main/ts/core/hub/usecases/view.ts'
 import type {Checked} from '../../main/ts/core/hub/signals/index.ts'
 import assert from 'node:assert/strict'
@@ -40,18 +39,30 @@ const world = (t: TestContext) => {
   }
   function json(args: ['log', ...string[]], opt?: RunOpt): ReturnType<typeof asJson>[]
   function json(args: ['tasks', ...string[]], opt?: RunOpt): TaskView[]
-  function json(args: ['sessions', ...string[]], opt?: RunOpt): Session[]
   function json(args: ['signals', ...string[]], opt?: RunOpt): Checked[]
   function json(args: string[], opt?: RunOpt): unknown { return JSON.parse(ok([...args, '--json'], opt)) }
-  const store = path.join(home, 'hub', 'local', 'store', '.git')
-  const git = (...args: string[]) => spawnSync('git', ['--git-dir', store, ...args], {encoding: 'utf8', env: FIXTURE_GIT}).stdout.trim()
+  // Room r's repository, and the contract's (hub-2: one repository per room beside the contract's).
+  const repo = path.join(home, 'hub', 'local', 'rooms', 'r', 'store', '.git')
+  const git = (...args: string[]) => spawnSync('git', ['--git-dir', repo, ...args], {encoding: 'utf8', env: FIXTURE_GIT}).stdout.trim()
+  const contractGit = (...args: string[]) => spawnSync('git', ['--git-dir', path.join(home, 'hub', 'local', 'contract', '.git'), ...args], {encoding: 'utf8', env: FIXTURE_GIT}).stdout.trim()
+  const genesis = () => git('rev-list', '--reverse', 'refs/heads/chat', '^refs/heads/main').split('\n')[0]
+  const control = () => git('log', '-1', '--first-parent', '--format=%H', '--author=^operator ', '--grep=^Kind: room$', 'refs/heads/chat')
+  // A record on `actor`'s signals, written past ringi: these fields, on the stream's tip or the room's genesis.
+  const record = (actor: string, fields: Array<[string, string]>): string => {
+    const ref = `refs/heads/${actor}/signals`, parent = git('rev-parse', '-q', '--verify', ref) || genesis()
+    const env = {...FIXTURE_GIT, GIT_AUTHOR_NAME: actor, GIT_AUTHOR_EMAIL: `${actor}@ringi`, GIT_COMMITTER_NAME: actor, GIT_COMMITTER_EMAIL: `${actor}@ringi`}
+    const r = spawnSync('git', ['--git-dir', repo, 'commit-tree', `${parent}^{tree}`, '-p', parent], {encoding: 'utf8', env, input: fields.map(([k, v]) => `${k}: ${v}`).join('\n') + '\n'})
+    assert.equal(r.status, 0, r.stderr)
+    git('update-ref', ref, r.stdout.trim())
+    return r.stdout.trim()
+  }
   const id = (out: string) => /(?:sent|proposed) ([0-9a-f]{12})/.exec(out)![1]
   const file = (name: string, v: unknown) => {
     const f = path.join(home, name)
     fs.writeFileSync(f, typeof v === 'string' ? v : JSON.stringify(v))
     return f
   }
-  return {home, run, ok, no, json, git, id, file}
+  return {home, run, ok, no, json, git, contractGit, genesis, control, record, id, file}
 }
 // A review flow nobody built into ringi: a writer opens, a reviewer approves or sends back, only the writer ships.
 const REVIEW = {
@@ -81,7 +92,7 @@ describe('profiles: what a piece of work is, as data', () => {
     w.no(['room', 'create', 'x', '--profile', 'review-1'], /carries no profile review-1/)
     w.ok(['hub', 'amend', '-m', 'our review flow', '--attach', `${w.file('review.json', REVIEW)}:profiles/review-1.json`])
     w.ok(['room', 'create', 'feature', '--profile', 'review-1'])
-    for (const [as, who] of [['W', 'writer'], ['V', 'reviewer'], ['H', 'hermes']]) w.ok(['join', 'local', 'feature', '--as', who], {as})
+    for (const [as, who] of [['W', 'writer'], ['V', 'reviewer'], ['H', 'hermes']]) w.ok(['join', 'feature', '--as', who], {as})
     assert.match(w.ok(['profile']), /follows profile review-1: write, review, ship[\s\S]*opens with Kind: change; states: draft, in-review, approved, changes, shipped, dropped/)
     const c = w.id(w.ok(['send', '--task', '--assign', 'writer', '--roles', 'reviewer=reviewer', '-m', 'Add the login page']))
     w.no(['reply', c, '--state', 'done', '-m', 'x'], /--state must be one of profile review-1: draft, in-review/)
@@ -110,7 +121,7 @@ describe('profiles: what a piece of work is, as data', () => {
   it('judges every right on the work as it was before the message', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
-    for (const [as, who] of [['A', 'alice'], ['B', 'bob']]) w.ok(['join', 'local', 'r', '--as', who], {as})
+    for (const [as, who] of [['A', 'alice'], ['B', 'bob']]) w.ok(['join', 'r', '--as', who], {as})
     const task = w.id(w.ok(['send', '--task', '--assign', 'alice', '-m', 'Job']))
     // bob makes himself lead and reassigns in the same message: the label was not his before, so nothing changes.
     w.ok(['agent', 'reply', task, '--roles', 'bob=lead', '--assign', 'bob', '--state', 'completed', '-m', 'mine'], {as: 'B'})
@@ -121,14 +132,13 @@ describe('profiles: what a piece of work is, as data', () => {
   it('keeps a room on the profile it was made with when the hub changes its profiles', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
-    w.ok(['join', 'local', 'r', '--as', 'alice'], {as: 'A'})
+    w.ok(['join', 'r', '--as', 'alice'], {as: 'A'})
     const task = w.id(w.ok(['send', '--task', '--assign', 'alice', '-m', 'Job']))
     w.ok(['agent', 'reply', task, '--state', 'completed', '-m', 'done'], {as: 'A'})
     // The hub's a2a-1 is replaced by one where assignees may not complete: the room's history stays as it was.
     const strict = JSON.parse(fs.readFileSync(path.join(HERE, '../../main/resources/profiles/a2a-1.json'), 'utf8'))
     strict.rules['state:completed'] = ['requester']
     w.ok(['hub', 'amend', '-m', 'stricter', '--attach', `${w.file('strict.json', strict)}:profiles/a2a-1.json`])
-    w.ok(['room', 'rebase-contract', 'r'])
     assert.equal(w.json(['tasks', '--all'])[0].state, 'completed')
     w.ok(['room', 'create', 'r2'])
     assert.match(w.ok(['profile', '--room', 'r2', '--json']), /"state:completed": \[\s*"requester"\s*\]/)
@@ -137,11 +147,11 @@ describe('profiles: what a piece of work is, as data', () => {
   it('declares profiles/1, so that a client without profiles refuses the hub instead of misreading it', (t) => {
     const w = world(t)
     w.ok(['hub'])
-    assert.match(w.git('show', 'main:contract.json'), /"profiles\/1"/)
-    w.ok(['hub', 'amend', '-m', 'drop it', '--set', 'capabilities=decisions/1'])
-    assert.doesNotMatch(w.git('show', 'main:contract.json'), /"profiles\/1"/)
+    assert.match(w.contractGit('show', 'main:contract.json'), /"profiles\/1"/)
+    w.ok(['hub', 'amend', '-m', 'drop it', '--set', 'capabilities='])
+    assert.doesNotMatch(w.contractGit('show', 'main:contract.json'), /"profiles\/1"/)
     w.ok(['hub', 'amend', '-m', 'our flow', '--attach', `${w.file('review.json', REVIEW)}:profiles/review-1.json`])
-    assert.match(w.git('show', 'main:contract.json'), /"profiles\/1"/)
+    assert.match(w.contractGit('show', 'main:contract.json'), /"profiles\/1"/)
   })
 
   it('refuses a malformed profile before it reaches the contract', (t) => {
@@ -162,7 +172,7 @@ describe('signals: what happened, beside the messages', () => {
   it('marks only transitions the work actually counted, in the author\'s own namespace', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
-    for (const [as, who] of [['A', 'alice'], ['B', 'bob']]) w.ok(['join', 'local', 'r', '--as', who], {as})
+    for (const [as, who] of [['A', 'alice'], ['B', 'bob']]) w.ok(['join', 'r', '--as', who], {as})
     const task = w.id(w.ok(['send', '--task', '--assign', 'alice', '-m', 'Job']))
     w.ok(['agent', 'reply', task, '--state', 'working', '-m', 'on it'], {as: 'A'})
     // bob is no assignee: his State is in his message but makes no signal.
@@ -171,41 +181,41 @@ describe('signals: what happened, beside the messages', () => {
     const sig = w.json(['signals'])
     assert.deepEqual(sig.map(s => `${s.actor}:${s.signal}`).sort(), ['alice:state.completed', 'alice:state.working', 'operator:assigned', 'operator:opened'])
     assert.ok(sig.every(s => s.ok))
-    assert.match(w.git('tag', '-l', 'alice.*'), /^alice\.state\.completed\.[0-9a-f]{12}$/m)
-    // A signal is its name, its target and its tagger; it carries no text.
-    const opened = w.git('cat-file', '-p', `operator.opened.${find(sig, s => s.signal === 'opened').target.slice(0, 12)}`)
-    assert.match(opened, /^object [0-9a-f]{40}\ntype commit\ntag operator\.opened\.[0-9a-f]{12}\ntagger operator <operator@ringi> \d+ [+-]\d{4}$/)
+    assert.match(w.git('log', '--format=%B', 'refs/heads/alice/signals'), /^Signal: state\.completed$/m)
+    // A signal is a record of its actor's stream: its room, its control, its message and itself, nothing else.
+    const opened = w.git('log', '-1', '--format=%an <%ae>%n%B', '--grep=^Signal: opened$', 'refs/heads/operator/signals')
+    assert.match(opened, new RegExp(`^operator <operator@ringi>\\nRoom: ${w.genesis()}\\nControl: [0-9a-f]{40}\\nTarget: ${find(sig, s => s.signal === 'opened').target}\\nSignal: opened\\n*$`))
   })
 
   it('alarms on a signal that disagrees with its message, or that changes or disappears after it was accepted', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
-    w.ok(['join', 'local', 'r', '--as', 'alice'], {as: 'A'})
+    w.ok(['join', 'r', '--as', 'alice'], {as: 'A'})
     const task = w.id(w.ok(['send', '--task', '--assign', 'alice', '-m', 'Job']))
     const full = find(w.json(['log']), m => m.id.startsWith(task)).id
     assert.equal(w.run(['signals']).err, '')
+    const at = (signal: string): Array<[string, string]> => [['Room', w.genesis()], ['Control', w.control()], ['Target', full], ['Signal', signal]]
     // A forged signal: alice claims a completion her message never made.
-    const env = {...FIXTURE_GIT, GIT_COMMITTER_NAME: 'alice', GIT_COMMITTER_EMAIL: 'alice@ringi'}
-    spawnSync('git', ['--git-dir', path.join(w.home, 'hub', 'local', 'store', '.git'), 'tag', '-a', '-m', '', `alice.state.completed.${task}`, full], {env})
-    assert.match(w.run(['signals']).err, /ALARM signal .*alice.*points at a message of operator/)
-    w.git('tag', '-d', `alice.state.completed.${task}`)
-    // A signal with text is not one.
-    spawnSync('git', ['--git-dir', path.join(w.home, 'hub', 'local', 'store', '.git'), 'tag', '-a', '-m', 'Room: r', `alice.read.${task}`, full], {env})
-    assert.match(w.run(['signals']).err, /ALARM signal .*alice\.read.*carries text/)
-    w.git('tag', '-d', `alice.read.${task}`)
-    // An accepted signal replaced by another object, then removed.
-    const ref = `operator.opened.${task}`
-    w.git('tag', '-f', '-a', '-m', 'replaced', ref, full)
-    assert.match(w.run(['signals']).err, /ALARM signal refs\/tags\/operator\.opened\.[0-9a-f]{12} was replaced after it was accepted/)
-    w.git('tag', '-d', ref)
-    assert.match(w.run(['signals']).err, /was removed after it was accepted/)
+    w.record('alice', at('state.completed'))
+    assert.match(w.run(['signals']).err, /ALARM signal alice state\.completed [0-9a-f]{12}: points at a message of operator/)
+    w.git('update-ref', '-d', 'refs/heads/alice/signals')
+    // A record that says more than a signal is not one.
+    w.record('alice', [...at('read'), ['Note', 'more']])
+    assert.match(w.run(['signals']).err, /ALARM signal stream alice: [0-9a-f]{12}: unknown stream fact/)
+    w.git('update-ref', '-d', 'refs/heads/alice/signals')
+    // An accepted stream rewritten, then removed.
+    const ref = 'refs/heads/operator/signals', accepted = w.git('rev-parse', ref)
+    w.git('update-ref', ref, w.git('commit-tree', `${accepted}^{tree}`, '-p', `${accepted}^`, '-m', 'Room: x'))
+    assert.match(w.run(['signals']).err, new RegExp(`ALARM signal stream operator does not include its accepted prefix ${accepted}`))
+    w.git('update-ref', '-d', ref)
+    assert.match(w.run(['signals']).err, /signal stream operator was removed after it was accepted/)
   })
 
   it('restores the missing signals of one\'s own messages', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
     w.ok(['send', '--task', '--assign', 'alice', '-m', 'Job'])
-    for (const tag of w.git('tag', '-l').split('\n').filter(Boolean)) w.git('tag', '-d', tag)
+    w.git('update-ref', '-d', 'refs/heads/operator/signals')
     assert.match(w.ok(['signals']), /no signals/)
     assert.match(w.ok(['signals', '--repair']), /restored 2 signal\(s\) of operator/)
     assert.deepEqual(w.json(['signals']).map(s => s.signal).sort(), ['assigned', 'opened'])
@@ -216,7 +226,7 @@ describe('marks: the second layer, where attention is', () => {
   it('leaves a read mark on delivery and a taken mark on demand, and shows them; neither changes the work', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
-    for (const [as, who] of [['A', 'alice'], ['B', 'bob']]) w.ok(['join', 'local', 'r', '--as', who], {as})
+    for (const [as, who] of [['A', 'alice'], ['B', 'bob']]) w.ok(['join', 'r', '--as', who], {as})
     const task = w.id(w.ok(['send', '--task', '--to', 'alice,bob', '--assign', 'alice', '-m', 'Job']))
     w.ok(['agent', 'inbox', '--peek'], {as: 'B'})
     assert.doesNotMatch(w.ok(['read', task]), /read by/)
@@ -237,14 +247,13 @@ describe('marks: the second layer, where attention is', () => {
   it('refuses impossible marks, and alarms on a forged one', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
-    for (const [as, who] of [['A', 'alice'], ['B', 'bob']]) w.ok(['join', 'local', 'r', '--as', who], {as})
+    for (const [as, who] of [['A', 'alice'], ['B', 'bob']]) w.ok(['join', 'r', '--as', who], {as})
     const note = w.id(w.ok(['send', '--to', 'alice', '-m', 'just a note']))
     w.no(['agent', 'take', note], /does not open work/, {as: 'A'})
     const full = find(w.json(['log']), m => m.id.startsWith(note)).id
     // bob marks as read a message addressed to alice only.
-    const env = {...FIXTURE_GIT, GIT_COMMITTER_NAME: 'bob', GIT_COMMITTER_EMAIL: 'bob@ringi'}
-    spawnSync('git', ['--git-dir', path.join(w.home, 'hub', 'local', 'store', '.git'), 'tag', '-a', '-F', '-', `bob.read.${note}`, full], {env, input: ''})
-    assert.match(w.run(['signals']).err, /ALARM signal .*bob.*not delivered to bob/)
+    w.record('bob', [['Room', w.genesis()], ['Control', w.control()], ['Target', full], ['Signal', 'read']])
+    assert.match(w.run(['signals']).err, /ALARM signal bob read [0-9a-f]{12}: .*not delivered to bob/)
   })
 })
 
@@ -259,16 +268,18 @@ describe('hubs: a descriptor beside a store', () => {
   it('enforces one major of each capability a contract selects', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
-    w.ok(['hub', 'amend', '-m', 'two majors', '--set', 'capabilities=decisions/1,decisions/2,profiles/1'])
-    w.no(['where'], /selects two majors of decisions, which this ringi .* cannot enforce/)
+    w.no(['hub', 'amend', '-m', 'two majors', '--set', 'capabilities=profiles/1,profiles/2'], /selects two majors of profiles, which this ringi .* cannot enforce/)
   })
 
   it('refuses a room\'s history offered under another name', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
     w.ok(['send', '--to', '*', '-m', 'only in r'])
-    // A store that copies r's branch to `other`.
-    w.git('update-ref', 'refs/heads/other', w.git('rev-parse', 'refs/heads/r'))
+    // An endpoint named `other` that points at r's history.
+    const rooms = path.join(w.home, 'hub', 'local', 'rooms')
+    fs.cpSync(path.join(rooms, 'r'), path.join(rooms, 'other'), {recursive: true})
+    const e = path.join(rooms, 'other', 'endpoint.json')
+    fs.writeFileSync(e, JSON.stringify({...JSON.parse(fs.readFileSync(e, 'utf8')), name: 'other'}))
     const list = w.run(['room', 'list'])
     assert.equal(list.code, 0, list.err)
     assert.match(list.out, /^\* r +1 member/m)
@@ -282,9 +293,11 @@ describe('hubs: a descriptor beside a store', () => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
     const d = JSON.parse(fs.readFileSync(path.join(w.home, 'hub', 'local', 'hub.json'), 'utf8'))
-    assert.deepEqual(d, {schema: 'ringi-hub/2', name: 'local', trust: 'asserted', store: {type: 'git', path: 'store'}})
-    assert.deepEqual(w.git('ls-tree', '-r', '--name-only', 'main').split('\n'), ['HUB.md', 'contract.json', 'profiles/a2a-1.json'])
-    assert.match(w.git('show', 'main:contract.json'), /"profile": "a2a-1"/)
+    assert.deepEqual(d, {schema: 'ringi-hub/3', name: 'local', trust: 'asserted', genesis: w.contractGit('rev-list', '--max-parents=0', 'main'), store: {type: 'git'}, contract: {path: 'contract'}})
+    assert.deepEqual(w.contractGit('ls-tree', '-r', '--name-only', 'main').split('\n'), ['HUB.md', 'contract.json', 'profiles/a2a-1.json'])
+    assert.match(w.contractGit('show', 'main:contract.json'), /"profile": "a2a-1"/)
+    // The room's repository holds the contract's history and its own chat; the hub's genesis is their common root.
+    assert.equal(w.git('rev-list', '--max-parents=0', 'chat'), d.genesis)
   })
 
   it('refuses a store type it does not know', (t) => {
@@ -292,8 +305,8 @@ describe('hubs: a descriptor beside a store', () => {
     w.ok(['hub'])
     const f = path.join(w.home, 'hub', 'local', 'hub.json')
     const d = JSON.parse(fs.readFileSync(f, 'utf8'))
-    fs.writeFileSync(f, JSON.stringify({...d, store: {type: 'teleport', path: 'store'}}))
-    w.no(['where'], /hub local uses a teleport store; this ringi .* knows git/)
+    fs.writeFileSync(f, JSON.stringify({...d, store: {type: 'teleport'}}))
+    w.no(['room', 'create', 'r'], /hub local uses a teleport store; this ringi .* knows git/)
   })
 
 })

@@ -9,11 +9,14 @@ import {mkdirIn} from '../fs/index.ts'
 import * as Remote from './remote.ts'
 import {ZERO, ident, runGit, runGitOk} from './run.ts'
 import type {GitOpt} from './run.ts'
-import type {Descriptor} from '../../core/hub/ports/store.ts'
+import type {Descriptor, RoomEndpoint} from '../../core/hub/ports/store.ts'
 import type {Entry} from '../../core/hub/protocol/files.ts'
 import type {SigningContext} from '../../core/signing/index.ts'
 import {signCommit} from './signing.ts'
-import {signingContext} from './remote/keys.ts'
+import {checkUrl, signingContext} from './remote/keys.ts'
+import {origin} from './remote/git.ts'
+import {verifyMain} from './remote/main.ts'
+import {chain, linear} from './remote/signature.ts'
 
 // The store is a repository whose work tree holds the contract (`main`) as it is now, so Git clients (SourceTree, IDEs)
 // open `store/` without errors, on the contract, with every room's branch beside it; `git status` stays clean.
@@ -26,13 +29,16 @@ export class Repo {
   readonly home: string
   // The handle remote.ts works on: the repository and what it learned on the last sync.
   readonly h: Remote.Handle
-  constructor(hubDir: string, d: Descriptor, home: string, signing?: SigningContext) {
+  constructor(hubDir: string, d: Descriptor, home: string, signing?: SigningContext, endpoint?: RoomEndpoint) {
     this.d = d
     this.home = home
     this.trust = d.trust
-    this.dir = path.join(hubDir, d.store.path, '.git')
-    this.h = {name: d.name, dir: this.dir, d, ...(d.trust === 'signed' && signing ? {signing} : {})}
+    if (endpoint?.authRef) fail('this git transport has no TransportAuth binding provider for authRef')
+    this.dir = path.join(hubDir, endpoint?.store.path ?? d.contract?.path ?? fail(`hub ${d.name}: no explicit contract source`), '.git')
+    this.h = {name: d.name, dir: this.dir, d, endpoint, ...(d.trust === 'signed' && signing ? {signing} : {})}
     if (this.trust === 'signed') signingContext(this.h)
+    const locator = origin(this.h)
+    if (locator) checkUrl(locator)
     if (!fs.existsSync(this.dir)) fail(`hub ${d.name}: no git store at ${this.dir}`)
     this.openable()
   }
@@ -95,7 +101,27 @@ export class Repo {
     const r = this.gitOk(['show', `${rev}:${name}`])
     return r.status === 0 ? r.stdout : null
   }
+  // Copy only contract objects. A room never acquires another room's refs, evidence or attachments this way.
+  seedContract(source: Repo): string {
+    if (this.rev('refs/heads/main')) fail('contract seeding is only for a fresh room repository')
+    if (source.d.genesis !== this.d.genesis || source.trust !== this.trust || source.d.root !== this.d.root) fail('contract source has different hub pins')
+    const ref = `refs/ringi/contract-incoming/${crypto.randomBytes(8).toString('hex')}`
+    try {
+      this.git(['fetch', '-q', '--no-tags', '--no-write-fetch-head', source.dir, `refs/heads/main:${ref}`])
+      const head = this.rev(ref) ?? fail('contract source has no main')
+      const commits = chain(this.h, head)
+      if (commits[0]?.sha !== this.d.genesis) fail('contract source changed hub genesis')
+      linear(commits, null, () => {})
+      if (this.trust === 'signed') verifyMain(this.h, head)
+      const old = this.rev('refs/heads/main')
+      if (old && !this.extends(old, head)) fail('contract source does not extend the room main; nothing is replaced')
+      if (old !== head && !this.advance('refs/heads/main', head, old)) fail('main moved while copying; retry')
+      this.checkout()
+      return head
+    } finally { this.gitOk(['update-ref', '-d', ref]) }
+  }
   amendContract(who: string, text: string, files: Record<string, string | Buffer>): string {
+    if (this.h.endpoint) fail('a room contract is frozen; amend the operator contract source for new rooms')
     const head = this.contractHead()
     const sha = this.commit(who, text, this.tree(`${head}^{tree}`, Object.entries(files).map(([p, c]) => ({path: p, content: c as string, mode: '100644'}))), [head])
     if (!this.advance('refs/heads/main', sha, head)) fail('the contract moved while amending; retry')

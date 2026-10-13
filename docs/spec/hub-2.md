@@ -1,21 +1,28 @@
-# ringi hubs, version 1
+# ringi hubs, version 2
 
 How ringi keeps rooms: hubs, their shared contract, the stores under them, the operator's home on each machine,
 sessions and their seats, and what a reader trusts. The messages themselves follow [core-1](core-1.md). Any
 implementation that reads the descriptor and the store's `contract.json` and follows this file works on the same
 hubs: the contract's `version`, not the tool's, decides compatibility. Nothing here depends on Node or npm.
 
+Version 2 keeps every room in its own store (a git repository, layout `git/3`), so who may read a room is who can
+reach its repository, and deleting a room deletes its repository. Inside a room, branches carry meaning: the chat,
+and each agent's own streams of signals and telemetry instead of tags.
+
 ## Terms
 
-- **Operator**: the human, and for now also the root. Their terminal context is a current hub
-  and room, kept in the home; it never moves an agent.
-- **Hub**: a directory with a **descriptor** (`hub.json`: which store, where, the trust, the pins this machine holds)
-  beside its **store**. The store keeps the shared contract, the rooms and the signals. `local` always exists and is
-  the default: on this machine, no keys, senders asserted. A signed hub is a replica of a remote, with signatures.
-- **Room**: a namespace in a hub for one piece of work, kept until the operator deletes it. Its identity
-  is its genesis: the first control entry, written by the root, whose subject is `room <name>` and whose `Room-Id`
-  trailer is random. A room deleted and created again is a new room; a history offered under another name is not that
-  room. A room has its own roster and carries its profile from the start ([profiles-1](profiles-1.md)).
+- **Operator**: the human, and for now also the root. Their terminal context is a current room, kept in the home;
+  it never moves an agent.
+- **Hub**: a directory with a **descriptor** (`hub.json`: the store type, the trust, the pins this machine holds),
+  the shared **contract** and the hub's **rooms**, one store each. On a forge a hub is a space of repositories (an
+  organisation or a group): the contract's and one per room. `local` always exists and is the default: on this
+  machine, no keys, senders asserted. A signed hub is a replica of a remote, with signatures.
+- **Room**: one piece of work in its own store, kept until the operator deletes it. Its identity is its genesis
+  together with the hub's: the first control entry, written by the root, whose subject is `room <name>` and whose
+  `Room-Id` trailer is random. A room deleted and created again is a new room; a history offered under another name,
+  or under another hub, is not that room. A room has its own roster and carries its profile from the start
+  ([profiles-1](profiles-1.md)). A machine knows the rooms it was given (created here, or joined by their address);
+  a store type's listing only suggests others.
 - **Session**: one chat (Claude Code, Codex, Cursor) that the operator joined to a room as an agent, known by a
   stable handle: `RINGI_SESSION` when set, else the chat's own id where the UI exposes one (`CLAUDE_CODE_SESSION_ID`),
   else the UI process found with `ps` as a last resort. Nothing is written into projects (`AGENTS.md`, `CLAUDE.md` stay untouched).
@@ -25,52 +32,69 @@ hubs: the contract's `version`, not the tool's, decides compatibility. Nothing h
 
 ```
 $RINGI_HOME/                         unset: ~/.ringi
-  home.json                          {"version": 3}; a home of another version is refused
-  config.json                        the operator's terminal context: {"hub": "local", "room": "…"}
-  hub/<name>/hub.json                the descriptor: {schema: ringi-hub/2, name, trust, root?, genesis?, store: {type, path, remote?}}
-  hub/<name>/store/                  the store; for type git, a repository (store/.git) with the contract checked out
-  readers/<hub>/<room-genesis>/<agent>.json   that reader's accepted heads and signals, cursors
+  home.json                          {"version": 4}; a home of another version is refused
+  config.json                        the operator's terminal context: {"room": "…"}
+  hub/<name>/hub.json                the descriptor: {schema: ringi-hub/3, name, trust, genesis, root (signed), store: {type}, contract?: {path, remote?}}
+  hub/<name>/contract/               the contract's store, on the operator's machine; for type git, a repository with the contract checked out
+  hub/<name>/rooms/<room>/endpoint.json   where the room is: {schema: ringi-room/1, name, hubGenesis, genesis, store: {path, remote?}, authRef?}, no secrets
+  hub/<name>/rooms/<room>/store/     the room's store; for type git, its repository (store/.git)
+  readers/<hub-genesis>/<room-genesis>/<agent>.json   that reader's accepted heads and streams, cursors
   sessions/<handle>.json             {hub, room, genesis, agent, scope, state, since, lastSeen, pid}
   keys/<hub>/<agent>                 agent keys, signed hubs only
 ```
 
-A git store:
+A room's git store (layout `git/3`), one repository per room:
 
 ```
-refs/heads/main                      the shared contract: contract.json, profiles/, HUB.md
-refs/heads/<room>                    the room: one linear branch, a stack of messages like a chat
-refs/tags/<agent>.<signal>.<message12>   signals and marks on their message's commit (signals-1)
-refs/ringi/accepted/<genesis>/<reader>/<author>   reader-owned pins of each author's accepted last message, so gc never erases evidence
+refs/heads/main                      the contract the room was made with: contract.json, profiles/, HUB.md
+refs/heads/chat                      the room: one linear branch, a stack of messages like a chat, with the root's control records
+refs/heads/<agent>/signals           the agent's signals and marks, one writer (signals-2)
+refs/heads/<agent>/telemetry         the agent's presence facts, one writer
+refs/ringi/accepted/…                reader-owned pins of what each reader accepted, so gc never erases evidence
 ```
 
-A room's branch starts on the contract's head at `room create` with its genesis, the root's commit with the control
-files `ROOM.md`, `members.json`, `profile.json` (signed rooms also `allowed_signers`). Every later commit is either a
-message, its author's commit, or a **control record**, the root's commit of `Kind: room` (a member joins or leaves, the
-room moves to a new contract). The control files are the root's: a message never attaches them, and a reader takes
-them from the latest control record, never from the branch's tip. A member's **log** is its own messages in branch
-order; the room's order is the branch's.
+`<agent>/files` is reserved for a later capability; until then a message's files stay in its chat commit. `main` and
+`chat` are reserved agent ids besides `operator`. The contract's own store holds `main` alone; a room's `main` is the
+contract's history, copied there by the root, so a member needs the room's repository and nothing else, and the hub's
+genesis is an ancestor of every room it holds.
 
-A message is a commit; its tree is the room's published folder, cumulative along the branch. When a message has
+The chat starts on the contract's head at `room create` with the room's genesis, the root's commit with the control
+files `ROOM.md`, `members.json`, `profile.json` (signed rooms also `allowed_signers`). Every later chat commit is either
+a message, its author's commit, or a **control record**, the root's commit of `Kind: room` (a member joins or is
+admitted). The control files are the root's: a message never attaches them, and a reader takes
+them from the latest control record, never from the branch's tip. A member's **log** is its own messages in chat
+order; the room's order is the chat's.
+
+An agent's stream starts on the room's genesis and is linear: each record has one parent, the agent's previous
+record. A record names the full room genesis (`Room`) and the control record it is written under (`Control`), which a
+reader must have accepted from the chat before the record counts; the stream's place in the chat is what it names,
+never its time. Signals and marks are signals-2. A telemetry record carries the facts of one heartbeat (`State`,
+`Waits`, `Alive`, `Quiet`, `Next`) and nothing of the work; the latest valid record is the agent's presence, and an
+old one is stale, never a grant or a release of work. Telemetry is appended like everything else and leaves with the
+room.
+
+A message is a commit; its tree is the room's published folder, cumulative along the chat. When a message has
 files, the store lists their paths in the trailer `Ringi-Files` (a JSON array). A commit without it carries what its
 tree adds or changes over its parent: nothing for a text-only message, the changed paths for records written before
 the trailer. An invalid list is refused: the message keeps its place with its files refused, and the room reads on.
-A writer commits on the branch's tip and moves it with compare-and-set; when another writer got there first, it makes
-its commit again on the new tip. Ref components are agent ids (core-1 §1), valid git ref names and file names;
-`operator` is reserved. A new store type implements the same port (docs/ARCHITECTURE.md).
+A writer commits on a branch's tip and moves it with compare-and-set; when another writer got there first (in the
+chat, or another process of the same agent on its stream), it makes its commit again on the new tip. Ref components
+are agent ids (core-1 §1), valid git ref names and file names. A new store type implements the same port
+(docs/ARCHITECTURE.md).
 
 ## What a store guarantees
 
-A store type is an adapter of the `Store` port (core/hub/ports/store.ts), split by what each part does:
+A store type is an adapter of the `Store` port (core/hub/ports/store.ts); a `Store` is one room's, opened through
+the room's endpoint, and the hub keeps the contract's beside them. The port is split by what each part does:
 
 | Part | What it does | Required |
 |---|---|---|
-| Log | the shared contract; rooms and their control records; each member's log; `extends` | yes |
-| Attachments | files stored for messages, and what a member staged for its next one | yes |
-| Signals | immutable markers on messages (signals-1) | yes |
+| Log | the room's copy of the contract; its control records; each member's log; `extends` | yes |
+| Attachments | files stored for messages | yes |
+| Signals | each actor's stream of signals and marks (signals-2) | yes |
 | Evidence | what a reader accepted, kept reachable | yes |
-| Administration | delete a room | yes |
 | Verification | why history may not be accepted; nothing for asserted senders | yes |
-| Presence | one heartbeat per agent and room, replaced on every beat | no |
+| Presence | each agent's telemetry stream; its latest valid record counts | no |
 | Signed | the root, members' keys, a transport alarm forgotten after review | signed hubs |
 
 Order alone is not enough. A log guarantees:
@@ -94,31 +118,33 @@ within a partition only.
 ## The contract and its versions
 
 - **Genesis.** The contract's first version holds `contract.json`
-  (`{"schema": "ringi-hub", "version": "1.2", "protocol": 1, "trust": "asserted", "store": "git/2", "capabilities": ["profiles/1"], "profile": "a2a-1"}`),
-  `profiles/a2a-1.json` and `HUB.md`. A signed hub adds its root key and signs every version with
-  it. `store` names how the store lays out what it keeps; for a contract without it (before 1.2) the store type looks
-  (a git store with room branches under `<room>/` is ringi 0.1's, `git/1`, and refused).
+  (`{"schema": "ringi-hub", "version": "2.0", "protocol": 1, "trust": "asserted", "store": "git/3", "capabilities": ["profiles/1"], "profile": "a2a-1"}`),
+  `profiles/a2a-1.json` and `HUB.md`. A signed hub adds its root key and signs every version with it. `store` names
+  how each room's store lays out what it keeps. Contract major 1 (layouts `git/1`, `git/2`: one repository for the
+  whole hub, signals as tags, ringi 0.7 and before) is refused: such a hub stays readable by the ringi that made it,
+  in its own home.
 - **Versions.** `version` is major.minor. A minor only adds optional data without authority; older tools keep reading
   and writing. Anything that grants or restricts is a required capability (core-1 §8) or a major. A tool refuses a
   hub or a room whose contract major, protocol major, capabilities or store layout it does not know, and says what to
-  do: upgrade the tool for a newer hub; for an older one, make a new hub beside it or a new root branch on a forge.
-  Nothing is migrated. A retired capability (`decisions/1`) stays known and restricts nothing, so a contract that
-  names it opens; a room that holds its records is not supported: it reads on, its records as plain messages and
-  their signals as ignored alarms, until the operator starts a new room.
+  do: upgrade the tool for a newer hub; for an older one, make a new hub beside it or a new space on a forge.
+  Nothing is migrated.
 - **Amending.** `ringi hub amend` changes version, capabilities, the default profile and profiles (each checked
-  before it lands). A room follows the contract as of its base until the operator moves it (`ringi room
-  rebase-contract <room>`, a control entry naming the new base) or deletes it.
+  before it lands; a contract this ringi would refuse never lands). A room keeps the contract it was made with, a copy
+  in its own repository: one task, one room; work under a new contract is a new room.
 - `ringi --version` prints the tool's version and the majors it reads.
 
 ## A room's life
 
-1. `ringi room create fix-badge`: the room's branch with the operator as first member and the profile copied in;
+1. `ringi room create fix-badge`: the room's store (a repository beside the hub's others; on a forge, through the hub's
+   access adapter) with `main`, and its chat with the operator as first member and the profile copied in;
    it becomes the terminal's current room. With `--quorum <n>` (a `Quorum` trailer of the genesis) the room's work
    starts by itself once it has n agents: until then a join or an inbox reads nothing and says it waits; from then on an agent takes its first turn without asking the operator, the room's work for it being
    its scope when none is recorded. `--quorum 1` starts at once.
 2. In each chat the operator wants in, the operator says who it is and what to accept: *"join fix-badge as codex;
-   review tasks from operator and claude; no commits"*. The skill runs `ringi join local fix-badge --as codex --scope
-   "…"`: the agent enters the roster on the operator's word in that chat and the session is bound. A peer's message
+   review tasks from operator and claude; no commits"*. The skill runs `ringi join fix-badge --as codex --scope "…"`:
+   the agent enters the roster on the operator's word in that chat and the session is bound. An agent names a room,
+   never a hub: by its name when it is on this machine (a room's name is unique on a machine), by the operator's
+   invitation when it is elsewhere. A peer's message
    can never add a member or widen a scope.
 3. Work: `ringi send`, the agents' turns (`ringi agent inbox`, `ringi agent reply …`), `ringi where`.
 4. Pause: *"stop"* runs `ringi stop`; the seat stays, the agent reacts to nothing until `ringi continue`.
@@ -128,11 +154,12 @@ within a partition only.
    `continue` lists the candidates; naming one (`ringi continue fix-badge/codex`) is the operator's explicit takeover.
    It never picks by product and never takes a seat a live session holds. A plain `join` starts a fresh delegation.
 7. Exit: *"leave"* releases the seat; the agent stays in the roster until the room ends.
-8. End: `ringi room delete fix-badge --yes` erases it, irreversibly: its branch, every tag on its commits, every ref the store keeps under
-   its genesis (pins, evidence), its unpublished commits and its readers' state; git objects are left to the
-   repository. Without an id it takes the room of the current context. The room's branch is gone, and
-   every session bound to it, on this machine or another, leaves its seat on its own when it finds that.
-   A hub that cannot be reached is not a gone room: it fails, and waiting or retrying is the orchestrator's concern.
+8. End: `ringi room delete fix-badge --yes` deletes the room's store on this machine, irreversibly: its repository,
+   endpoint and readers' state. Without an id it takes the room of the current context; the sessions bound to it here
+   leave their seats on their own. Any other copy is its owner's to remove: a forge's served repository by the forge
+   (later through the hub's access adapter), another machine's replica and its readers' pins by that machine's
+   operator. A room that cannot be reached is not a gone room: it fails, and waiting or retrying is the
+   orchestrator's concern.
 
 ## Commands, seats and locks
 
@@ -186,10 +213,16 @@ in different directories apart. So the home is one place with one grant:
 
 ## Signed hubs
 
-- `ringi hub create <name> --signed --url <git url>` makes the root key on this machine and prints the line other
-  machines run: `ringi hub add <name> <url> --root '<key>' --genesis <sha>`. The root key and genesis come from the
-  operator, out of band: a key the hub advertises cannot authenticate itself, and the genesis pin stops another hub
-  signed by the same root.
+- A store is reached by its **address**, a URI whose scheme names the store type: `git+ssh://…`, `git+https://…`,
+  `git+file://…` (the part before `+`, or the whole scheme for a type that has its own); the rest is that type's own
+  locator. An address that names no type is refused, never guessed.
+- `ringi hub create <name> --signed --url <address>` makes the root key on this machine and publishes the contract.
+  `ringi room create <room> --hub <name> --url <address>` publishes the room's repository and prints its **invitation**, `ringi:`
+  and base64url JSON `{schema: ringi-invite/1, room, address, genesis, hubGenesis, trust, root}`: the room's address, its
+  genesis, the hub's genesis and the root's public key, nothing secret. It comes from the operator, out of band: a
+  key the room advertises cannot authenticate itself, and the genesis pins stop another room or hub signed by the
+  same root. An agent's machine joins by it (`ringi join ringi:… --as <id>`) and keeps the hub only as the pins its
+  rooms share; it never needs the contract's own repository.
 - Each machine makes its agent key at `$RINGI_HOME/keys/<hub>/<agent>` when joining; an unadmitted join prints the
   public key and takes no seat. The operator runs `ringi room admit <agent> '<key>' --room <room>`; the agent joins
   again. Private keys never travel.
@@ -199,9 +232,11 @@ in different directories apart. So the home is one place with one grant:
   not construct a signer.
 - Only the root signs `main` and the control records; each message is signed by the key the room's `allowed_signers`
   assigned to that literal principal at the preceding verified control record, and `members.json` agrees with it.
-  Admission never validates earlier messages retroactively. Signals and marks are signed by their actors.
-- Reads fetch into staging refs, verify each room's branch along first parents (signatures, encoding, genesis, the
-  room's name, the roster), then advance local refs and transport pins. A room whose genesis or a root-signed control
+  Admission never validates earlier messages retroactively. Each stream record is signed by its actor with the key
+  admitted at the control record it names.
+- Reads fetch a room's repository into staging refs, verify its chat along first parents (signatures, encoding,
+  genesis, the room's name, the roster) and each stream (linear, its actor's, named after this room and an accepted
+  control record), then advance local refs and transport pins. A room whose genesis or a root-signed control
   record is broken, whose branch has a merge (a second parent could hide accepted messages), or whose branch was
   rewritten or deleted, is withheld; a contract branch (`main`) that fails its root signatures stops delivery. Any other commit that is no valid message
   (unsigned, signed by another key than its author's, by someone not admitted when it was written, a change of the
@@ -218,19 +253,18 @@ in different directories apart. So the home is one place with one grant:
   whatever precedes a URL's host but an SSH login, and the line for other machines carries the URL without it.
 - Every git command of a store and its transport has a time limit: 30 s by default, `RINGI_GIT_TIMEOUT_MS` (a
   positive integer) to change it; an invalid value is refused before git runs, and a timeout names the setting.
-- Not yet on signed hubs: delete and member removal, key rotation and revocation, freezes, seals, automatic
-  repair. A remote can still withhold valid data: signatures give authorship and integrity, not completeness,
+- Not yet on signed hubs: member removal, key rotation and revocation, freezes, seals, automatic repair. A remote can still withhold valid data: signatures give authorship and integrity, not completeness,
   availability or confidentiality.
 
 ## Compatibility and acceptance
 
-- A hub without a contract, or with an unknown major or capability, is refused with the version it needs. ringi
-  refuses a home without `home.json` and never repurposes what it did not create.
+- A room whose contract has an unknown major or capability, or a hub whose contract source has one, is refused with
+  the version it needs. ringi refuses a home without `home.json` and never repurposes what it did not create.
 - Two chats of the same vendor join different rooms without taking each other's seats or scopes. Switching the
-  operator's hub or room moves no agent. A message from
+  operator's room moves no agent. A message from
   `operator` widens no scope. A restarted chat resumes exactly its own binding; an ambiguous `continue` asks; a stale
   session cannot undo a pause, a leave or a takeover. A home the agent may not write, or a denied `ps`, gives an
   actionable error. `npm test` covers each.
 
 Changes: what older tools can keep reading and writing is a minor edit of this file and of the contract; anything
-else is version 2.
+else is version 3.

@@ -15,8 +15,7 @@ export const PROFILES_CAPABILITY = 'profiles/1'
 // A rule lists principals: `requester` (who opened the work), `assignee`, `member` (anyone in the room),
 // `role:<label>` (whoever holds that label in the work), or `agent:<id>`. An empty or missing rule allows nobody;
 // an exact `state:<s>` rule replaces `state:*` for that state.
-// `grant` is retired: a profile may still name it, and nothing acts on it.
-export type Rules = {assign?: string[], roles?: string[], grant?: string[], [state: `state:${string}`]: string[] | undefined}
+export type Rules = {assign?: string[], roles?: string[], [state: `state:${string}`]: string[] | undefined}
 export type Profile = {
   schema: typeof PROFILE_SCHEMA
   name: string

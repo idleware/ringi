@@ -11,7 +11,8 @@ import {flag, out} from '../args.ts'
 import {taskLine} from '../shared/index.ts'
 import {sessionLine} from './sessions.ts'
 
-export const hubLine = (H: Where['hub']) => `hub ${H.name}: ${H.d.store.type} store, ${H.contract.trust} senders, contract ${H.contract.version}, protocol ${H.contract.protocol}${H.contract.capabilities?.length ? `, ${H.contract.capabilities.join(' ')}` : ''}`
+// The room's hub and the contract the room follows: a room carries its own copy (hub-2).
+export const hubLine = (R: Room) => `hub ${R.hub.name}: ${R.hub.d.store.type} store, ${R.hub.d.trust} senders, contract ${R.contract.version}, protocol ${R.contract.protocol}${R.contract.capabilities?.length ? `, ${R.contract.capabilities.join(' ')}` : ''}`
 const quorumLine = (R: Room) => {
   if (R.quorum === null) return ''
   const agents = Object.values(R.members).filter(m => m.role !== 'root').length

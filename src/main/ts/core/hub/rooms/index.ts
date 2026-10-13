@@ -5,15 +5,15 @@
 
 import {CAPABILITIES} from '../capabilities.ts'
 import type {Profile} from '../work/index.ts'
-import type {Descriptor, Member, Rev, Store, StoredRoom} from '../ports/store.ts'
+import type {Descriptor, Member, Rev, RoomEndpoint, Store, StoredRoom} from '../ports/store.ts'
 
 // The root principal of every hub and room (hub-1): the operator of the machine that made it.
 export const OPERATOR = 'operator'
 
-export const HUB_MAJOR = 1
+export const HUB_MAJOR = 2
 export const PROTOCOL_MAJOR = 1
 export const CAPS = new Set(Object.keys(CAPABILITIES))
-export const RESERVED_ROOMS = new Set(['main'])
+export const RESERVED_ROOMS = new Set(['main', 'chat'])
 
 export type Contract = {
   schema: 'ringi-hub'
@@ -22,14 +22,16 @@ export type Contract = {
   trust: 'asserted' | 'signed'
   capabilities?: string[]
   // How its store lays out what it keeps (`git/2`); none: the first layout of its type.
-  store?: string
+  store: string
   // The profile rooms use unless they name another (core/hub/work).
   profile?: string
   root?: string
 }
-export type Hub = {name: string, dir: string, d: Descriptor, store: Store, main: Rev, contract: Contract, signed: boolean}
+export type Hub = {name: string, dir: string, d: Descriptor, signed: boolean}
 export type Room = {
   hub: Hub
+  endpoint: RoomEndpoint
+  store: Store
   s: StoredRoom
   name: string
   head: Rev

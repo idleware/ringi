@@ -23,27 +23,22 @@ export type Accepted = {
 export type Delivered = {
   seen?: Record<string, string>
 }
-// Files it staged for its next message (core/hub/usecases/staging.ts).
-export type Outgoing = {
-  staged?: Staged[]
-}
-export type ReaderState = Accepted & Delivered & Outgoing
-export type Staged = {path: string, blob: string, mode: string, size: number}
+export type ReaderState = Accepted & Delivered
 // What one reader accepted of one room: a record of the machine's state.
-const readerKey = (R: Room, reader: string) => ['readers', R.hub.name, R.genesis, reader]
-export const readerLock = <T>(R: Room, reader: string, fn: () => T): T => locked(`reader-${R.hub.name}-${R.genesis.slice(0, 12)}-${reader}`, fn)
+const readerKey = (R: Room, reader: string) => ['readers', R.hub.d.genesis, R.genesis, reader]
+export const readerLock = <T>(R: Room, reader: string, fn: () => T): T => locked(`reader-${R.hub.d.genesis}-${R.genesis}-${reader}`, fn)
 export const loadState = (R: Room, reader: string): ReaderState => hubPorts().state.read<ReaderState>(readerKey(R, reader), {})
 export const saveState = (R: Room, reader: string, st: ReaderState): void => hubPorts().state.write(readerKey(R, reader), st)
 // The control history must extend what this reader accepted; a rewritten one delivers nothing.
 const acceptControl = (R: Room, st: ReaderState): void => {
-  if (st.control && !R.hub.store.extends(st.control, R.head)) {
+  if (st.control && !R.store.extends(st.control, R.head)) {
     fail(`ALARM room ${R.name}: its control history was rewritten (accepted ${short(st.control)}, now ${short(R.head)}). Nothing is delivered; the operator decides`)
   }
   st.control = R.head
 }
 // Why a log's current head cannot be accepted after `acc`, if it cannot.
 const logProblem = (R: Room, id: string, acc: Rev, cur: Rev | null): string | null => {
-  const store = R.hub.store
+  const store = R.store
   if (!cur) return `log ${id} was deleted after ${short(acc)}`
   if (acc && !store.extends(acc, cur)) return `log ${id} was rewritten: ${short(cur)} does not extend the accepted ${short(acc)}`
   if (!store.extends(R.genesis, cur)) return `log ${id} does not descend from the room's genesis`
@@ -52,7 +47,7 @@ const logProblem = (R: Room, id: string, acc: Rev, cur: Rev | null): string | nu
 }
 // Every log that still extends its accepted head, pinned at its new head; the others become alarms.
 const acceptLogs = (R: Room, reader: string, st: ReaderState, alarms: string[]): Logs => {
-  const store = R.hub.store, heads = st.heads ??= {}
+  const store = R.store, heads = st.heads ??= {}
   const logs: Logs = new Map()
   for (const id of new Set([...store.logIds(R.s), ...Object.keys(heads)])) {
     const cur = store.logHead(R.s, id), acc = heads[id]
@@ -64,18 +59,25 @@ const acceptLogs = (R: Room, reader: string, st: ReaderState, alarms: string[]):
   return logs
 }
 // The signals that agree with their messages are pinned; the rest become alarms.
-const acceptSignals = (R: Room, logs: Logs, st: ReaderState, alarms: string[]): void => {
-  const records = R.hub.store.signals(R.s)
+const acceptSignals = (R: Room, logs: Logs, st: ReaderState, alarms: string[], reader: string): void => {
+  const records = R.store.signals(R.s)
   const checked = Signals.check(R, link(logs), records)
   const signalPins = Signals.pins(records, checked, st.signals)
+  const heads = new Map(R.store.signalHeads(R.s).map(x => [x.actor, x.head]))
+  for (const [actor, old] of Object.entries(st.signals ?? {})) {
+    const head = heads.get(actor)
+    if (!head || !R.store.extends(old, head)) {
+      alarms.push(`signal stream ${actor} was deleted or rewritten after ${short(old)}`)
+      signalPins.accepted[actor] = old
+    }
+  }
+  for (const [actor, head] of Object.entries(signalPins.accepted)) if (st.signals?.[actor] !== head) R.store.pinSignals(R.s, reader, actor, head)
   st.signals = signalPins.accepted
-  alarms.push(...signalPins.alarms, ...checked.filter(x => !x.ok).map(x => `signal ${x.ref}: ${x.why}`))
+  alarms.push(...signalPins.alarms, ...checked.filter(x => !x.ok && !x.pending).map(x => `signal ${x.ref}: ${x.why}`))
 }
 // What follows from an alarm, by what it is about.
 const remedy = (R: Room, alarm: string): string => {
-  if (alarm.startsWith('signal ')) return alarm.endsWith('was removed after it was accepted')
-    ? 'the messages stay the truth; its author restores it with ringi agent signals --repair'
-    : 'the messages stay the truth; the signal is ignored'
+  if (alarm.startsWith('signal ')) return 'the affected stream stops at its accepted prefix; messages stay the truth; the operator decides'
   if (alarm.startsWith('commit ')) return 'it is skipped; the room reads on without it'
   return `it is quarantined and withheld. Restore it, or the operator runs ringi forget ${R.name}/<log>`
 }
@@ -86,9 +88,10 @@ const remedy = (R: Room, alarm: string): string => {
 export const loadRoomUnlocked = (R: Room, reader: string): {logs: Logs, st: ReaderState} => {
   const st = loadState(R, reader)
   acceptControl(R, st)
-  const alarms: string[] = [...R.hub.store.alarms?.(R.s) ?? []]
+  const alarms: string[] = [...R.store.alarms?.(R.s) ?? []]
   const logs = acceptLogs(R, reader, st, alarms)
-  acceptSignals(R, logs, st, alarms)
+  acceptSignals(R, logs, st, alarms, reader)
+  alarms.push(...R.store.alarms?.(R.s) ?? [])
   const reported = new Set(st.alarms ?? [])
   for (const a of alarms) if (!reported.has(a)) note(`ALARM ${a}; ${remedy(R, a)}`)
   st.alarms = alarms

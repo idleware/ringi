@@ -3,7 +3,7 @@
 
 import {fail} from '../../lib/index.ts'
 import type {Handle} from './remote/types.ts'
-import {git, id, ident, isRemote} from './remote/git.ts'
+import {git, id, isRemote} from './remote/git.ts'
 import {identityKey, parseKey, rootKey, signingContext} from './remote/keys.ts'
 import {checkSignature} from './remote/signature.ts'
 
@@ -24,13 +24,5 @@ export const signCommit = (H: Handle, who: string, sha: string): string => {
   const body = Buffer.concat([raw.subarray(0, end), Buffer.from(`\ngpgsig ${signature}\n\n`), raw.subarray(end + 2)])
   const signed = git(H, ['hash-object', '-t', 'commit', '-w', '--stdin'], {input: body}).trim()
   checkSignature(H, signed, who, identityKey(H, who))
-  return signed
-}
-
-export const signedTag = (H: Handle, who: string, tag: string, target: string): string => {
-  const tagger = git(H, ['var', 'GIT_COMMITTER_IDENT'], {env: ident(who)}).trim()
-  const raw = `object ${target}\ntype commit\ntag ${tag}\ntagger ${tagger}\n\n`
-  const signed = git(H, ['mktag'], {input: raw + signBytes(H, who, raw)}).trim()
-  if (isRemote(H)) checkSignature(H, signed, who, identityKey(H, who), 'tag')
   return signed
 }

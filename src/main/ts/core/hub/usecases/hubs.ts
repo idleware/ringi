@@ -1,48 +1,35 @@
-// hubs: the operator's hubs on this machine: list, create, switch, add a signed replica, amend the shared contract.
+// hubs: the operator's hubs on this machine: list, create, amend the shared contract.
 
 import {DEFAULT_PROFILE, PROFILES_CAPABILITY, parseProfile} from '../work/index.ts'
-import {OPERATOR, config, createHub, hubNames, openHub, roomNames, setConfig, transportOf} from '../rooms/index.ts'
+import {OPERATOR, amendContract, createHub, hubNames, openContract, openHub, roomNames} from '../rooms/index.ts'
 import {hubPorts} from '../ports/index.ts'
+import type {Store} from '../ports/store.ts'
 import type {Hub} from '../rooms/index.ts'
 import {fail, strictJson, withoutCredentials, words} from '../../../lib/index.ts'
 import {ID_RE, compose} from '../protocol/index.ts'
 
 // A remote as shown and handed to other machines: never with a password or token in it; each machine has its own.
 const shown = (url: string | undefined): string | null => url ? withoutCredentials(url) : null
-// The operator's terminal context picks the hub unless one is named.
-export const hubOf = (name?: string): Hub => openHub(name ?? config().hub)
+// The named hub, or `local`.
+export const hubOf = (name?: string): Hub => openHub(name ?? 'local')
 
-export type HubView = {name: string, current: boolean, store: string, trust: string, contract: string, rooms: number, remote: string | null, dir: string}
+// `contract`: the version of the contract this machine holds the source of; an agent's machine holds only rooms.
+export type HubView = {name: string, store: string, trust: string, contract: string | null, rooms: number, remote: string | null, dir: string}
 export const hubs = (): HubView[] => {
   hubPorts().state.ensure()
   if (!hubNames().length) openHub('local')
-  const cur = config().hub
   return hubNames().map(n => {
     const H = openHub(n)
-    return {name: H.name, current: H.name === cur, store: H.d.store.type, trust: H.contract.trust, contract: H.contract.version,
-      rooms: roomNames(H).length, remote: shown(H.d.store.remote), dir: H.dir}
+    return {name: H.name, store: H.d.store.type, trust: H.d.trust, contract: H.d.contract ? openContract(H).contract.version : null,
+      rooms: roomNames(H).length, remote: shown(H.d.contract?.remote), dir: H.dir}
   })
 }
-// A new hub; a signed one makes its root key here and returns what other machines need to pin it.
-export const create = (name: string, {signed = false, url}: {signed?: boolean, url?: string} = {}): {H: Hub, rootKey: string | null, remote: string | null, add: string | null} => {
+// A new hub; a signed one makes its root key here. Agents elsewhere never attach the hub: each joins its room.
+export const create = (name: string, {signed = false, url}: {signed?: boolean, url?: string} = {}): {H: Hub, rootKey: string | null, remote: string | null} => {
   if (!ID_RE.test(name)) fail('usage: ringi hub create <name> [--signed [--url <git url>]]')
   const {custody} = createHub(name, {signed, url})
-  const H = openHub(name), remote = shown(H.d.store.remote)
-  return {H, rootKey: custody, remote,
-    add: H.signed ? `ringi hub add ${name} ${remote ?? '<url>'} --root '${H.d.root}' --genesis ${H.d.genesis}` : null}
-}
-export const use = (name: string): void => {
-  openHub(name)
-  setConfig({hub: name, room: null})
-}
-// A replica of a signed hub. The root key comes from the operator, out of band: a key the hub advertises proves nothing.
-export const add = (name: string, url: string, {root, genesis}: {root?: string, genesis?: string}): Hub => {
-  if (!ID_RE.test(name) || !url) fail('usage: ringi hub add <name> <git url> --root <public key|file> [--genesis <sha>]')
-  hubPorts().state.ensure()
-  const t = transportOf(name, hubPorts().store)
-  if (!t.attach) return fail(`a ${hubPorts().store} store cannot replicate a published hub`)
-  t.attach(name, url, {root, genesis})
-  return openHub(name)
+  const H = openHub(name)
+  return {H, rootKey: custody, remote: shown(H.d.contract?.remote)}
 }
 export type AmendInput = {text: string, set?: string[], files?: Array<{path: string, content: Buffer}>}
 type Contract = Record<string, unknown>
@@ -66,10 +53,10 @@ const extraFiles = (x: AmendInput): Record<string, string | Buffer> => {
   return files
 }
 // The default profile must be built in, or in the hub after this amendment.
-const checkDefault = (H: Hub, contract: Contract, files: Record<string, unknown>): void => {
+const checkDefault = (source: {store: Store, main: string}, contract: Contract, files: Record<string, unknown>): void => {
   const p = contract.profile
   if (typeof p !== 'string' || p === DEFAULT_PROFILE || files[`profiles/${p}.json`]) return
-  if (H.store.contractFile(H.main, `profiles/${p}.json`) === null) fail(`the default profile ${p} is not in the hub; attach it: --attach <file>:profiles/${p}.json`)
+  if (source.store.contractFile(source.main, `profiles/${p}.json`) === null) fail(`the default profile ${p} is not in the hub; attach it: --attach <file>:profiles/${p}.json`)
 }
 // Profiles other than the built-in A2A rules need clients that read them: the contract says so.
 const needsProfiles = (contract: Contract, files: Record<string, unknown>, set: string[]): void => {
@@ -77,14 +64,14 @@ const needsProfiles = (contract: Contract, files: Record<string, unknown>, set: 
   const caps = Array.isArray(contract.capabilities) ? contract.capabilities as string[] : []
   if (!caps.includes(PROFILES_CAPABILITY)) contract.capabilities = [...caps, PROFILES_CAPABILITY]
 }
-// A new version of the shared contract on `main`. Rooms keep their base until moved (rooms.rebase).
+// A new version of the shared contract on `main`. Rooms made from then on follow it; existing ones keep theirs.
 export const amend = (H: Hub, x: AmendInput): {version: string} => {
-  const name = 'contract.json'
-  const contract = strictJson<Contract>(H.store.contractFile(H.main, name)!, name)
+  const name = 'contract.json', source = openContract(H)
+  const contract = strictJson<Contract>(source.store.contractFile(source.main, name)!, name)
   setKeys(contract, x.set ?? [])
   const files = extraFiles(x)
-  checkDefault(H, contract, files)
+  checkDefault(source, contract, files)
   needsProfiles(contract, files, x.set ?? [])
-  H.store.amendContract(OPERATOR, compose(x.text, [['To', '*'], ['Kind', 'hub']]), {[name]: json(contract), ...files})
+  amendContract(H, OPERATOR, compose(x.text, [['To', '*'], ['Kind', 'hub']]), {[name]: json(contract), ...files})
   return {version: String(contract.version)}
 }

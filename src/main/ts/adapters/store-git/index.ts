@@ -1,15 +1,7 @@
-// git-store: the Store port on git. The store directory holds one repository (`store/.git`):
-//   refs/heads/main                       the shared contract, one commit per amendment
-//   refs/heads/<room>                     the room: one linear branch, like a chat. Its first commit is the room's genesis
-//                                         (the root's, on top of main); then every message is a commit by its author, and
-//                                         every control record (Kind: room) a commit by the root
-//   refs/tags/<agent>.<signal>.<message12>   signals: annotated tags without text on the message's commit
-//   refs/ringi/accepted/<genesis>/<reader>/<author>   readers' pins of each author's accepted last message
-// A member's log is its own commits in the room's branch, in branch order. The control files at the root of a room's
-// tree (members, profile, signers) change only in the root's control records.
-// A signed hub signs every commit and tag with its author's key and verifies what it fetches (remote.ts).
-// The class is layered by concern: repo.ts (repository, contract), branches.ts (rooms), marks.ts (signals, heartbeats)
-// and here the logs: messages, their files, staging and pins.
+// Store on git/3: an explicit contract source or one self-contained room repository.
+// main holds the frozen contract; chat holds root controls and participant messages. Actor signals/telemetry are
+// append-only commit streams. Reader evidence lives below refs/ringi/accepted; message files remain in chat trees.
+// Signing is injected for every published commit. Repo, Branches and Marks separate storage from verification.
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -33,7 +25,7 @@ export class GitStore extends Marks implements Store {
   static create(hubDir: string, d: Descriptor, connection: string | {home: string, signing?: SigningContext}, contract: Record<string, string>, text: string): GitStore {
     const {home, signing} = typeof connection === 'string' ? {home: connection, signing: undefined} : connection
     if (d.trust === 'signed') signingContext({name: d.name, signing})
-    const dir = path.join(hubDir, d.store.path, '.git')
+    const dir = path.join(hubDir, d.contract?.path ?? fail('no operator contract source'), '.git')
     // A signed hub's repository already exists: rootFor made it with the root key.
     if (!fs.existsSync(dir)) {
       mkdirIn(home, path.dirname(dir))
@@ -41,7 +33,7 @@ export class GitStore extends Marks implements Store {
     }
     const s = new GitStore(hubDir, d, home, signing)
     const sha = s.commit('operator', text, s.tree(null, Object.entries(contract).map(([p, c]) => ({path: p, content: c, mode: '100644'}))), [])
-    if (d.trust === 'signed') d.genesis = sha
+    d.genesis = sha
     if (!s.advance('refs/heads/main', sha, null)) fail(`hub ${d.name}: main already exists`)
     s.checkout()
     return s
@@ -49,10 +41,10 @@ export class GitStore extends Marks implements Store {
   // A new signed hub: the root key is generated on this machine and pinned in the descriptor.
   static rootFor(hubDir: string, d: Descriptor, home: string, signing: SigningContext): string {
     signingContext({name: d.name, signing})
-    const dir = path.join(hubDir, d.store.path, '.git')
+    const dir = path.join(hubDir, d.contract?.path ?? fail('no operator contract source'), '.git')
     mkdirIn(home, path.dirname(dir))
     init(dir, home)
-    return Remote.setupSigned({name: d.name, dir, d, signing}, d.store.remote).root
+    return Remote.setupSigned({name: d.name, dir, d, signing}, d.contract?.remote).root
   }
   logIds(room: StoredRoom): string[] { return [...new Set(this.live(room).map(e => e.author))] }
   logHead(room: StoredRoom, id: string): string | null { return this.live(room).filter(e => e.author === id).at(-1)?.sha ?? null }
@@ -78,12 +70,6 @@ export class GitStore extends Marks implements Store {
     const id = this.git(['hash-object', '-w', '--', file]).trim()
     return {id, size: Number(this.git(['cat-file', '-s', id]).trim())}
   }
-  // A tree of the staged files under refs/ringi/staged/<genesis>/<who>: git keeps what a ref reaches.
-  retain(room: StoredRoom, who: string, entries: Entry[]): void {
-    const ref = `refs/ringi/staged/${room.genesis}/${who}`
-    if (!entries.length) { this.gitOk(['update-ref', '-d', ref]); return }
-    this.git(['update-ref', ref, this.tree(null, entries)])
-  }
   // One message on top of the room's branch.
   append(room: StoredRoom, who: string, text: string, entries: Entry[]): string {
     if (checkOutgoing(text, s => this.isRef(s)).trailers['ringi-files']) fail('Ringi-Files is store metadata; supply attachments instead')
@@ -98,10 +84,10 @@ export class GitStore extends Marks implements Store {
     return this.trust === 'signed' ? Remote.verify(this.h, this.remote(room), id, head) : null
   }
   pin(room: StoredRoom, reader: string, id: string, rev: string): void {
-    this.git(['update-ref', `refs/ringi/accepted/${room.genesis}/${reader}/${id}`, rev])
+    this.git(['update-ref', `refs/ringi/accepted/${room.genesis}/${reader}/logs/${id}`, rev])
   }
   unpin(room: StoredRoom, reader: string, id: string): void {
-    this.gitOk(['update-ref', '-d', `refs/ringi/accepted/${room.genesis}/${reader}/${id}`])
+    this.gitOk(['update-ref', '-d', `refs/ringi/accepted/${room.genesis}/${reader}/logs/${id}`])
   }
   file(rev: string, p: string): Buffer { return runGitRaw(this.args(['show', `${rev}:${p}`]), this.home) }
   sizes(rev: string, paths: string[]): Map<string, number> {

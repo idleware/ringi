@@ -21,7 +21,7 @@ const scratch = (t: TestContext): string => {
 }
 const roomText = (name: string) => compose(`room ${name}`, [['To', '*'], ['Kind', 'room'], ['Room-Id', crypto.randomBytes(16).toString('hex')]])
 // A signed store's room starts with its signers, the root alone, and admits each writer's key.
-const control = (s: Store) => ({'ROOM.md': '# r\n', 'members.json': '{"operator":{"role":"root"}}\n', 'profile.json': '{}\n',
+const control = (s: Store) => ({'ROOM.md': '# r\n', 'members.json': JSON.stringify(s.trust === 'signed' ? {operator: {role: 'root'}} : {operator: {role: 'root'}, alice: {}, bob: {}}) + '\n', 'profile.json': '{}\n',
   ...(s.trust === 'signed' ? {allowed_signers: s.rootRoster!()} : {})})
 const say = (subject: string) => compose(subject, [['To', '*']])
 const room = (s: Store, name: string): StoredRoom => s.room(name) ?? assert.fail(`room ${name} is not there`)
@@ -36,16 +36,13 @@ export const storeContract = (type: string, make: Factory): void => { describe(`
     return f
   }
 
-  it('gives a room, a control record and a message ids that do not change; a room made again is another room', t => {
+  it('gives one selected room and control/message ids that do not change', t => {
     const {store} = fresh(t)
     const r = room(store, 'r')
     assert.equal(room(store, 'r').genesis, r.genesis)
     const id = store.append(r, 'alice', say('hello'), [])
     assert.equal(store.logHead(room(store, 'r'), 'alice'), id)
-    store.deleteRoom(room(store, 'r'))
-    assert.equal(store.room('r'), null)
-    store.createRoom('r', 'operator', roomText('r'), control(store))
-    assert.notEqual(room(store, 'r').genesis, r.genesis)
+    assert.throws(() => store.createRoom('other', 'operator', roomText('other'), control(store)))
   })
 
   it('keeps what a message said and who wrote it, however much is written after it', t => {
@@ -80,7 +77,7 @@ export const storeContract = (type: string, make: Factory): void => { describe(`
   it('writes a signal once, however often it is written', t => {
     const {store} = fresh(t)
     const id = store.append(room(store, 'r'), 'alice', say('opened'), [])
-    for (let i = 0; i < 2; i++) store.signal(room(store, 'r'), 'alice', id, `opened.${id.slice(0, 12)}`)
+    for (let i = 0; i < 2; i++) store.signal(room(store, 'r'), 'alice', id, 'opened')
     const mine = store.signals(room(store, 'r')).filter(s => s.actor === 'alice')
     assert.equal(mine.length, 1)
     assert.equal(mine[0].target, id)
@@ -98,29 +95,19 @@ export const storeContract = (type: string, make: Factory): void => { describe(`
     assert.equal(store.logHead(r, 'bob'), b)
   })
 
-  it('stores attachments with their messages and staged files until they are sent', t => {
+  it('stores files attached to messages', t => {
     const {store} = fresh(t)
     const file = path.join(scratch(t), 'note.txt')
     fs.writeFileSync(file, 'attached\n')
     const blob = store.blob(file)
     assert.equal(blob.size, 9)
-    store.retain(room(store, 'r'), 'alice', [{path: blob.id, blob: blob.id, mode: '100644'}])
     const id = store.append(room(store, 'r'), 'alice', say('with a file'), [{path: 'files/note.txt', blob: blob.id, mode: '100644'}])
     assert.equal(store.file(id, 'files/note.txt').toString('utf8'), 'attached\n')
     assert.equal(store.sizes(id, ['files/note.txt']).get('files/note.txt'), 9)
     assert.deepEqual(store.messages(room(store, 'r'), 'alice', id)[0].files.map(f => f.path), ['files/note.txt'])
-    store.retain(room(store, 'r'), 'alice', [])
   })
 
-  it('lists its rooms and deletes one with everything kept for it', t => {
-    const {store} = fresh(t)
-    store.append(room(store, 'r'), 'alice', say('hello'), [])
-    assert.deepEqual(store.roomNames(), ['r'])
-    store.deleteRoom(room(store, 'r'))
-    assert.deepEqual(store.roomNames(), [])
-  })
-
-  it('replaces an agent\'s heartbeat on every beat, if it keeps presence', t => {
+  it('appends telemetry and shows the latest verified facts, if it keeps presence', t => {
     const {store} = fresh(t)
     if (!store.heartbeat || !store.heartbeats) return t.skip(`${type} keeps no presence`)
     const id = store.append(room(store, 'r'), 'alice', say('working'), [])
