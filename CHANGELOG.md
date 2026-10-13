@@ -1,3 +1,11 @@
+## [0.8.0](https://github.com/idleware/ringi/compare/v0.7.2...v0.8.0) (2026-10-13)
+
+### Features
+* feat: a hub of repositories: a room per repository, branches by meaning, invitations, a smaller CLI ([9bd20d4](https://github.com/idleware/ringi/commit/9bd20d4a4412e8c01938de53216a9b2d676e37ae))
+
+### Fixes & improvements
+* refactor: name adapters by type: store-git, agent-claude, agent-codex, agent-cursor ([f9264f7](https://github.com/idleware/ringi/commit/f9264f7d1cfcb1f0b9c281d2412183f348d90bf3))
+
 ## [0.7.2](https://github.com/idleware/ringi/compare/v0.7.1...v0.7.2) (2026-10-13)
 
 ### Fixes & improvements

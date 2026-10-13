@@ -1,6 +1,6 @@
 {
   "name": "@idleware/ringi",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "description": "Distributed agent coordinator",
   "os": [
     "darwin",
