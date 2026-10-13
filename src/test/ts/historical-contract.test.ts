@@ -11,7 +11,7 @@ import {hubPorts} from '../../main/ts/core/hub/ports/index.ts'
 import {contractAt} from '../../main/ts/core/hub/rooms/compat.ts'
 import {openRoom} from '../../main/ts/core/hub/rooms/rooms.ts'
 import {compose} from '../../main/ts/core/hub/protocol/index.ts'
-import {gitTransport} from '../../main/ts/adapters/transport-git/transport.ts'
+import {gitTransport} from '../../main/ts/adapters/store-git/transport.ts'
 import type {Descriptor, Store} from '../../main/ts/core/hub/ports/store.ts'
 
 const legacy = {schema: 'ringi-hub', version: '1.0', protocol: 1, trust: 'asserted', profile: 'a2a-1', capabilities: ['decisions/1', 'profiles/1']}

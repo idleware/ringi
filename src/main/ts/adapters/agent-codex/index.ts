@@ -1,4 +1,4 @@
-// tool-codex: Codex. A session says so in its environment (CODEX_*); a chat names itself on every ringi command with
+// agent-codex: Codex. A session says so in its environment (CODEX_*); a chat names itself on every ringi command with
 // RINGI_SESSION=codex-<thread id>. While it works it writes its rollout
 // $CODEX_HOME (or ~/.codex)/sessions/<yyyy>/<mm>/<dd>/rollout-<time>-<thread id>.jsonl; it reads skills from
 // .agents/skills, and its sandbox writes where its writable roots allow.
@@ -6,7 +6,7 @@
 import os from 'node:os'
 import path from 'node:path'
 import type {AgentTool} from '../../core/agents/ports/index.ts'
-import {UUID, mtime, newestFirst} from '../tool-traces/index.ts'
+import {UUID, mtime, newestFirst} from '../agent-traces/index.ts'
 
 const rollout = (id: string): string | null => {
   const root = path.join(process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex'), 'sessions')

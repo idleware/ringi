@@ -13,10 +13,10 @@ import crypto from 'node:crypto'
 import childProcess, {spawn, spawnSync} from 'node:child_process'
 import {syncBuiltinESMExports} from 'node:module'
 import {fileURLToPath, pathToFileURL} from 'node:url'
-import * as Remote from '../../main/ts/adapters/transport-git/remote.ts'
-import {GitStore, runGit} from '../../main/ts/adapters/transport-git/index.ts'
+import * as Remote from '../../main/ts/adapters/store-git/remote.ts'
+import {GitStore, runGit} from '../../main/ts/adapters/store-git/index.ts'
 import {keysFile} from '../../main/ts/adapters/keys-file/index.ts'
-import {identityKey} from '../../main/ts/adapters/transport-git/remote/keys.ts'
+import {identityKey} from '../../main/ts/adapters/store-git/remote/keys.ts'
 import {Fail, fail, withoutCredentials} from '../../main/ts/lib/index.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))

@@ -1,4 +1,4 @@
-// store: the port every storage type implements, each an adapter (adapters/transport-<type>) that composition/
+// store: the port every storage type implements, each an adapter (adapters/store-<type>) that composition/
 // registers. Rooms, accepted history, profiles and signals use only this
 // interface; git is the first implementation, and a hub's descriptor names which one it uses (`store.type`). A store
 // keeps the shared contract (versioned files the participants agree on: contract.json, profiles), the

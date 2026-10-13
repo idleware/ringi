@@ -1,4 +1,4 @@
-// tool-traces: what the tool adapters share to find a session's trace: a session id at the end of a name, directories
+// agent-traces: what the agent adapters share to find a session's trace: a session id at the end of a name, directories
 // newest first, and when a file was last written.
 
 import fs from 'node:fs'

@@ -3,7 +3,7 @@
 import path from 'node:path'
 import {compose} from '../../main/ts/core/hub/protocol/index.ts'
 import type {Descriptor, Genesis} from '../../main/ts/core/hub/ports/store.ts'
-import {gitTransport} from '../../main/ts/adapters/transport-git/transport.ts'
+import {gitTransport} from '../../main/ts/adapters/store-git/transport.ts'
 import {keysFile} from '../../main/ts/adapters/keys-file/index.ts'
 import {storeContract} from './store-contract.ts'
 

@@ -11,12 +11,12 @@ import {wireHub} from '../core/hub/ports/index.ts'
 import type {Build} from '../core/hub/ports/index.ts'
 import {wireAgents} from '../core/agents/ports/index.ts'
 import {stateFs} from '../adapters/state-fs/index.ts'
-import {claude} from '../adapters/tool-claude/index.ts'
-import {codex} from '../adapters/tool-codex/index.ts'
-import {cursor} from '../adapters/tool-cursor/index.ts'
+import {claude} from '../adapters/agent-claude/index.ts'
+import {codex} from '../adapters/agent-codex/index.ts'
+import {cursor} from '../adapters/agent-cursor/index.ts'
 import {hostPosix} from '../adapters/host-posix/index.ts'
 import {keysFile} from '../adapters/keys-file/index.ts'
-import {gitTransport} from '../adapters/transport-git/transport.ts'
+import {gitTransport} from '../adapters/store-git/transport.ts'
 
 // The package this file belongs to, run from its source (src/main/ts) or its build (target/esm).
 const packageOf = (dir: string): string => fs.existsSync(path.join(dir, 'package.json')) ? dir : packageOf(path.dirname(dir))

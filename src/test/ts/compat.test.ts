@@ -3,7 +3,7 @@ import {describe, it} from 'node:test'
 import assert from 'node:assert/strict'
 import '../../main/ts/composition/index.ts'
 import {contractAt, descriptorRefusal, layoutRefusal} from '../../main/ts/core/hub/rooms/compat.ts'
-import {gitTransport} from '../../main/ts/adapters/transport-git/transport.ts'
+import {gitTransport} from '../../main/ts/adapters/store-git/transport.ts'
 import type {Descriptor, Store} from '../../main/ts/core/hub/ports/store.ts'
 
 const contract = {schema: 'ringi-hub', version: '1.2', protocol: 1, trust: 'asserted', store: 'git/2', capabilities: ['decisions/1', 'profiles/1']}

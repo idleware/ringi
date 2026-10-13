@@ -1,4 +1,4 @@
-// tool-claude: Claude Code. A session says so in its environment (CLAUDECODE, CLAUDE_CODE_SESSION_ID) and is known by
+// agent-claude: Claude Code. A session says so in its environment (CLAUDECODE, CLAUDE_CODE_SESSION_ID) and is known by
 // its session id, `claude:<id>`. While it works it writes its transcript
 // $CLAUDE_CONFIG_DIR (or ~/.claude)/projects/<dir>/<session id>.jsonl; it reads skills from .claude/skills.
 
@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type {AgentTool} from '../../core/agents/ports/index.ts'
-import {UUID, mtime, newestFirst} from '../tool-traces/index.ts'
+import {UUID, mtime, newestFirst} from '../agent-traces/index.ts'
 
 const transcript = (id: string): string | null => {
   const root = path.join(process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), '.claude'), 'projects')
