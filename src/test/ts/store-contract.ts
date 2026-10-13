@@ -20,15 +20,19 @@ const scratch = (t: TestContext): string => {
   return d
 }
 const roomText = (name: string) => compose(`room ${name}`, [['To', '*'], ['Kind', 'room'], ['Room-Id', crypto.randomBytes(16).toString('hex')]])
-const CONTROL = {'ROOM.md': '# r\n', 'members.json': '{"operator":{"role":"root"}}\n', 'profile.json': '{}\n'}
+// A signed store's room starts with its signers, the root alone, and admits each writer's key.
+const control = (s: Store) => ({'ROOM.md': '# r\n', 'members.json': '{"operator":{"role":"root"}}\n', 'profile.json': '{}\n',
+  ...(s.trust === 'signed' ? {allowed_signers: s.rootRoster!()} : {})})
 const say = (subject: string) => compose(subject, [['To', '*']])
 const room = (s: Store, name: string): StoredRoom => s.room(name) ?? assert.fail(`room ${name} is not there`)
 const texts = (s: Store, r: StoredRoom, who: string) => s.messages(r, who, s.logHead(r, who)!).map(m => m.text.toString('utf8'))
 
 export const storeContract = (type: string, make: Factory): void => { describe(`store contract: ${type}`, () => {
+  // A room with alice and bob writing in it.
   const fresh = (t: TestContext) => {
-    const f = make(scratch(t))
-    f.store.createRoom('r', 'operator', roomText('r'), CONTROL)
+    const f = make(scratch(t)), s = f.store
+    s.createRoom('r', 'operator', roomText('r'), control(s))
+    if (s.trust === 'signed') for (const who of ['alice', 'bob']) s.admit!(room(s, 'r'), who, s.joinKey!(room(s, 'r'), who).publicKey)
     return f
   }
 
@@ -40,7 +44,7 @@ export const storeContract = (type: string, make: Factory): void => { describe(`
     assert.equal(store.logHead(room(store, 'r'), 'alice'), id)
     store.deleteRoom(room(store, 'r'))
     assert.equal(store.room('r'), null)
-    store.createRoom('r', 'operator', roomText('r'), CONTROL)
+    store.createRoom('r', 'operator', roomText('r'), control(store))
     assert.notEqual(room(store, 'r').genesis, r.genesis)
   })
 
@@ -120,8 +124,8 @@ export const storeContract = (type: string, make: Factory): void => { describe(`
     const {store} = fresh(t)
     if (!store.heartbeat || !store.heartbeats) return t.skip(`${type} keeps no presence`)
     const id = store.append(room(store, 'r'), 'alice', say('working'), [])
-    store.heartbeat(room(store, 'r'), 'alice', id, 'State: working\n')
-    store.heartbeat(room(store, 'r'), 'alice', id, 'State: waiting\n')
+    store.heartbeat(room(store, 'r'), 'alice', id, 'State: working\nAlive: yes\nNext: 30\n')
+    store.heartbeat(room(store, 'r'), 'alice', id, 'State: waiting\nAlive: yes\nNext: 30\n')
     const beats = store.heartbeats(room(store, 'r'))
     assert.equal(beats.length, 1)
     assert.match(beats[0].text, /State: waiting/)
