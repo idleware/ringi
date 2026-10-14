@@ -5,13 +5,15 @@
 import {fail} from '../../../lib/fail.ts'
 import type {LocalState} from './state.ts'
 import type {Transport} from './store.ts'
+import type {AccessType} from './access.ts'
 
 export type {Key, LocalState} from './state.ts'
 
 // What this build is: its version, and where its resources (profiles, the skill) are.
 export type Build = {version: string, resources: string}
-// The store types by name (hub.json names one), in the order they are listed; a new hub gets `store`.
-export type HubPorts = {build: Build, state: LocalState, transports: Record<string, Transport>, store: string}
+// The store types by name (hub.json names one), in the order they are listed; a new hub gets `store`. The access types
+// by name, for hubs whose rooms a medium keeps.
+export type HubPorts = {build: Build, state: LocalState, transports: Record<string, Transport>, store: string, access?: Record<string, AccessType>}
 
 let wired: HubPorts | null = null
 export const wireHub = (p: HubPorts): void => { wired = p }

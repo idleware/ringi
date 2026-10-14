@@ -17,14 +17,18 @@ const sameEndpoint = (name: string, old: RoomEndpoint | null, next: RoomEndpoint
   const identity = old.genesis === next.genesis && old.hubGenesis === next.hubGenesis
   if (!identity || old.store.path !== next.store.path) fail(`room ${name}: an endpoint already pins another history; nothing is replaced`)
 }
-export const createRoom = (H: Hub, name: string, {who, text, files, remote}: {who: string, text: string, files: Record<string, string>, remote?: string}): Room =>
+// Where a room lives besides here: its remote, how this machine reaches it over SSH (`authRef`) and the host's pinned keys.
+type Reach = {remote?: string, authRef?: string, hostKeys?: string[]}
+const newEndpoint = (H: Hub, name: string, {remote, authRef, hostKeys}: Reach): RoomEndpoint => ({schema: 'ringi-room/1', name,
+  hubGenesis: H.d.genesis, genesis: '', store: {path: 'store', ...(remote ? {remote} : {})}, ...(authRef ? {authRef} : {}), ...(hostKeys?.length ? {hostKeys} : {})})
+export const createRoom = (H: Hub, name: string, {who, text, files, ...reach}: {who: string, text: string, files: Record<string, string>} & Reach): Room =>
   locked('room-names', () => locked(roomLock(H, name), () => {
     checkName(H, name)
-    if (remote && !H.signed) fail('a remote room requires a signed hub')
+    if (reach.remote && !H.signed) fail('a remote room requires a signed hub')
     const st = hubPorts().state
     if (st.list(['hub', H.name, 'rooms']).includes(name)) fail(`room ${name} exists; an unregistered repository is retained for review`)
     const {store: source} = openContract(H)
-    const endpoint: RoomEndpoint = {schema: 'ringi-room/1', name, hubGenesis: H.d.genesis, genesis: '', store: {path: 'store', ...(remote ? {remote} : {})}}
+    const endpoint = newEndpoint(H, name, reach)
     const store = transportFor(H, endpoint).fork(roomDir(H, name), H.d, source, endpoint)
     endpoint.genesis = store.createRoom(name, who, text, files)
     const R = openedRoom(H, endpoint, store)

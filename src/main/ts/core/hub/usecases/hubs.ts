@@ -3,6 +3,7 @@
 import {DEFAULT_PROFILE, PROFILES_CAPABILITY, parseProfile} from '../work/index.ts'
 import {OPERATOR, amendContract, createHub, hubNames, openContract, openHub, roomNames} from '../rooms/index.ts'
 import {hubPorts} from '../ports/index.ts'
+import {accessOf, spaceFor} from './access.ts'
 import type {Store} from '../ports/store.ts'
 import type {Hub} from '../rooms/index.ts'
 import {fail, strictJson, withoutCredentials, words} from '../../../lib/index.ts'
@@ -24,12 +25,18 @@ export const hubs = (): HubView[] => {
       rooms: roomNames(H).length, remote: shown(H.d.contract?.remote), dir: H.dir}
   })
 }
-// A new hub; a signed one makes its root key here. Agents elsewhere never attach the hub: each joins its room.
-export const create = (name: string, {signed = false, url}: {signed?: boolean, url?: string} = {}): {H: Hub, rootKey: string | null, remote: string | null} => {
-  if (!ID_RE.test(name)) fail('usage: ringi hub create <name> [--signed [--url <git url>]]')
+export type HubInput = {signed?: boolean, url?: string, forge?: string, authFile?: string, hostKeyFile?: string}
+// A new hub; a signed one makes its root key here. Agents elsewhere never attach the hub: each joins its room. With
+// `forge`, its rooms are made in that space, checked before the hub is.
+export const create = async (name: string, {signed = false, url, forge, authFile, hostKeyFile}: HubInput = {}) => {
+  if (!ID_RE.test(name)) fail('usage: ringi hub create <name> [--signed [--url <address>] [--forge <space> --auth-file <file> --host-key-file <file>]]')
+  const made = await spaceFor({signed, url, forge, authFile, hostKeyFile})
   const {custody} = createHub(name, {signed, url})
+  if (made) hubPorts().state.write(['hub', name, 'hub'], {...openHub(name).d, access: made.access})
   const H = openHub(name)
-  return {H, rootKey: custody, remote: shown(H.d.contract?.remote)}
+  // The root pushes to the forge as the operator's account: its key goes there.
+  if (made) await accessOf(H)!.ownKey(H.d.root!)
+  return {H, rootKey: custody, remote: shown(H.d.contract?.remote), space: made && {address: shown(made.access.address), principal: made.principal, version: made.version}}
 }
 export type AmendInput = {text: string, set?: string[], files?: Array<{path: string, content: Buffer}>}
 type Contract = Record<string, unknown>

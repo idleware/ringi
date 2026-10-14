@@ -8,6 +8,7 @@ import {OPERATOR, RESERVED_ROOMS, ROOM_MD, config, createRoom, deleteRoom, hubNa
 import type {Hub, Room} from '../rooms/index.ts'
 import {Fail, fail, note} from '../../../lib/index.ts'
 import {invite} from './invite.ts'
+import {NO_MANUAL_SSH, accessOf, overSsh} from './access.ts'
 import {ID_RE, compose} from '../protocol/index.ts'
 
 export {admit, forgetLog} from './roster.ts'
@@ -36,8 +37,9 @@ export const rooms = (): RoomView[] => {
 }
 // A room carries its profile from the start: later changes to the hub's profiles do not reach it.
 // `quorum`: the room's work starts by itself once it has that many agents; until then a join waits.
-// `url`: a signed hub publishes the room's repository there; the result says how an agent elsewhere joins it.
-export const create = (H: Hub, name: string, {profile, quorum, url}: {profile?: string, quorum?: number, url?: string} = {}): {profile: string, join: string | null} => {
+// `url`: a signed hub publishes the room's repository there; on a hub whose rooms a forge keeps, the forge makes it.
+// The result says how an agent elsewhere joins it.
+export const create = async (H: Hub, name: string, {profile, quorum, url}: {profile?: string, quorum?: number, url?: string} = {}): Promise<{profile: string, join: string | null}> => {
   if (!ID_RE.test(name) || RESERVED_ROOMS.has(name)) fail(`usage: ringi room create <id> [--profile <name>] [--quorum <agents>] (an id like fix-badge; not ${[...RESERVED_ROOMS].join(', ')})`)
   if (quorum !== undefined && !(Number.isSafeInteger(quorum) && quorum >= 1 && quorum <= 99)) fail('--quorum takes a number of agents, 1 to 99')
   const contract = openContract(H)
@@ -50,7 +52,10 @@ export const create = (H: Hub, name: string, {profile, quorum, url}: {profile?: 
   // The genesis names the room; a random id makes it unique, so a room deleted and created again is a different room.
   const genesis = compose(`room ${name}`, [['To', '*'], ['Kind', 'room'], ['Room-Id', crypto.randomBytes(16).toString('hex')],
     ...(quorum ? [['Quorum', String(quorum)] as [string, string]] : [])])
-  const R = createRoom(H, name, {who: OPERATOR, text: genesis, files, remote: url})
+  if (overSsh(url) && !H.d.access) fail(NO_MANUAL_SSH)
+  const remote = url ?? (await accessOf(H)?.ensureRoom(name))?.address
+  // Over SSH the root's own key reaches it, the forge's host keys pinned.
+  const R = createRoom(H, name, {who: OPERATOR, text: genesis, files, remote, ...(overSsh(remote) ? {authRef: `ringi-key:${H.name}/${OPERATOR}`, hostKeys: H.d.access?.hostKeys} : {})})
   setConfig({room: name})
   const line = invite(R)
   return {profile: p, join: line ? `ringi join ${line} --as <agent>` : null}

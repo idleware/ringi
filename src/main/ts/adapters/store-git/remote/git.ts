@@ -11,6 +11,7 @@ import {withVerification} from './cache.ts'
 import {BASE, command} from './process.ts'
 import type {CommandOpt, Handle} from './types.ts'
 import {ACCEPT, TRACK} from './types.ts'
+import {withTransportAuth} from '../auth.ts'
 
 export const reason = (e: unknown): string => e instanceof Error ? e.message : String(e)
 
@@ -31,6 +32,12 @@ export function git(H: Handle, args: string[], opt?: CommandOpt): string
 
 export function git(H: Handle, args: string[], opt?: CommandOpt): string | Buffer | SpawnSyncReturns<string> {
   return command('git', ['--git-dir', H.dir, ...BASE, ...args], opt)
+}
+
+export function networkGit(H: Handle, args: string[], opt: CommandOpt & {ok: true}): SpawnSyncReturns<string>
+export function networkGit(H: Handle, args: string[], opt?: CommandOpt): string
+export function networkGit(H: Handle, args: string[], opt: CommandOpt = {}): string | SpawnSyncReturns<string> {
+  return withTransportAuth(H, env => command('git', ['--git-dir', H.dir, ...BASE, ...args], {...opt, sshAccess: origin(H)?.startsWith('ssh://'), env: {...opt.env, ...env}})) as string | SpawnSyncReturns<string>
 }
 
 export const config = (H: Handle, key: string, value?: string): string => value === undefined

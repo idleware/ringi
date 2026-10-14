@@ -217,9 +217,11 @@ in different directories apart. So the home is one place with one grant:
   `git+file://…` (the part before `+`, or the whole scheme for a type that has its own); the rest is that type's own
   locator. An address that names no type is refused, never guessed.
 - `ringi hub create <name> --signed --url <address>` makes the root key on this machine and publishes the contract.
-  `ringi room create <room> --hub <name> --url <address>` publishes the room's repository and prints its **invitation**, `ringi:`
-  and base64url JSON `{schema: ringi-invite/1, room, address, genesis, hubGenesis, trust, root}`: the room's address, its
-  genesis, the hub's genesis and the root's public key, nothing secret. It comes from the operator, out of band: a
+  `ringi room create <room> --hub <name> --url <address>` publishes the room's repository (by hand, a `git+https://`
+  or `git+file://` address; an SSH address needs its host's keys pinned and a key bound to it, which only a hub on a
+  forge keeps, so it is refused here) and prints its **invitation**, `ringi:`
+  and base64url JSON `{schema: ringi-invite/2, room, address, genesis, hubGenesis, trust, root, hostKeys?}`: the room's address,
+  its genesis, the hub's genesis, the root's public key and the pinned keys of the address's host, nothing secret. It comes from the operator, out of band: a
   key the room advertises cannot authenticate itself, and the genesis pins stop another room or hub signed by the
   same root. An agent's machine joins by it (`ringi join ringi:… --as <id>`) and keeps the hub only as the pins its
   rooms share; it never needs the contract's own repository.
@@ -227,8 +229,9 @@ in different directories apart. So the home is one place with one grant:
   public key and takes no seat. The operator runs `ringi room admit <agent> '<key>' --room <room>`; the agent joins
   again. Private keys never travel.
 - The default `keys-file` adapter owns those files. The Git transport requires an injected `Signer` for public
-  identity and for all commit, admission, signal and heartbeat signatures; it never reads a private-key path or
-  falls back to Git's file-key signing. Returned signatures are verified before any ref moves. Asserted hubs do
+  identity and for all commit, admission, signal and heartbeat signatures; for signing it never reads a private-key
+  path or falls back to Git's file-key signing (which key an SSH connection uses is the transport provider's to say,
+  see Rooms on a forge). Returned signatures are verified before any ref moves. Asserted hubs do
   not construct a signer.
 - Only the root signs `main` and the control records; each message is signed by the key the room's `allowed_signers`
   assigned to that literal principal at the preceding verified control record, and `members.json` agrees with it.
@@ -255,6 +258,40 @@ in different directories apart. So the home is one place with one grant:
   positive integer) to change it; an invalid value is refused before git runs, and a timeout names the setting.
 - Not yet on signed hubs: member removal, key rotation and revocation, freezes, seals, automatic repair. A remote can still withhold valid data: signatures give authorship and integrity, not completeness,
   availability or confidentiality.
+
+## Rooms on a forge
+
+A signed hub may keep its rooms in a space on a forge: `ringi hub create team --signed --forge
+forgejo+https://forge.example/ringi --auth-file <file> --host-key-file <file>`. The space is an address whose scheme
+names the medium's access adapter (`core/hub/ports/access.ts`), the auth file holds the API token of the operator's
+account there (only its owner may read it; ringi never writes one), and the host key file the forge's SSH host keys as
+known_hosts lines, which every SSH connection to it pins. The credentials are checked before the hub is made.
+
+- `room create fix --hub team` makes the room's repository there, private, and publishes the room to it; its
+  invitation carries the address and the pinned host keys.
+- What may push where, as the forge enforces it:
+
+  | Ref | Writers |
+  |---|---|
+  | `main` | the root's account |
+  | `chat` | the root's account and each admitted actor's |
+  | `operator/signals`, `operator/telemetry` | the root's account |
+  | `<actor>/signals`, `<actor>/telemetry` | that actor's account |
+  | any other branch, every tag | nobody |
+
+  Each actor writes through its own account: a writable deploy key would be allowed on a protected branch together
+  with every other one, so it cannot keep one actor to its streams. Who may write a control record or sign a message
+  stays the room's signed history's to say; these rules only keep the rest out.
+- `room admit claude '<key>' --as claude-zurich` admits the key in the room's signed history, then gives the account
+  the repository, the chat and claude's streams, and puts the key on the account if the operator's token may (an
+  admin's); otherwise it says where to add it. Then it reads the rules back: what the forge does not enforce is
+  reported, never assumed. One account per actor; the root's account is no actor's.
+- An agent's machine reaches the room with the agent's own ringi key (`ringi-key:<hub>/<agent>`), the one its first
+  join made; nothing in `~/.ssh` is read or changed. Before its admission the forge refuses that key the room: the
+  join shows the key to admit and keeps nothing of the room; only an explicit SSH access refusal reads so, any other
+  failure is reported as it is.
+- `room delete fix --yes --server` deletes the repository on the forge too; without `--server`, only this machine's
+  copy.
 
 ## Compatibility and acceptance
 

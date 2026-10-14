@@ -7,19 +7,19 @@ import {validateRef} from './push-validate.ts'
 import {branchData} from './branch.ts'
 import {readCommits} from './commits.ts'
 import {verifyMain} from './main.ts'
-import {ancestor, git, promote, rev, tracking, zero} from './git.ts'
+import {ancestor, git, networkGit, promote, rev, tracking, zero} from './git.ts'
 import {streamName} from './streams.ts'
 import type {Publication} from './push.ts'
 
 const fetchIncoming = ({H, ref, track, url, sha, acc}: Publication): string => {
-  git(H, ['-c', 'fetch.fsckObjects=true', 'fetch', '-q', '--no-tags', url, `+${ref}:${track}`])
-  git(H, ['-c', 'fetch.fsckObjects=true', 'fetch', '-q', '--no-tags', url, `+refs/heads/main:${tracking('refs/heads/main')}`])
+  networkGit(H, ['-c', 'fetch.fsckObjects=true', 'fetch', '-q', '--no-tags', url, `+${ref}:${track}`])
+  networkGit(H, ['-c', 'fetch.fsckObjects=true', 'fetch', '-q', '--no-tags', url, `+refs/heads/main:${tracking('refs/heads/main')}`])
   const main = rev(H, tracking('refs/heads/main')) ?? C.fail('remote main is missing')
   verifyMain(H, main)
   if (H.endpoint && readCommits(H, [H.endpoint.genesis])[0].parents[0] !== main) C.fail('the room main changed its frozen contract')
   promote(H, 'refs/heads/main', main)
   if (streamName(ref)) {
-    git(H, ['-c', 'fetch.fsckObjects=true', 'fetch', '-q', '--no-tags', url, `+refs/heads/chat:${tracking('refs/heads/chat')}`])
+    networkGit(H, ['-c', 'fetch.fsckObjects=true', 'fetch', '-q', '--no-tags', url, `+refs/heads/chat:${tracking('refs/heads/chat')}`])
     const chat = rev(H, tracking('refs/heads/chat')) ?? C.fail('remote chat is missing')
     const endpoint = H.endpoint ?? C.fail('stream retry requires its room endpoint')
     branchData(H, endpoint.name, chat, endpoint.genesis); promote(H, 'refs/heads/chat', chat)

@@ -7,13 +7,13 @@ import {about} from '../../core/hub/usecases/context.ts'
 // [command, who runs it, what it does]: the one table behind `ringi help` and COMMANDS.md.
 export const TABLE: Array<[string, 'operator' | 'session' | 'agent' | 'both', string]> = [
   ['hub [list]', 'operator', 'the hubs; `local` exists by default'],
-  ['hub create <name> [--signed [--url <address>]]', 'operator', 'another hub: asserted senders, or signed with a root key made on this machine; --url publishes its contract (an address names its store: git+ssh://…, git+https://…, git+file://…)'],
+  ['hub create <name> [--signed [--url <address>] [--forge <space> --auth-file <file> --host-key-file <file>]]', 'operator', 'another hub: asserted senders, or signed with a root key made on this machine; --url publishes its contract (an address names its store: git+https://… or git+file://…); --forge: its rooms are made in that space (forgejo+https://forge/org), through your account whose API token the file holds, its host keys pinned from the known_hosts file'],
   ['hub amend [--hub <name>] -m <subject> [--set <key>=<value>]... [--attach <file>:profiles/<name>.json]...', 'operator', 'refine the shared contract (of hub local unless named): version, capabilities, default profile, profiles; rooms made from then on follow it'],
   ['room list', 'operator', 'the rooms on this machine; a room\'s name is unique here, whatever hub keeps it'],
   ['room create <id> [--hub <name>] [--profile <name>] [--quorum <agents>] [--url <address>]', 'operator', 'a room for one piece of work, in its own repository (in hub local unless named), following a profile; becomes the current room; --quorum: its work starts by itself once that many agents joined (1: at once); --url: a signed hub publishes the room there and prints the join line for agents elsewhere'],
   ['room switch <id>', 'operator', 'change the terminal\'s current room; agents stay where they are'],
-  ['room admit <agent> <public key|file>', 'operator', 'signed hubs: admit the key an agent made on its own machine'],
-  ['room delete [<id>] --yes', 'operator', 'erase a room\'s store on this machine (default: the current room) and everything kept for it; its sessions leave on their own'],
+  ['room admit <agent> <public key|file> [--as <account>]', 'operator', 'signed hubs: admit the key an agent made on its own machine; on a forge, --as names its account there, which gets the room, the chat and its own streams'],
+  ['room delete [<id>] --yes [--server]', 'operator', 'erase a room\'s store on this machine (default: the current room) and everything kept for it; --server: its repository on the forge too; its sessions leave on their own'],
   ['where [-n n] [--short] [--follow]', 'operator', 'the room, its hub and contract, sessions (active, stopped, gone), open work, latest messages'],
   ['send -m <subject> [-m <body>]... [--to <ids>] [--task] [--re <msg>] [--state <s>] [--assign <ids>] [--roles <id>=<label>,...] [--attach <src>[:<dest>]]...', 'operator', 'a message as operator; without --to it goes to the room and wakes nobody; --task opens work of the room\'s profile'],
   ['tasks [--all] | log [-n n] | read <msg> | thread <msg> | cat <msg> [<path>] | get <msg> [-o <dir>]', 'both', 'reading the room (agents: ringi agent …)'],

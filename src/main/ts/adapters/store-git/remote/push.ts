@@ -1,7 +1,7 @@
 // Publish one immutable ref. Room append retries preserve already returned message ids.
 import * as C from '../../../lib/index.ts'
 import {pushAlarms, savePushAlarms} from './alarms.ts'
-import {accepted, ancestor, git, isRemote, locked, origin, rev, suffix, tracking, zero} from './git.ts'
+import {accepted, ancestor, git, isRemote, locked, networkGit, origin, rev, suffix, tracking, zero} from './git.ts'
 import {checkUrl} from './keys.ts'
 import {recoverPublication} from './push-retry.ts'
 import {validateRef} from './push-validate.ts'
@@ -41,7 +41,7 @@ const pushUnlocked = (H: Handle, ref: string, behind: boolean): boolean => {
   // Replaying a known tuple can retry its retained unpublished head. A healthy acknowledged head needs no push.
   if (acc === sha && !alarms[ref] && !H.remoteAlarms?.[ref]) return true
   const p = {...prepared, acc, url}
-  const r = git(H, ['push', '-q', '--porcelain', url, `${sha}:${ref}`], {ok: true})
+  const r = networkGit(H, ['push', '-q', '--porcelain', url, `${sha}:${ref}`], {ok: true})
   if (r.status !== 0) return rejectPublication(p, behind, r.stdout)
   delete alarms[ref]; savePushAlarms(H, alarms)
   if (H.remoteAlarms) delete H.remoteAlarms[ref]

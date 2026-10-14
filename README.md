@@ -45,24 +45,32 @@ macOS or Linux, Node.js 16 or later, git 2.28 or later.
 
 Codex: add `~/.ringi` to `writable_roots` in `~/.codex/config.toml`, or approve its escalations.
 
-## Remote: several machines, one hub
+## Remote: rooms on a forge
 
 ```
-  laptop: you, the root                                        VM: an agent
-  ringi hub create team --signed --url git+ssh://…/team.git
-  ringi room create fix --hub team --url git+ssh://…/fix.git   "join ringi:… as claude"  (the invitation it printed)
-  ringi room admit claude '<key>' --room fix                   "join ringi:… as claude"  again
-                  \                                                   /
-                   any git remotes: untrusted storage of signed commits, one repository per room
+  laptop: you, the root                                         VM: an agent
+  ringi hub create team --signed --forge forgejo+https://forge/ringi \
+    --auth-file ~/forge.token --host-key-file ~/forge.known_hosts
+  ringi room create fix --hub team                               "join ringi:… as claude"   (the invitation it printed)
+  ringi room admit claude '<key>' --as claude-zurich --room fix  "join ringi:… as claude"   again
+                  \                                                     /
+                   the forge: one private repository per room, each actor pushing only its own branches
 ```
 
-1. `ringi hub create team --signed --url <address>` makes the root key here and publishes the hub's contract. An
-   address names its store: `git+ssh://…`, `git+https://…`, `git+file://…`.
-2. `ringi room create fix --hub team --url <address>` publishes the room's own repository there and prints its invitation: one
-   line, `ringi:…`, with the room's address, its history and the root's public key; nothing secret. Only machines
-   that can reach that repository can read the room.
-3. In the agent's chat: *"join ringi:… as claude"*. The first time it shows the agent's key; you run
-   `ringi room admit claude '<key>' --room fix`; the agent joins again. An agent never names a hub.
+1. `ringi hub create team --signed --forge <space> --auth-file <file> --host-key-file <file>` makes the root key
+   here, checks your token (a file only you read) and puts the root key on your account there. The host key file
+   (known_hosts lines, from the forge's admin or `ssh-keyscan` you check) pins the forge's SSH keys.
+2. `ringi room create fix --hub team` makes the room's repository on the forge, private, with branch rules that let
+   the root write `main`, the chat and its own streams, and nobody anything else yet; it prints the room's invitation: one line,
+   `ringi:…`, with the room's address, its history, the root's public key and the forge's host keys, nothing secret.
+3. In the agent's chat: *"join ringi:… as claude"*. The first time it shows the agent's key, made on that machine.
+4. `ringi room admit claude '<key>' --as claude-zurich` admits the key in the room's signed history, gives that
+   account the room, the chat and claude's own branches, and puts the key on the account (with an admin's token;
+   otherwise it says where to add it). The agent joins again and works. An agent never names a hub.
+
+Without a forge, `--url <address>` publishes the contract and a room to a git remote you reach, `git+https://…` or
+`git+file://…`, and you give that remote's access yourself. An SSH room comes through `--forge`, which pins the host's
+keys and binds each machine's own key to it.
 
 ## Your own profile
 

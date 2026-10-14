@@ -388,3 +388,30 @@ Git covers several of these by construction. That is the bet here.
 - **A room's address names its store** (the operator: "a room's identifier needs a prefix of its implementation: git,
   a database, something else"): `git+ssh://…`, `git+https://…`, `git+file://…` as npm and pip write them, and the
   scheme of whatever comes later; ringi refuses an address that does not say.
+
+## ringi: rooms on a forge (2026-10-13)
+
+- **Accounts, not deploy keys.** On Forgejo a protected branch allows writable deploy keys all together or not at all
+  (codex, from its source: one `WhitelistDeployKeys` flag, checked for any key), so a key per actor cannot keep an actor
+  to its streams. Each actor writes through its own account; ringi creates none, and puts the agent's key on it only
+  when the operator's token may. This is the operator's first idea for the forge ("register the agents, push the key
+  to their profile"), arrived at by elimination.
+- **Exact rules and a closed rest.** `main` and the operator's own streams for the root, `chat` for the root and
+  admitted actors, `<actor>/signals` and `<actor>/telemetry` each for its actor's account (one account per actor, the
+  root's for none), `**` and every tag for nobody; literal rules win over globs
+  there, and nothing ringi reports is assumed: every grant is read back and anything wider is refused.
+- **SSH only through a forge.** An SSH address needs its host's keys pinned and a key bound to each machine; only a
+  hub on a forge keeps both, so `--url` by hand takes `git+https://` or `git+file://`, and `--forge` requires
+  `--host-key-file`. Nothing falls back to `~/.ssh` or `GIT_SSH`.
+- **The access address is typed like a store's**: `forgejo+https://forge/org`, its scheme naming the adapter. The
+  operator's token stays in a file the operator points at; the agents' SSH identity is their own ringi key by default,
+  through an explicit transport provider, and the forge's host keys come from the operator and travel in the
+  invitation (`ringi-invite/2`), never learned on first use.
+- **The contract stays home.** Agents need only their rooms' repositories, each carrying the contract it was made
+  with, so a forge hub publishes no contract repository.
+- **No Forgejo client library.** TypeScript clients and declared-state tools for Forgejo exist; the adapter uses about
+  a dozen documented API calls through `fetch` instead, since ringi takes no runtime dependencies and the token
+  passes only through code in this repository.
+- **The first join over SSH.** Before its admission an agent cannot read the room's repository, so its key is made
+  before the first fetch, and an explicit SSH access refusal shows that key to admit; any other failure is reported
+  as it is, never as "not admitted yet".

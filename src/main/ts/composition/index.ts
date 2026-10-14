@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {notesTo} from '../lib/index.ts'
+import {fail, notesTo} from '../lib/index.ts'
 import {wireHub} from '../core/hub/ports/index.ts'
 import type {Build} from '../core/hub/ports/index.ts'
 import {wireAgents} from '../core/agents/ports/index.ts'
@@ -17,6 +17,8 @@ import {cursor} from '../adapters/agent-cursor/index.ts'
 import {hostPosix} from '../adapters/host-posix/index.ts'
 import {keysFile} from '../adapters/keys-file/index.ts'
 import {gitTransport} from '../adapters/store-git/transport.ts'
+import type {TransportAuth} from '../adapters/store-git/transport.ts'
+import {forgejoAccess} from '../adapters/access-forgejo/index.ts'
 
 // The package this file belongs to, run from its source (src/main/ts) or its build (target/esm).
 const packageOf = (dir: string): string => fs.existsSync(path.join(dir, 'package.json')) ? dir : packageOf(path.dirname(dir))
@@ -27,9 +29,19 @@ export const build: Build = {
 }
 const root = path.resolve(process.env.RINGI_HOME || path.join(os.homedir(), '.ringi'))
 
+// How the git store reaches a room over SSH, by the reference its endpoint names: `ringi-key:<hub>/<agent>`, this
+// machine's ringi key of that agent, so a joined agent needs nothing else; `file:<path>`, an identity file;
+// `agent:<socket>#<public key>`, a key an ssh-agent holds.
+const auth: TransportAuth = {resolve: ref => {
+  const key = /^ringi-key:([^/]+)\/([^/]+)$/.exec(ref)
+  if (key) return {type: 'file', path: keysFile(root).custody!(key[1], key[2])!}
+  if (ref.startsWith('file:')) return {type: 'file', path: ref.slice('file:'.length)}
+  const agent = /^agent:([^#]+)#(.+)$/.exec(ref)
+  return agent ? {type: 'agent', socket: agent[1], publicKey: agent[2]} : fail(`no SSH identity ${ref}: ringi-key:<hub>/<agent>, file:<path> or agent:<socket>#<public key>`)
+}}
 // The git store signs with keys kept as files under the home, made only for a signed hub.
-const transports = {git: gitTransport(root, {signer: () => keysFile(root)})}
-wireHub({build, state: stateFs({root, build}), transports, store: 'git'})
+const transports = {git: gitTransport(root, {signer: () => keysFile(root), auth})}
+wireHub({build, state: stateFs({root, build}), transports, store: 'git', access: {forgejo: forgejoAccess}})
 // In the order a session is recognised by.
 wireAgents({tools: [claude, codex, cursor], host: hostPosix()})
 notesTo(line => { process.stderr.write(line) })

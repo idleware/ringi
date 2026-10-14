@@ -5,13 +5,13 @@ One table. **operator**: the human in a terminal, in the current hub and room. *
 | command | who | what |
 |---|---|---|
 | `ringi hub [list]` | operator | the hubs; `local` exists by default |
-| `ringi hub create <name> [--signed [--url <address>]]` | operator | another hub: asserted senders, or signed with a root key made on this machine; --url publishes its contract (an address names its store: git+ssh://…, git+https://…, git+file://…) |
+| `ringi hub create <name> [--signed [--url <address>] [--forge <space> --auth-file <file> --host-key-file <file>]]` | operator | another hub: asserted senders, or signed with a root key made on this machine; --url publishes its contract (an address names its store: git+https://… or git+file://…); --forge: its rooms are made in that space (forgejo+https://forge/org), through your account whose API token the file holds, its host keys pinned from the known_hosts file |
 | `ringi hub amend [--hub <name>] -m <subject> [--set <key>=<value>]... [--attach <file>:profiles/<name>.json]...` | operator | refine the shared contract (of hub local unless named): version, capabilities, default profile, profiles; rooms made from then on follow it |
 | `ringi room list` | operator | the rooms on this machine; a room's name is unique here, whatever hub keeps it |
 | `ringi room create <id> [--hub <name>] [--profile <name>] [--quorum <agents>] [--url <address>]` | operator | a room for one piece of work, in its own repository (in hub local unless named), following a profile; becomes the current room; --quorum: its work starts by itself once that many agents joined (1: at once); --url: a signed hub publishes the room there and prints the join line for agents elsewhere |
 | `ringi room switch <id>` | operator | change the terminal's current room; agents stay where they are |
-| `ringi room admit <agent> <public key\|file>` | operator | signed hubs: admit the key an agent made on its own machine |
-| `ringi room delete [<id>] --yes` | operator | erase a room's store on this machine (default: the current room) and everything kept for it; its sessions leave on their own |
+| `ringi room admit <agent> <public key\|file> [--as <account>]` | operator | signed hubs: admit the key an agent made on its own machine; on a forge, --as names its account there, which gets the room, the chat and its own streams |
+| `ringi room delete [<id>] --yes [--server]` | operator | erase a room's store on this machine (default: the current room) and everything kept for it; --server: its repository on the forge too; its sessions leave on their own |
 | `ringi where [-n n] [--short] [--follow]` | operator | the room, its hub and contract, sessions (active, stopped, gone), open work, latest messages |
 | `ringi send -m <subject> [-m <body>]... [--to <ids>] [--task] [--re <msg>] [--state <s>] [--assign <ids>] [--roles <id>=<label>,...] [--attach <src>[:<dest>]]...` | operator | a message as operator; without --to it goes to the room and wakes nobody; --task opens work of the room's profile |
 | `ringi tasks [--all] \| log [-n n] \| read <msg> \| thread <msg> \| cat <msg> [<path>] \| get <msg> [-o <dir>]` | both | reading the room (agents: ringi agent …) |

@@ -1,7 +1,7 @@
 // Fetch into staging refs; verify main, the pinned chat, and actor stream prefixes before promotion.
 import * as C from '../../../lib/index.ts'
 import {pushAlarms} from './alarms.ts'
-import {git, isRemote, locked, origin, promote, reason, refs, rev, suffix} from './git.ts'
+import {isRemote, locked, networkGit, origin, promote, reason, refs, rev, suffix} from './git.ts'
 import {checkUrl} from './keys.ts'
 import {verifyHub, verifyMain} from './main.ts'
 import {readCommits} from './commits.ts'
@@ -27,7 +27,7 @@ const syncUnlocked = (H: Handle): Handle => {
   const url = origin(H)
   if (!url) {if (rev(H, 'refs/heads/main')) verifyHub(H); return H}
   checkUrl(url)
-  git(H, ['-c', 'fetch.fsckObjects=true', 'fetch', '-q', '--no-tags', '--prune', url, `+refs/heads/*:${TRACK}*`])
+  networkGit(H, ['-c', 'fetch.fsckObjects=true', 'fetch', '-q', '--no-tags', '--prune', url, `+refs/heads/*:${TRACK}*`])
   const fetched = refs(H, TRACK)
   const main = fetched.get(TRACK + 'main') || C.fail('ALARM remote main was deleted or is missing; nothing is delivered')
   try {

@@ -2,7 +2,7 @@
 
 import {locked} from '../../hub/ports/index.ts'
 import type {Hub, Room} from '../../hub/rooms/index.ts'
-import {OPERATOR, attachRoom, adoptHub, controlChange} from '../../hub/rooms/index.ts'
+import {OPERATOR, attachRoom, adoptHub, controlChange, storeOf, transportOf} from '../../hub/rooms/index.ts'
 import {roomNamed} from '../../hub/usecases/rooms.ts'
 import {readInvite} from '../../hub/usecases/invite.ts'
 import {fail, note, stamp} from '../../../lib/index.ts'
@@ -16,18 +16,33 @@ export type JoinInput = {room: string, agent?: string, scope?: string}
 
 export type JoinResult = {agent: string, hub: string, room: string} & ({session: Session, key: null} | {session: null, key: JoinKey})
 
-// The room an invitation names, attached on first use; or the one room of that name on this machine.
-const roomFor = (target: string): Room => {
+type Pending = {hub: string, room: string, key: JoinKey}
+// The room an invitation names, attached on first use, reached with this machine's key of the agent; or the one room of
+// that name on this machine. A room the medium does not let this agent read yet is pending: its key, made here, is
+// what the root admits.
+const roomFor = (target: string, agent: string): Room | Pending => {
   const x = readInvite(target)
-  if (x) return attachRoom(adoptHub({trust: x.trust, root: x.root, genesis: x.hubGenesis}), x.room,
-    {schema: 'ringi-room/1', name: x.room, hubGenesis: x.hubGenesis, genesis: x.genesis, store: {path: 'store', remote: x.address}})
-  return roomNamed(target)
+  if (!x) return roomNamed(target)
+  const H = adoptHub({trust: x.trust, root: x.root, genesis: x.hubGenesis})
+  // Over SSH the agent's own key, made here before the first fetch, reaches the room; another transport (a local file)
+  // needs none.
+  const {type, locator} = storeOf(x.address)
+  const id = locator.startsWith('ssh://') ? transportOf(H.name, type).identity?.(H.d, agent) ?? fail(`a ${type} store cannot show ${agent}'s key`) : null
+  try {
+    return attachRoom(H, x.room, {schema: 'ringi-room/1', name: x.room, hubGenesis: x.hubGenesis, genesis: x.genesis,
+      store: {path: 'store', remote: x.address}, ...(id ? {authRef: `ringi-key:${H.name}/${agent}`} : {}), ...(x.hostKeys ? {hostKeys: x.hostKeys} : {})})
+  } catch (e) {
+    if (!id || (e as {code?: string}).code !== 'denied') throw e
+    return {hub: H.name, room: x.room, key: {...id, admitted: false}}
+  }
 }
 export const join = ({room: target, agent: id, scope}: JoinInput): JoinResult => {
   const me = whoAmI()
   const agent = id ?? me.product ?? fail('--as <id> is required: this session\'s product is unknown')
   agentId(agent)
-  const R = roomFor(target), H = R.hub, room = R.name
+  const found = roomFor(target, agent)
+  if ('key' in found) return {agent, hub: found.hub, room: found.room, session: null, key: found.key}
+  const R = found, H = R.hub, room = R.name
   if (H.signed) {
     if (!R.store.joinKey) fail(`hub ${H.name}: its store cannot make keys`)
     const key = R.store.joinKey!(R.s, agent)

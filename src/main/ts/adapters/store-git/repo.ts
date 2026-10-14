@@ -17,6 +17,9 @@ import {checkUrl, signingContext} from './remote/keys.ts'
 import {origin} from './remote/git.ts'
 import {verifyMain} from './remote/main.ts'
 import {chain, linear} from './remote/signature.ts'
+import type {TransportAuth} from './auth.ts'
+
+export type Connection = {signing?: SigningContext, auth?: TransportAuth}
 
 // The store is a repository whose work tree holds the contract (`main`) as it is now, so Git clients (SourceTree, IDEs)
 // open `store/` without errors, on the contract, with every room's branch beside it; `git status` stays clean.
@@ -29,13 +32,13 @@ export class Repo {
   readonly home: string
   // The handle remote.ts works on: the repository and what it learned on the last sync.
   readonly h: Remote.Handle
-  constructor(hubDir: string, d: Descriptor, home: string, signing?: SigningContext, endpoint?: RoomEndpoint) {
+  constructor(hubDir: string, d: Descriptor, home: string, connection?: SigningContext | Connection, endpoint?: RoomEndpoint) {
+    const {signing, auth} = connection && 'signer' in connection ? {signing: connection, auth: undefined} : connection ?? {}
     this.d = d
     this.home = home
     this.trust = d.trust
-    if (endpoint?.authRef) fail('this git transport has no TransportAuth binding provider for authRef')
     this.dir = path.join(hubDir, endpoint?.store.path ?? d.contract?.path ?? fail(`hub ${d.name}: no explicit contract source`), '.git')
-    this.h = {name: d.name, dir: this.dir, d, endpoint, ...(d.trust === 'signed' && signing ? {signing} : {})}
+    this.h = {name: d.name, dir: this.dir, d, endpoint, auth, ...(d.trust === 'signed' && signing ? {signing} : {})}
     if (this.trust === 'signed') signingContext(this.h)
     const locator = origin(this.h)
     if (locator) checkUrl(locator)

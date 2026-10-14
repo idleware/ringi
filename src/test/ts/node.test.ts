@@ -80,14 +80,14 @@ describe('Node implementation: file locks', () => {
 describe('invitations', () => {
   const oid = 'a'.repeat(40)
   const line = (x: unknown) => 'ringi:' + Buffer.from(JSON.stringify(x)).toString('base64url')
-  const good = {schema: 'ringi-invite/1', room: 'fix', address: 'git+ssh://git@forge.example/ringi/fix.git', genesis: oid, hubGenesis: oid, trust: 'signed', root: 'ssh-ed25519 AAAA'}
+  const good = {schema: 'ringi-invite/2', room: 'fix', address: 'git+ssh://git@forge.example/ringi/fix.git', genesis: oid, hubGenesis: oid, trust: 'signed', root: 'ssh-ed25519 AAAA'}
   it('reads one with its pins, keeping an SSH login', () => {
     assert.deepEqual(readInvite(line(good)), good)
     assert.equal(readInvite('fix'), null)
   })
   it('refuses credentials, another schema and anything but an object, with the same words', () => {
     for (const x of [{...good, address: 'git+https://claude:t0k3n@forge.example/ringi/fix.git'}, {...good, address: 'git+https://t0k3n@forge.example/ringi/fix.git'},
-      {...good, schema: 'ringi-invite/2'}, {...good, genesis: 'x'}, null, 'text', []])
+      {...good, schema: 'ringi-invite/1'}, {...good, hostKeys: [1]}, {...good, genesis: 'x'}, null, 'text', []])
       assert.throws(() => readInvite(line(x)), /not one this ringi reads/)
   })
 })

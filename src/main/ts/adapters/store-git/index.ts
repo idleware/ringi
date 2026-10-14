@@ -19,11 +19,12 @@ import {TEXT_MAX, checkOutgoing} from '../../core/hub/protocol/index.ts'
 import type {Entry} from '../../core/hub/protocol/files.ts'
 import type {SigningContext} from '../../core/signing/index.ts'
 import {signingContext} from './remote/keys.ts'
+import type {TransportAuth} from './auth.ts'
 
 export class GitStore extends Marks implements Store {
   readonly type = 'git'
-  static create(hubDir: string, d: Descriptor, connection: string | {home: string, signing?: SigningContext}, contract: Record<string, string>, text: string): GitStore {
-    const {home, signing} = typeof connection === 'string' ? {home: connection, signing: undefined} : connection
+  static create(hubDir: string, d: Descriptor, connection: string | {home: string, signing?: SigningContext, auth?: TransportAuth}, contract: Record<string, string>, text: string): GitStore {
+    const {home, signing, auth} = typeof connection === 'string' ? {home: connection, signing: undefined, auth: undefined} : connection
     if (d.trust === 'signed') signingContext({name: d.name, signing})
     const dir = path.join(hubDir, d.contract?.path ?? fail('no operator contract source'), '.git')
     // A signed hub's repository already exists: rootFor made it with the root key.
@@ -31,7 +32,7 @@ export class GitStore extends Marks implements Store {
       mkdirIn(home, path.dirname(dir))
       init(dir, home)
     }
-    const s = new GitStore(hubDir, d, home, signing)
+    const s = new GitStore(hubDir, d, home, {signing, auth})
     const sha = s.commit('operator', text, s.tree(null, Object.entries(contract).map(([p, c]) => ({path: p, content: c, mode: '100644'}))), [])
     d.genesis = sha
     if (!s.advance('refs/heads/main', sha, null)) fail(`hub ${d.name}: main already exists`)

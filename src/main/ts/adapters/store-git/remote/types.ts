@@ -2,8 +2,9 @@
 
 import type {Descriptor, Member, RoomEndpoint} from '../../../core/hub/ports/store.ts'
 import type {SigningContext} from '../../../core/signing/index.ts'
+import type {TransportAuth} from '../auth.ts'
 
-export type Handle = {name: string, dir: string, d: Descriptor, endpoint?: RoomEndpoint, signing?: SigningContext, main?: string, remoteAlarms?: Record<string, string>, heartbeatErrors?: Record<string, string>, bootstrap?: boolean}
+export type Handle = {name: string, dir: string, d: Descriptor, endpoint?: RoomEndpoint, signing?: SigningContext, auth?: TransportAuth, main?: string, remoteAlarms?: Record<string, string>, heartbeatErrors?: Record<string, string>, bootstrap?: boolean}
 
 // A room: its one branch (`ref`), its latest control record (`head`) and its genesis.
 export type Room = {name: string, ref: string, head: string, genesis: string, members?: Record<string, Member>}
@@ -20,7 +21,7 @@ export type Branch = VerifiedRoom & {subject: string, control: string[], authors
 
 export const CONTROL_FILES = ['ROOM.md', 'members.json', 'profile.json', 'allowed_signers']
 
-export type CommandOpt = {input?: string | Buffer, env?: NodeJS.ProcessEnv, ok?: boolean, raw?: boolean}
+export type CommandOpt = {input?: string | Buffer, env?: NodeJS.ProcessEnv, ok?: boolean, raw?: boolean, sshAccess?: boolean}
 
 export const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
 

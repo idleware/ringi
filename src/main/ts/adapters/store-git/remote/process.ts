@@ -5,6 +5,7 @@ import {spawnSync} from 'node:child_process'
 import os from 'node:os'
 import * as C from '../../../lib/index.ts'
 import type {CommandOpt} from './types.ts'
+import {checkSshAccess} from './denied.ts'
 
 export const ENV = {GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GIT_NO_REPLACE_OBJECTS: '1', LC_ALL: 'C'}
 
@@ -14,7 +15,7 @@ export const BASE = ['-c', 'core.hooksPath=' + os.devNull, '-c', 'gpg.format=ssh
   '-c', 'protocol.https.allow=always', '-c', 'http.followRedirects=false']
 
 export const gitEnv = (extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
-  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(GIT_CONFIG_|GIT_DIR$|GIT_WORK_TREE$|GIT_INDEX_FILE$|GIT_OBJECT_DIRECTORY$|GIT_ALTERNATE_OBJECT_DIRECTORIES$|GIT_REPLACE_REF_BASE$)/.test(k))),
+  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(GIT_CONFIG_|GIT_DIR$|GIT_WORK_TREE$|GIT_INDEX_FILE$|GIT_OBJECT_DIRECTORY$|GIT_ALTERNATE_OBJECT_DIRECTORIES$|GIT_REPLACE_REF_BASE$|GIT_SSH(?:_COMMAND|_VARIANT)?$)/.test(k))),
   ...ENV, ...extra,
 })
 
@@ -40,6 +41,7 @@ export function command(cmd: string, args: string[], opt: CommandOpt = {}): stri
     maxBuffer: 64 * 1024 * 1024, timeout: cmd === 'git' ? gitTimeout() : 30000
   })
   if (cmd === 'git') checkGitTimeout(r.error)
+  if (opt.sshAccess && !opt.ok) checkSshAccess(r)
   if (r.error && !opt.ok) C.fail(`${cmd}: ${r.error.message}`)
   if (r.status !== 0 && !opt.ok) C.fail(`${cmd}: ${String(r.stderr || r.error?.message || r.signal || 'failed').trim().split('\n').at(-1)}`)
   return opt.ok ? r : r.stdout

@@ -114,6 +114,9 @@ export type Descriptor = {
   store: {type: string}
   // The operator's contract source; an agent needs only its rooms' self-contained repositories.
   contract?: {path: string, remote?: string}
+  // The space the hub's rooms are made in on a medium (`forgejo+https://forge/org`) and the operator's local
+  // credential reference for it; on the operator's machine only.
+  access?: {address: string, authRef: string, hostKeys?: string[]}
 }
 
 export type RoomEndpoint = {
@@ -124,6 +127,10 @@ export type RoomEndpoint = {
   store: {path: string, remote?: string}
   // An opaque local TransportAuth binding, never a credential in the invitation.
   authRef?: string
+  // The pinned host keys of the remote's host (known_hosts lines), from the operator; none: no SSH to it.
+  hostKeys?: string[]
+  // The operator's map of actors to their principals on the medium (local, never part of the protocol).
+  principals?: Record<string, string>
 }
 
 // signals/2: a fact in its actor's append-only stream, causally bound to a verified chat control and message.
@@ -146,6 +153,9 @@ export type Genesis = (d: Descriptor) => {files: Record<string, string>, text: s
 export interface Transport {
   // Explicit wire layout; there is no inferred layout or historical fallback.
   readonly layout: string
+  // A signed transport's local public identity, made explicitly before a private room can be fetched. No Store,
+  // admission or transport permission is implied; the operator still admits it and grants access separately.
+  identity?(d: Descriptor, who: string): {publicKey: string, fingerprint: string}
   // A selected room's store, or the operator's explicit contract source.
   open(at: string, d: Descriptor, endpoint?: RoomEndpoint): Store
   // A new hub's store. A signed one makes its root key first and pins it in `d` (root, then genesis); `custody` says where

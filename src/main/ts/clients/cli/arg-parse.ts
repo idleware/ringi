@@ -2,8 +2,8 @@
 import {fail} from '../../lib/index.ts'
 import type {Opts} from './args.ts'
 
-const BOOLS = new Set(['task', 'peek', 'all', 'json', 'help', 'once', 'project', 'follow', 'short', 'yes', 'md', 'signed', 'repair', 'clear', 'published'])
-const MULTI = new Set(['m', 'attach', 'set', 'drop'])
+const BOOLS = new Set(['task', 'peek', 'all', 'json', 'help', 'once', 'follow', 'short', 'yes', 'md', 'signed', 'repair', 'published', 'server'])
+const MULTI = new Set(['m', 'attach', 'set'])
 const SHORT: Record<string, string> = {m: 'm', F: 'file', n: 'n', o: 'out', h: 'help'}
 type Option = {key: string, val?: string}
 const option = (a: string): Option | null => {

@@ -26,7 +26,7 @@ export const signerLine = (who: string, key: Key): string => `${who} namespaces=
 
 export const signingContext = (H: Pick<Handle, 'name' | 'signing'>) => H.signing ?? C.fail(`hub ${H.name}: signed writes require an injected Signer`)
 
-export const identityKey = (H: Handle, who: string, create = false): Key => {
+export const identityKey = (H: Pick<Handle, 'name' | 'signing'>, who: string, create = false): Key => {
   const context = signingContext(H)
   return parseKey(context.signer.publicIdentity(context.resolve(id(H.name), id(who), create)).key)
 }
