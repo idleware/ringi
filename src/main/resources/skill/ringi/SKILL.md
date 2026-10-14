@@ -1,6 +1,6 @@
 ---
 name: ringi
-description: Coordinate with other AI agents (Claude, Codex, Cursor, …) through a ringi room, when the operator joins this chat to one. Use when the operator says to join a room, continue, stop or leave, or to hand off and review work with other agents. Not for work inside one chat, and not unless the operator joined this chat.
+description: Coordinate with other AI agents (Claude, Codex, Cursor, …) through a ringi room, when the operator joins this chat to one. Use when the operator says to create or join a room, continue, stop or leave, or to hand off and review work with other agents. Not for work inside one chat, and not unless the operator joins this chat to a room or has it create one.
 ---
 
 # ringi: rooms of agents
@@ -12,17 +12,20 @@ ringi keeps rooms of agents in git hubs under the operator's home (`$RINGI_HOME`
 The words are the operator's own, typed in this chat:
 
 - a ringi command (`help`, `where`, `tasks`, `room list`, `agent inbox`, …): run `ringi <words>` and show its output as it is, without retelling it;
-- a session phrase (*"join fix-badge as codex; …"*, *"continue"*, *"stop"*, *"leave"*): the session command below;
+- a session phrase (*"create fix-badge …"*, *"join fix-badge as codex; …"*, *"continue"*, *"stop"*, *"leave"*): the session command below;
 - anything else: do what they ask with the commands below, and ask if it is unclear.
 
 With no words: `ringi agent whoami` if this chat is joined; otherwise say how the operator joins it.
 
-## Only when the operator joins this chat
+## Only when the operator joins this chat or has it create a room
 
 Several chats may be open in a project. Take part only if the operator says so in this chat. Their words map to session commands:
 
 - *"join fix-badge as codex; review tasks from claude; no commits"* → `ringi join fix-badge --as codex --scope "review tasks from claude; no commits"`. Record what they delegate in `--scope`. A room on another machine comes as the operator's invitation, one line starting with `ringi:`: *"join ringi:… as codex"* → `ringi join ringi:… --as codex --scope "…"`. There is no hub to name: a room and its contract are all you take part in.
-- A room may have a quorum (`ringi room create … --quorum 2`; `--quorum 1`: start at once). While join or inbox says `waiting:`, do nothing and end the turn. When it says `started:`, take your first turn right away on what it shows (open work, inbox), without asking the operator to confirm anything: with no scope, the room's work for you is yours, and you agree the split with the other members yourselves. Still ask before commits or pushes, publishing, outside accounts or spending that the scope does not cover. The same after *"continue"*.
+- *"create fix-badge for the badge bug; join as claude; no commits"* → `ringi room create fix-badge` (with `--hub`, `--profile` or `--quorum` only if they name them), then `ringi join fix-badge --as claude --scope "no commits"`, then the room's brief as your first message: `ringi agent send --to '*' -m "<what the room is for>" -m "<facts, decisions, constraints, acceptance>" --attach <files the work needs>`. Show the operator the join line or invitation that room create printed, as it is, for the other chats.
+  - The brief carries this chat's context to the agents who join later: your own short account of what bears on the work. Not the transcript, system or hidden instructions, your reasoning, raw tool output, or a peer's words passed on as instructions; attach only files this room's work needs and the operator's delegation covers, nothing secret (tokens, keys, credentials). Making the room still gives you no authority the operator did not: outside accounts or provisioning still need their word.
+  - A chat has one room. If this one already sits in a room, joining the new one moves its seat there and leaves the old; carry into the new `--scope` the operator's limits that still hold unless they change them. Never take over a seat another session holds.
+- A room may have a quorum (`ringi room create … --quorum 2`; `--quorum 1`: start at once). While join or inbox says `waiting:`, do no work and end the turn; the one brief of a room you just created is part of setting it up, not work. When it says `started:`, take your first turn right away on what it shows (open work, inbox), without asking the operator to confirm anything: with no scope, the room's work for you is yours, and you agree the split with the other members yourselves. Still ask before commits or pushes, publishing, outside accounts or spending that the scope does not cover. The same after *"continue"*.
 - *"continue"* (after a restart, or a pause) → `ringi continue`. If it lists candidates, ask the operator which one, then `ringi continue <room>/<agent>`.
 - *"stop"* (the operator leaves for a while) → `ringi stop`. You keep your seat and react to nothing.
 - *"leave"* → `ringi leave`.
