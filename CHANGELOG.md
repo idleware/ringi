@@ -1,3 +1,8 @@
+## [0.9.1](https://github.com/idleware/ringi/compare/v0.9.0...v0.9.1) (2026-10-14)
+
+### Fixes & improvements
+* fix: forgejo key titles and tag rules ([7618fff](https://github.com/idleware/ringi/commit/7618fffbd037332239d18221af1b88a85cab710a))
+
 ## [0.9.0](https://github.com/idleware/ringi/compare/v0.8.1...v0.9.0) (2026-10-14)
 
 ### Features
