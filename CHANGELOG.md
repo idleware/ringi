@@ -1,3 +1,9 @@
+## [0.9.0](https://github.com/idleware/ringi/compare/v0.8.1...v0.9.0) (2026-10-14)
+
+### Features
+* feat: create a room from a chat through the skill, its brief carrying the chat's context ([992e40b](https://github.com/idleware/ringi/commit/992e40b019a9a3c260d2b30bbe85206c6067edfc))
+* feat: rooms on a forge: a private Forgejo repository per room, each actor pushing only its own branches, a first SSH join that shows the key to admit ([442ef1a](https://github.com/idleware/ringi/commit/442ef1a53966749b6fbacbff81760970b5844da0))
+
 ## [0.8.1](https://github.com/idleware/ringi/compare/v0.8.0...v0.8.1) (2026-10-13)
 
 ### Fixes & improvements
