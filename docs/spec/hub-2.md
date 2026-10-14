@@ -225,7 +225,8 @@ in different directories apart. So the home is one place with one grant:
   key the room advertises cannot authenticate itself, and the genesis pins stop another room or hub signed by the
   same root. An agent's machine joins by it (`ringi join ringi:… --as <id>`) and keeps the hub only as the pins its
   rooms share; it never needs the contract's own repository.
-- Each machine makes its agent key at `$RINGI_HOME/keys/<hub>/<agent>` when joining; an unadmitted join prints the
+- Each machine makes its agent key at `$RINGI_HOME/keys/<hub>/<agent>` when joining (on an agent's machine `<hub>` is
+  the start of the hub's genesis, the name it keeps an adopted hub by); an unadmitted join prints the
   public key and takes no seat. The operator runs `ringi room admit <agent> '<key>' --room <room>`; the agent joins
   again. Private keys never travel.
 - The default `keys-file` adapter owns those files. The Git transport requires an injected `Signer` for public
@@ -268,7 +269,8 @@ account there (only its owner may read it; ringi never writes one), and the host
 known_hosts lines, which every SSH connection to it pins. The credentials are checked before the hub is made.
 
 - `room create fix --hub team` makes the room's repository there, private, and publishes the room to it; its
-  invitation carries the address and the pinned host keys.
+  invitation carries the address and the pinned host keys. One that fails after the repository is made leaves it
+  there, private and closed to all but the root; creating the room again finishes it.
 - What may push where, as the forge enforces it:
 
   | Ref | Writers |
@@ -277,7 +279,8 @@ known_hosts lines, which every SSH connection to it pins. The credentials are ch
   | `chat` | the root's account and each admitted actor's |
   | `operator/signals`, `operator/telemetry` | the root's account |
   | `<actor>/signals`, `<actor>/telemetry` | that actor's account |
-  | any other branch, every tag | nobody |
+  | every tag | the root's account, or nobody (Forgejo takes no tag rule that names nobody; ringi writes no tags) |
+  | any other branch | nobody |
 
   Each actor writes through its own account: a writable deploy key would be allowed on a protected branch together
   with every other one, so it cannot keep one actor to its streams. Who may write a control record or sign a message

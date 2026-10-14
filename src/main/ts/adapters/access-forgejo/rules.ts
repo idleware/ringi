@@ -25,7 +25,12 @@ const named = (rs: Rule[], name: string) => {
   return r && loose(r) ? null : listed(rs, name)
 }
 const shut = (r: Rule | undefined) => !!r && !r.enable_push && !(r.push_whitelist_usernames ?? []).length
-const closed = (tags: TagRule[]) => tags.length === 1 && tags[0].name_pattern === '*' && !(tags[0].whitelist_usernames ?? []).length && !(tags[0].whitelist_teams ?? []).length
+// Tags are closed by one rule for all of them that only the root may pass, or nobody. ringi makes the first: Forgejo
+// takes no tag rule that names nobody, though one closed by hand may be kept so.
+const closed = (tags: TagRule[], root: string[]) => {
+  const all = tags.length === 1 && tags[0].name_pattern === '*' && !(tags[0].whitelist_teams ?? []).length
+  return all && root.length === 1 && ['', root[0]].includes((tags[0].whitelist_usernames ?? []).join())
+}
 const actors = (rs: Rule[]) => [...new Set(rs.flatMap(r => actorOf(r.rule_name) ?? []))]
 // An actor's streams agree when each lets exactly the same one principal push.
 const agreed = (rs: Rule[], actor: string) => {
@@ -40,7 +45,7 @@ const shared = (rs: Rule[]) => {
 }
 // What lets more than the matrix, or is missing from it: an unknown rule, one that lets every writer, teams, deploy
 // keys or files through, main, chat or the "nobody" fallback missing, an actor whose streams disagree, one account for
-// several actors, or an open tag.
+// several actors, or a tag rule that lets anyone but the root.
 const wider = (rs: Rule[], tags: TagRule[]): string[] => [
   ...rs.filter(r => !known(r.rule_name)).map(r => `rule ${r.rule_name}`),
   ...rs.filter(loose).map(r => `rule ${r.rule_name} lets every writer, teams, deploy keys or files through`),
@@ -48,7 +53,7 @@ const wider = (rs: Rule[], tags: TagRule[]): string[] => [
   ...(shut(rs.find(r => r.rule_name === '**')) ? [] : ['no "**" rule that lets nobody push']),
   ...actors(rs).filter(a => !agreed(rs, a)).map(a => `${a}'s streams do not let one same account push`),
   ...shared(rs),
-  ...(closed(tags) ? [] : ['tags are not closed to everyone']),
+  ...(closed(tags, pushers(rs, 'main')) ? [] : ['tags are not closed to all but the root']),
 ]
 const streams = (rs: Rule[]): Grants['streams'] => Object.fromEntries(actors(rs).map(a => [a, agreed(rs, a)!]))
 
@@ -70,7 +75,7 @@ export const rulesOf = (call: Call, repo: string) => {
       else await call('POST', `${repo}/branch_protections`, {rule_name: name, ...body})
     },
     drop: async (name: string) => { if ((await all()).some(r => r.rule_name === name)) await call('DELETE', path(name)) },
-    closeTags: async () => { if (!(await tags()).some(t => t.name_pattern === '*')) await call('POST', `${repo}/tag_protections`, {name_pattern: '*', whitelist_usernames: []}) },
+    closeTags: async (root: string) => { if (!(await tags()).some(t => t.name_pattern === '*')) await call('POST', `${repo}/tag_protections`, {name_pattern: '*', whitelist_usernames: [root]}) },
     // The grants the rules enforce, once nothing in them lets more.
     effective: async (room: string): Promise<Grants> => {
       const rs = await all(), why = wider(rs, await tags())

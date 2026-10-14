@@ -17,7 +17,16 @@ type Repo = {name: string, private: boolean, rules: Rule[], collaborators: Map<s
 // A Forgejo that knows one organisation, one token and the calls the adapter makes; it records every write.
 const fake = async (t: TestContext, served?: string) => {
   const repos = new Map<string, Repo>(), writes: string[] = [], keys = new Map<string, string[]>([['root', []], ['claude-zurich', []], ['codex-amsterdam', []]])
-  let admin = true, keepDeleted = false
+  // Forgejo keeps one title per key on an account, and refuses a second key titled alike.
+  const titles = new Map<string, string[]>()
+  const addKey = (user: string, b: Record<string, unknown>) => {
+    const ts = titles.get(user) ?? []
+    if (ts.includes(String(b.title))) return 422
+    titles.set(user, [...ts, String(b.title)])
+    keys.get(user)!.push(String(b.key))
+    return 201
+  }
+  let admin = true, keepDeleted = false, ownKeyFails = false
   const body = (req: http.IncomingMessage): Promise<Record<string, unknown>> => new Promise(done => {
     let s = ''
     req.on('data', c => { s += c })
@@ -31,11 +40,16 @@ const fake = async (t: TestContext, served?: string) => {
     if (req.method !== 'GET') writes.push(`${req.method} ${url}`)
     if (url === '/version') return send(200, {version: '13.0.0'})
     if (url === '/user') return send(200, {login: 'root'})
-    if (url === '/user/keys') { if (req.method === 'POST') keys.get('root')!.push(String(b.key)); return send(req.method === 'POST' ? 201 : 200, keys.get('root')!.map(key => ({key}))) }
+    if (url === '/user/keys' && req.method === 'POST') {
+      if (ownKeyFails) { ownKeyFails = false; return send(500, {message: 'the forge is busy'}) }
+      const status = addKey('root', b)
+      return send(status, status === 422 ? {message: 'Key title has been used'} : {})
+    }
+    if (url === '/user/keys') return send(200, keys.get('root')!.map(key => ({key})))
     const user = /^\/users\/([^/]+)\/keys$/.exec(url)
     if (user) return keys.has(user[1]) ? send(200, keys.get(user[1])!.map(key => ({key}))) : send(404, {})
     const enrol = /^\/admin\/users\/([^/]+)\/keys$/.exec(url)
-    if (enrol) { if (!admin) return send(403, {message: 'forbidden'}); keys.get(enrol[1])!.push(String(b.key)); return send(201, {}) }
+    if (enrol) { if (!admin) return send(403, {message: 'forbidden'}); const status = addKey(enrol[1], b); return send(status, status === 422 ? {message: 'Key title has been used'} : {}) }
     const sshUrl = (name: string) => served ? `file://${path.join(served, `${name}.git`)}` : `ssh://git@forge.test:2222/ringi/${name}.git`
     if (url === '/orgs/ringi/repos' && req.method === 'POST') {
       const r: Repo = {name: String(b.name), private: !!b.private, rules: [], collaborators: new Map(), tags: []}
@@ -56,7 +70,10 @@ const fake = async (t: TestContext, served?: string) => {
     if (rule && req.method === 'PATCH') { Object.assign(r.rules.find(x => x.rule_name === rule[1])!, b); return send(200, {}) }
     if (rule && req.method === 'DELETE') { r.rules = r.rules.filter(x => x.rule_name !== rule[1]); return send(204) }
     if (rest === '/tag_protections' && req.method === 'GET') return send(200, r.tags)
-    if (rest === '/tag_protections' && req.method === 'POST') { r.tags.push(b as unknown as Repo['tags'][number]); return send(201, b) }
+    if (rest === '/tag_protections' && req.method === 'POST') {
+      if (!(b.whitelist_usernames as string[] | undefined)?.length && !(b.whitelist_teams as string[] | undefined)?.length) return send(400, {message: 'both whitelist_usernames and whitelist_teams are empty'})
+      r.tags.push(b as unknown as Repo['tags'][number]); return send(201, b)
+    }
     const can = /^\/collaborators\/(.+)\/permission$/.exec(rest)
     if (can) return send(200, {permission: r.collaborators.get(can[1]) ?? 'none'})
     const who = /^\/collaborators\/(.+)$/.exec(rest)
@@ -72,6 +89,8 @@ const fake = async (t: TestContext, served?: string) => {
   fs.writeFileSync(auth, 's3cret\n', {mode: 0o600})
   const {port} = server.address() as {port: number}
   return {repos, writes, keys, auth, space: `forgejo+http://127.0.0.1:${port}/ringi`, noAdmin: () => { admin = false }, keepDeleted: () => { keepDeleted = true },
+    titled: (user: string, key: string, title: string) => { keys.get(user)!.push(key); titles.set(user, [...titles.get(user) ?? [], title]) },
+    ownKeyFailsOnce: () => { ownKeyFails = true },
     access: forgejoAccess(`http://127.0.0.1:${port}/ringi`, auth)}
 }
 
@@ -85,7 +104,7 @@ describe('access: forgejo', () => {
     assert.deepEqual(repo.rules.map(r => [r.rule_name, r.enable_push, r.enable_push_whitelist, r.push_whitelist_usernames, r.push_whitelist_deploy_keys]),
       [['main', true, true, ['root'], false], ['chat', true, true, ['root'], false], ['operator/signals', true, true, ['root'], false],
         ['operator/telemetry', true, true, ['root'], false], ['**', false, true, [], false]])
-    assert.deepEqual(repo.tags, [{name_pattern: '*', whitelist_usernames: []}])
+    assert.deepEqual(repo.tags, [{name_pattern: '*', whitelist_usernames: ['root']}])
     const before = f.writes.filter(w => !w.startsWith('PATCH')).length
     await f.access.ensureRoom('fix')
     assert.equal(f.writes.filter(w => !w.startsWith('PATCH')).length, before, 'nothing is made twice')
@@ -139,10 +158,12 @@ describe('access: forgejo', () => {
     assert.equal(f.repos.has('fix'), false)
   })
 
-  it('puts the root\'s key on the token\'s own account once', async t => {
+  it('puts the root\'s key on the token\'s own account once, beside other keys titled alike and another hub\'s', async t => {
     const f = await fake(t)
+    f.titled('root', 'ssh-ed25519 AAAAForeign', 'ringi')
     for (let i = 0; i < 2; i++) await f.access.ownKey('ssh-ed25519 AAAARoot operator@ringi')
-    assert.deepEqual(f.keys.get('root'), ['ssh-ed25519 AAAARoot'])
+    await f.access.ownKey('ssh-ed25519 AAAAOtherHub operator@ringi')
+    assert.deepEqual(f.keys.get('root'), ['ssh-ed25519 AAAAForeign', 'ssh-ed25519 AAAARoot', 'ssh-ed25519 AAAAOtherHub'])
   })
 
   it('puts an actor\'s key on its account once, or says where to add it when the token may not', async t => {
@@ -176,7 +197,12 @@ describe('access: forgejo', () => {
     await widen(() => { fallback.enable_push = true }, () => { fallback.enable_push = false }, /no "\*\*" rule that lets nobody push/)
     const chat = repo.rules.find(r => r.rule_name === 'chat')!
     await widen(() => { chat.push_whitelist_deploy_keys = true }, () => { chat.push_whitelist_deploy_keys = false }, /rule chat lets every writer, teams, deploy keys or files through/)
-    await widen(() => repo.tags[0].whitelist_usernames.push('claude-zurich'), () => repo.tags[0].whitelist_usernames.pop(), /tags are not closed/)
+    await widen(() => repo.tags[0].whitelist_usernames.push('claude-zurich'), () => repo.tags[0].whitelist_usernames.pop(), /tags are not closed to all but the root/)
+    await widen(() => { repo.tags[0].whitelist_usernames = ['claude-zurich'] }, () => { repo.tags[0].whitelist_usernames = ['root'] }, /tags are not closed/)
+    // Tags closed to everyone, as a forge may keep them when closed by hand, are narrower still.
+    repo.tags[0].whitelist_usernames = []
+    await f.access.effective('fix')
+    repo.tags[0].whitelist_usernames = ['root']
     const mine = repo.rules.find(r => r.rule_name === 'claude/signals')!
     await widen(() => { mine.enable_push_whitelist = false }, () => { mine.enable_push_whitelist = true }, /rule claude\/signals lets every writer/)
     const stream = (name: string, who: string) => ({rule_name: name, enable_push: true, enable_push_whitelist: true, push_whitelist_usernames: [who], push_whitelist_deploy_keys: false})
@@ -231,12 +257,15 @@ describe('rooms on a forge, through the command line', () => {
     assert.match(unpinned.err, /--forge needs --host-key-file/)
     const manual = await run(op, ['hub', 'create', 'team', '--signed', '--url', 'git+ssh://git@forge.test:2222/ringi/main.git'])
     assert.match(manual.err, /an SSH address needs its host's pinned keys .* --url takes git\+https:\/\/ or git\+file:\/\//)
+    // A hub whose root key could not go to the forge is made all the same, and its first room puts the key there.
+    f.ownKeyFailsOnce()
     const made = await run(op, ['hub', 'create', 'team', '--signed', '--forge', f.space, '--auth-file', f.auth, '--host-key-file', pins])
-    assert.equal(made.code, 0, made.err)
-    assert.match(made.out, /Its rooms are made in forgejo\+http:\/\/127\.0\.0\.1:\d+\/ringi, as root/)
-    assert.equal(f.keys.get('root')!.length, 1, 'the root key is on the operator\'s account')
+    assert.equal(made.code, 1)
+    assert.match(made.err, /hub team is made here, its root key not yet on the forge: .*the forge is busy.*then create the room again: ssh-ed25519 /)
+    assert.equal(f.keys.get('root')!.length, 0)
     const room = await run(op, ['room', 'create', 'fix', '--hub', 'team'])
     assert.equal(room.code, 0, room.err)
+    assert.equal(f.keys.get('root')!.length, 1, 'the root key is on the operator\'s account')
     const invitation = /ringi join (ringi:\S+) --as <agent>/.exec(room.out)![1]
     assert.equal(f.repos.get('fix')!.private, true)
     // Over SSH the forge lets nobody read the room before the root admits them: the agent is shown its key, and keeps
@@ -270,5 +299,10 @@ describe('rooms on a forge, through the command line', () => {
     const {streams} = await f.access.effective('fix'), streamOf = (b: string) => /^([^/]+)\/(signals|telemetry)$/.exec(b)?.[1]
     for (const b of refs.map(r => r.slice('refs/heads/'.length))) assert.ok(['main', 'chat'].includes(b) || streams[streamOf(b) ?? ''], `${b} is a branch the matrix lets someone push`)
     for (const b of ['operator/signals', 'claude/signals']) assert.ok(refs.includes(`refs/heads/${b}`), `${b} was pushed`)
+    // Another hub of the same operator in the same space: its root key sits beside the first one.
+    const other = await run(op, ['hub', 'create', 'other', '--signed', '--forge', f.space, '--auth-file', f.auth, '--host-key-file', pins])
+    assert.equal(other.code, 0, other.err)
+    assert.match(other.out, /Its rooms are made in forgejo\+http:\/\/127\.0\.0\.1:\d+\/ringi, as root/)
+    assert.equal(f.keys.get('root')!.length, 2)
   })
 })

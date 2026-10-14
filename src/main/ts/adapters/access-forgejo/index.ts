@@ -2,9 +2,10 @@
 // repository per room, and who may push which branch, through Forgejo's API. Principals are Forgejo accounts: a
 // writable deploy key can be allowed on a protected branch only together with every other one, so it cannot keep one
 // actor to its streams. main, chat and the operator's streams take the root's account (chat also each admitted
-// actor's), an actor's streams only its own, every other branch and every tag nobody (rules.ts). What is reported is
+// actor's), an actor's streams only its own, every other branch nobody, every tag the root alone (rules.ts). What is reported is
 // what the API reads back.
 
+import crypto from 'node:crypto'
 import {fail} from '../../lib/index.ts'
 import type {Access, AccessType} from '../../core/hub/ports/access.ts'
 import type {Call} from './api.ts'
@@ -15,20 +16,24 @@ import {STREAMS, rulesOf} from './rules.ts'
 const OPERATOR = 'operator'
 
 const keyLine = (key: string) => key.trim().split(/\s+/).slice(0, 2).join(' ')
+// An account keeps each key under a title of its own: ringi's is the key's fingerprint, shortened, so another key titled
+// alike, or the same operator's root key of another hub, never collides with it.
+const titleOf = (line: string) => `ringi SHA256:${crypto.createHash('sha256').update(Buffer.from(line.split(' ')[1] ?? '', 'base64')).digest('base64').slice(0, 16)}`
 const keysOf = async (call: Call, path: string, who: string) =>
   ((await call<Array<{key: string}>>('GET', path)) ?? fail(`no Forgejo account ${who}`)).map(k => keyLine(k.key))
-// A key on an account, written if missing and read back.
-const keyOn = async (call: Call, read: string, write: string, who: string, key: string) => {
+// A key on an account, written if missing and read back; `then` says what to run once it is added by hand.
+type KeyPlace = {read: string, write: string, who: string, then: string}
+const keyOn = async (call: Call, {read, write, who, then}: KeyPlace, key: string) => {
   const line = keyLine(key)
   if ((await keysOf(call, read, who)).includes(line)) return
-  const r = await call<unknown>('POST', write, {title: 'ringi', key: line, read_only: false}).catch((e: Error) => e)
-  if (r instanceof Error) fail(`${r.message}; add this key to ${who}'s SSH keys on the forge by hand, then admit again: ${line}`)
+  const r = await call<unknown>('POST', write, {title: titleOf(line), key: line, read_only: false}).catch((e: Error) => e)
+  if (r instanceof Error) fail(`${r.message}; add this key to ${who}'s SSH keys on the forge by hand, then ${then}: ${line}`)
   if (!(await keysOf(call, read, who)).includes(line)) fail(`the key is not on ${who}'s account after adding it: ${line}`)
 }
 // The actor's public key on its account, so the forge knows who pushes; an admin token may put it there, any other is
 // told where the operator adds it by hand.
 const enrol = (call: Call, principal: string, key: string) =>
-  keyOn(call, `/users/${encodeURIComponent(principal)}/keys`, `/admin/users/${encodeURIComponent(principal)}/keys`, principal, key)
+  keyOn(call, {read: `/users/${encodeURIComponent(principal)}/keys`, write: `/admin/users/${encodeURIComponent(principal)}/keys`, who: principal, then: 'admit again'}, key)
 
 // One space's calls, its repositories' paths and rules, and whose the token is.
 type Space = {call: Call, org: string, repo: (room: string) => string, rules: (room: string) => ReturnType<typeof rulesOf>, self: () => Promise<string>}
@@ -60,7 +65,7 @@ const ensureRoom = async (S: Space, room: string) => {
   if (!(await r.has('chat'))) await r.set('chat', [root])
   for (const s of STREAMS) await r.set(`${OPERATOR}/${s}`, [root])
   await r.set('**', [])
-  await r.closeTags()
+  await r.closeTags(root)
   const repo = await S.call<Repo>('GET', S.repo(room)), now = await r.effective(room)
   if (!repo?.private || now.main.join() !== root || !now.chat.includes(root) || now.streams[OPERATOR] !== root)
     fail(`${S.org}/${room} on the forge is not private with main, chat and the operator's streams for ${root}`)
@@ -102,7 +107,7 @@ const forgejo = (locator: string, authRef: string): Access => {
   return {
     inspect: async () => ({version: (await S.call<{version: string}>('GET', '/version'))?.version ?? '?', principal: await S.self(),
       can: {actorBranches: true, privateRepos: true, deleteServer: true}}),
-    ownKey: async key => keyOn(S.call, '/user/keys', '/user/keys', await S.self(), key),
+    ownKey: async key => keyOn(S.call, {read: '/user/keys', write: '/user/keys', who: await S.self(), then: 'create the room again'}, key),
     ensureRoom: room => ensureRoom(S, room),
     grant: (room, actor, principal, key) => grant(S, room, actor, principal, key),
     revoke: (room, actor, principal) => revoke(S, room, actor, principal),

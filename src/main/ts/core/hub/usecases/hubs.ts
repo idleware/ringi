@@ -34,8 +34,8 @@ export const create = async (name: string, {signed = false, url, forge, authFile
   const {custody} = createHub(name, {signed, url})
   if (made) hubPorts().state.write(['hub', name, 'hub'], {...openHub(name).d, access: made.access})
   const H = openHub(name)
-  // The root pushes to the forge as the operator's account: its key goes there.
-  if (made) await accessOf(H)!.ownKey(H.d.root!)
+  // The root pushes to the forge as the operator's account: its key goes there now, and again before each room if missing.
+  if (made) await accessOf(H)!.ownKey(H.d.root!).catch((e: Error) => fail(`hub ${name} is made here, its root key not yet on the forge: ${e.message}`))
   return {H, rootKey: custody, remote: shown(H.d.contract?.remote), space: made && {address: shown(made.access.address), principal: made.principal, version: made.version}}
 }
 export type AmendInput = {text: string, set?: string[], files?: Array<{path: string, content: Buffer}>}

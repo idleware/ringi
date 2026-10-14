@@ -34,6 +34,16 @@ export const spaceFor = async ({signed, url, forge, authFile, hostKeyFile}: Spac
   const {principal, version} = await make(forge, authRef).inspect()
   return {access: {address: forge, authRef, hostKeys}, principal, version}
 }
+// Where a new room is published: the operator's `url`, or the repository its hub's space makes for it; none for a room
+// that lives only here. The root pushes it as the operator's account, so a hub made while its key could not go to the
+// forge puts it there first.
+export const roomAddress = async (H: Hub, name: string, url?: string): Promise<string | undefined> => {
+  if (url) return overSsh(url) && !H.d.access ? fail(NO_MANUAL_SSH) : url
+  const access = accessOf(H)
+  if (!access) return undefined
+  await access.ownKey(H.d.root!)
+  return (await access.ensureRoom(name)).address
+}
 // An actor's access to a room on its medium through its own account, after the root admitted its key: granted, then
 // read back; what the medium does not enforce is said, never assumed. The operator's map of actors to accounts is kept
 // in the room's endpoint on this machine.

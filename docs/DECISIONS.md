@@ -398,7 +398,7 @@ Git covers several of these by construction. That is the bet here.
   to their profile"), arrived at by elimination.
 - **Exact rules and a closed rest.** `main` and the operator's own streams for the root, `chat` for the root and
   admitted actors, `<actor>/signals` and `<actor>/telemetry` each for its actor's account (one account per actor, the
-  root's for none), `**` and every tag for nobody; literal rules win over globs
+  root's for none), `**` for nobody and every tag for the root alone (Forgejo refuses a tag rule that names nobody); literal rules win over globs
   there, and nothing ringi reports is assumed: every grant is read back and anything wider is refused.
 - **SSH only through a forge.** An SSH address needs its host's keys pinned and a key bound to each machine; only a
   hub on a forge keeps both, so `--url` by hand takes `git+https://` or `git+file://`, and `--forge` requires

@@ -8,7 +8,7 @@ import {OPERATOR, RESERVED_ROOMS, ROOM_MD, config, createRoom, deleteRoom, hubNa
 import type {Hub, Room} from '../rooms/index.ts'
 import {Fail, fail, note} from '../../../lib/index.ts'
 import {invite} from './invite.ts'
-import {NO_MANUAL_SSH, accessOf, overSsh} from './access.ts'
+import {overSsh, roomAddress} from './access.ts'
 import {ID_RE, compose} from '../protocol/index.ts'
 
 export {admit, forgetLog} from './roster.ts'
@@ -52,8 +52,7 @@ export const create = async (H: Hub, name: string, {profile, quorum, url}: {prof
   // The genesis names the room; a random id makes it unique, so a room deleted and created again is a different room.
   const genesis = compose(`room ${name}`, [['To', '*'], ['Kind', 'room'], ['Room-Id', crypto.randomBytes(16).toString('hex')],
     ...(quorum ? [['Quorum', String(quorum)] as [string, string]] : [])])
-  if (overSsh(url) && !H.d.access) fail(NO_MANUAL_SSH)
-  const remote = url ?? (await accessOf(H)?.ensureRoom(name))?.address
+  const remote = await roomAddress(H, name, url)
   // Over SSH the root's own key reaches it, the forge's host keys pinned.
   const R = createRoom(H, name, {who: OPERATOR, text: genesis, files, remote, ...(overSsh(remote) ? {authRef: `ringi-key:${H.name}/${OPERATOR}`, hostKeys: H.d.access?.hostKeys} : {})})
   setConfig({room: name})
