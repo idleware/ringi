@@ -25,7 +25,8 @@ export const inbox = ({R, me}: Actor, {peek = false, limit = 20}: InboxOptions =
     if (!peek) saveState(R, me, {...loadState(R, me), seen: r.cursors})
     return {all: link(logs), ...r}
   })
-  if (!peek) for (const m of res.msgs) Signals.mark(R, me, m, 'read')
+  // One read per log reached: the last message of each that was delivered (signals/marks.ts).
+  if (!peek) for (const m of new Map(res.msgs.map(m => [m.from, m])).values()) Signals.mark(R, me, m, 'read', res.all)
   return {...res, msgs: res.msgs.map(m => ({...m, files: withSizes(R, m)}))}
 }
 

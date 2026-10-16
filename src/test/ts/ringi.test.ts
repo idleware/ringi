@@ -131,40 +131,6 @@ describe('rooms', () => {
     assert.match(w.ok(['where']), /started at its quorum of 2 agents/)
   })
 
-  it('shows each session\'s pulse without touching it', (t) => {
-    const w = world(t)
-    w.ok(['room', 'create', 'r', '--quorum', '2'])
-    w.ok(['join', 'r', '--as', 'codex'], {as: 'C'})
-    const before = w.sessions()[0].lastSeen
-    const [p] = JSON.parse(w.ok(['heartbeats', '--json']))
-    assert.deepEqual([p.session.agent, p.beat.state, p.beat.waits, p.beat.alive], ['codex', 'waiting', 'quorum', null])
-    assert.equal(w.sessions()[0].lastSeen, before, 'a look renews no lease')
-    w.ok(['join', 'r', '--as', 'claude'], {as: 'L'})
-    assert.match(w.ok(['heartbeats']), /^codex +r +working +alive \? +quiet \d+s +none +env:C$/m)
-  })
-
-  it('appends a telemetry record on every beat, naming the last pulled message', (t) => {
-    const w = world(t)
-    w.ok(['room', 'create', 'r'])
-    w.ok(['join', 'r', '--as', 'codex'], {as: 'C'})
-    w.ok(['send', '--to', 'codex', '-m', 'work'])
-    w.ok(['pulse', '--once'])
-    const ref = 'refs/heads/codex/telemetry', first = w.git('rev-parse', ref)
-    const record = (rev: string) => w.git('log', '-1', '--format=%an%n%B', rev)
-    assert.match(record(ref), /^codex\n/)
-    for (const fact of [/^State: working$/m, /^Alive: unknown$/m, /^Quiet: \d+$/m, /^Next: 30$/m, new RegExp(`^Target: ${w.git('rev-parse', 'refs/heads/chat')}$`, 'm')]) assert.match(record(ref), fact)
-    assert.deepEqual(JSON.parse(w.ok(['heartbeats', '--published', '--json'])).map((h: {agent: string, state: string, overdue: boolean}) => [h.agent, h.state, h.overdue]), [['codex', 'working', false]])
-    // Telemetry is no signal: readers list none of it and raise no alarm.
-    assert.ok(!w.json(['signals', '--all']).some(x => x.ref === first))
-    w.ok(['send', '--to', 'codex', '-m', 'more'])
-    w.ok(['pulse', '--once'])
-    assert.equal(w.git('rev-parse', `${ref}^`), first)
-    assert.match(record(ref), new RegExp(`^Target: ${w.git('rev-parse', 'refs/heads/chat')}$`, 'm'))
-    assert.equal(w.run(['signals', '--all']).err, '')
-    w.ok(['room', 'delete', 'r', '--yes'])
-    assert.equal(fs.existsSync(w.repo('r')), false)
-  })
-
   it('keeps agents bound when the operator switches rooms', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'one'])
@@ -279,6 +245,38 @@ describe('agent inbox and waiting', () => {
     for (const limit of ['0', '-1', 'NaN']) w.no(['agent', 'inbox', '--limit', limit], /positive integer/, {as: 'C'})
     w.no(['agent', 'wait', '--max', 'NaN'], /nonnegative seconds/, {as: 'C'})
     assert.equal(w.run(['agent', 'wait', '--max', '0'], {as: 'C'}).code, 3)
+  })
+
+  it('reads as a cursor per log: one mark on the last message of each log delivered, every one before it read', t => {
+    const w = world(t)
+    w.ok(['room', 'create', 'r'])
+    w.ok(['join', 'r', '--as', 'codex'], {as: 'C'})
+    w.ok(['join', 'r', '--as', 'claude'], {as: 'L'})
+    const reads = () => w.json(['signals', '--all']).filter(s => s.signal === 'read' && s.actor === 'codex').length
+    const readBy = (id: string) => /read by: codex/.test(w.ok(['read', id]))
+    const one = w.lastId(['send', '--to', 'codex', '-m', 'one'])
+    const aside = w.lastId(['send', '--to', 'claude', '-m', 'aside'])
+    const two = w.lastId(['send', '--to', 'codex', '-m', 'two'])
+    w.ok(['agent', 'inbox'], {as: 'C'})
+    assert.equal(reads(), 1, 'one mark for the one log delivered')
+    assert.deepEqual([one, two].map(readBy), [true, true])
+    assert.equal(readBy(aside), false, 'what was not addressed to it is not read by it')
+    // Within a log the order is fixed: a page of one delivers the earlier message, and the later one stays unread.
+    const three = w.lastId(['send', '--to', 'codex', '-m', 'three'])
+    const four = w.lastId(['send', '--to', 'codex', '-m', 'four'])
+    w.ok(['agent', 'inbox', '--limit', '1'], {as: 'C'})
+    assert.deepEqual([reads(), readBy(three), readBy(four)], [2, true, false])
+    const hi = w.lastId(['agent', 'send', '--to', 'codex', '-m', 'hi'], {as: 'L'})
+    w.ok(['agent', 'inbox'], {as: 'C'})
+    assert.deepEqual([reads(), readBy(four), readBy(hi)], [4, true, true], 'a mark for each of the two logs delivered')
+    w.ok(['agent', 'inbox'], {as: 'C'})
+    assert.equal(reads(), 4, 'nothing new delivered, nothing marked')
+    // A reader whose local place fell behind is delivered the old messages again, and marks nothing its cursor passed.
+    const [state] = fs.readdirSync(w.home, {recursive: true}).map(String).filter(f => /readers\/.+\/codex\.json$/.test(f))
+    const st = JSON.parse(fs.readFileSync(path.join(w.home, state), 'utf8'))
+    fs.writeFileSync(path.join(w.home, state), JSON.stringify({...st, seen: {}}))
+    assert.match(w.ok(['agent', 'inbox', '--limit', '1'], {as: 'C'}), /Subject: one/)
+    assert.equal(reads(), 4)
   })
 
   it('ends a wait when the operator stops the chat', async t => {
@@ -470,6 +468,6 @@ describe('CLI reference', () => {
   it('generates COMMANDS.md from the command table', () => {
     const md = spawnSync(BIN[0], [...BIN.slice(1), 'help', '--md'], {encoding: 'utf8', env: BASE}).stdout
     assert.equal(fs.readFileSync(path.join(HERE, '../../../COMMANDS.md'), 'utf8'), md, 'run: npm run commands')
-    for (const c of ['join <room>', 'continue', 'stop', 'leave', 'where', 'agent inbox', 'room delete', 'heartbeats']) assert.ok(md.includes(`ringi ${c}`), c)
+    for (const c of ['join <room>', 'continue', 'stop', 'leave', 'where', 'agent inbox', 'room delete']) assert.ok(md.includes(`ringi ${c}`), c)
   })
 })

@@ -107,14 +107,4 @@ export const storeContract = (type: string, make: Factory): void => { describe(`
     assert.deepEqual(store.messages(room(store, 'r'), 'alice', id)[0].files.map(f => f.path), ['files/note.txt'])
   })
 
-  it('appends telemetry and shows the latest verified facts, if it keeps presence', t => {
-    const {store} = fresh(t)
-    if (!store.heartbeat || !store.heartbeats) return t.skip(`${type} keeps no presence`)
-    const id = store.append(room(store, 'r'), 'alice', say('working'), [])
-    store.heartbeat(room(store, 'r'), 'alice', id, 'State: working\nAlive: yes\nNext: 30\n')
-    store.heartbeat(room(store, 'r'), 'alice', id, 'State: waiting\nAlive: yes\nNext: 30\n')
-    const beats = store.heartbeats(room(store, 'r'))
-    assert.equal(beats.length, 1)
-    assert.match(beats[0].text, /State: waiting/)
-  })
 }) }

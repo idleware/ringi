@@ -45,7 +45,7 @@ it('keys-file signs exact binary bytes, derives identity, and refuses foreign re
   assert.throws(() => context.signer.publicIdentity(context.resolve('team', 'encrypted')), {reason: 'interaction-required'})
 })
 
-it('injected Signer produces verifiable commits, admission, signals and heartbeat without exporting its custody path', t => {
+it('injected Signer produces verifiable commits, admission and signals without exporting its custody path', t => {
   const home = temp(t), custody = keysFile(home), calls: SignRequest[] = []
   let deny = false, corrupt = false
   const context: SigningContext = {resolve: custody.resolve, signer: {
@@ -79,8 +79,8 @@ it('injected Signer produces verifiable commits, admission, signals and heartbea
   assert.deepEqual(store.file(sha, 'binary'), Buffer.from([255, 0, 128]))
   store.signal(room, 'codex', sha, 'opened')
   assert.equal(store.signals(room).length, 1)
-  const beat = store.heartbeat(room, 'codex', sha, 'State: waiting\nAlive: yes\nNext: 60\n')
-  Remote.validateStream(store.h, {name: 'r', ref: 'refs/heads/chat', genesis: room.genesis, head: room.head}, 'refs/heads/codex/telemetry', beat)
+  store.signal(room, 'codex', sha, 'taken')
+  Remote.validateStream(store.h, {name: 'r', ref: 'refs/heads/chat', genesis: room.genesis, head: room.head}, 'refs/heads/codex/signals', store.signalHeads(room)[0].head)
   assert(calls.length >= 6)
   assert(calls.every(r => r.namespace === 'git' && r.interaction === 'forbidden' && !String(r.key).includes(home)))
   const tip = store.rev('refs/heads/chat')
@@ -92,7 +92,6 @@ it('injected Signer produces verifiable commits, admission, signals and heartbea
   assert.equal(store.rev('refs/heads/chat'), tip)
   assert.throws(() => store.signal(room, 'codex', sha, 'read'), /fixture denied/)
   assert.equal(refs(), before)
-  assert.throws(() => store.heartbeat(room, 'codex', sha, 'State: working\nAlive: yes\nNext: 60\n'), /fixture denied/)
   assert.throws(() => store.admit(room, 'bob', bob.line), /fixture denied/)
   assert.equal(refs(), before)
   deny = false
@@ -100,7 +99,6 @@ it('injected Signer produces verifiable commits, admission, signals and heartbea
   assert.throws(() => store.append(room, 'codex', 'corrupt\n\nTo: operator\nKind: task\n', []), /bad or missing signature/)
   assert.equal(store.rev('refs/heads/chat'), tip)
   assert.throws(() => store.signal(room, 'codex', sha, 'read'), /bad or missing signature/)
-  assert.throws(() => store.heartbeat(room, 'codex', sha, 'State: working\nAlive: yes\nNext: 60\n'), /bad or missing signature/)
   assert.throws(() => store.admit(room, 'bob', bob.line), /bad or missing signature/)
   assert.equal(refs(), before)
   corrupt = false
@@ -133,7 +131,6 @@ it('signed entrypoints refuse missing Signer even when local custody files exist
   assert.throws(() => identityKey(store.h, 'operator'), /injected Signer/)
   assert.throws(() => store.append(room, 'operator', 'must not sign\n\nTo: *\n', []), /injected Signer/)
   assert.throws(() => store.signal(room, 'operator', room.genesis, 'read'), /injected Signer/)
-  assert.throws(() => store.heartbeat(room, 'operator', room.genesis, 'State: working\nAlive: yes\nNext: 60\n'), /injected Signer/)
   assert.equal(git(store.h, ['for-each-ref', '--format=%(refname) %(objectname)']), refs)
   const fresh = path.join(home, 'fresh')
   assert.throws(() => GitStore.create(fresh, descriptor('signed'), home, {}, 'unsigned bootstrap'), /injected Signer/)

@@ -5,6 +5,7 @@ import {accepted, ancestor, git, isRemote, locked, networkGit, origin, rev, suff
 import {checkUrl} from './keys.ts'
 import {recoverPublication} from './push-retry.ts'
 import {validateRef} from './push-validate.ts'
+import {streamName} from './streams.ts'
 import type {Handle} from './types.ts'
 export {validateRef} from './push-validate.ts'
 
@@ -20,7 +21,7 @@ const preparePublication = (H: Handle, ref: string): Omit<Publication, 'acc' | '
 }
 const rejectPublication = (p: Publication, behind: boolean, stdout: string): boolean => {
   let why = ''
-  if ((behind || /\/(signals|telemetry)$/.test(p.ref)) && p.ref !== 'refs/heads/main') {
+  if ((behind || streamName(p.ref)) && p.ref !== 'refs/heads/main') {
     try {
       const recovered = recoverPublication(p, stdout)
       if (recovered !== null) return recovered

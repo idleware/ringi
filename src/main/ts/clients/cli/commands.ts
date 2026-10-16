@@ -9,7 +9,7 @@ import {flag, out, parseArgs} from './args.ts'
 import type {Ctx} from './context.ts'
 import {operatorCtx} from './context.ts'
 import {helpMarkdown, helpText} from './help.ts'
-import {forget, heartbeats, hub, pulse, roomCmd, where} from './operator/index.ts'
+import {forget, hub, roomCmd, where} from './operator/index.ts'
 import {join, leave, resume, stop} from './agent/session.ts'
 import {cat, get, log, profileCmd, read, reply, send, signals, tasks, thread} from './shared/index.ts'
 import {skill} from './skill/index.ts'
@@ -31,8 +31,7 @@ type Direct = (o: Opts, rest: string[]) => void | Promise<void>
 const DIRECT = new Map<string, Direct>([
   ['--version', version], ['-v', version], ['version', version],
   ['help', help], ['--help', help], ['-h', help], ['skill', skill], ['agent', agentCommand],
-  ['hub', hub], ['room', roomCmd], ['where', where], ['heartbeats', heartbeats],
-  ['pulse', pulse], ['forget', forget], ['join', join], ['continue', resume], ['stop', stop], ['leave', leave]
+  ['hub', hub], ['room', roomCmd], ['where', where], ['forget', forget], ['join', join], ['continue', resume], ['stop', stop], ['leave', leave]
 ])
 const unknown = (cmd: string): never => {
   if (['inbox', 'whoami', 'wait', 'take'].includes(cmd)) fail(`${cmd} is an agent command: ringi agent ${cmd}`)

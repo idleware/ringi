@@ -23,7 +23,7 @@ Marks share the stream and carry no authority: a mark never changes a state or a
 
 | Mark | Meaning | Possible when |
 |---|---|---|
-| `read` | the message reached this reader (made on delivery; a peek makes none) | the message is addressed to the actor, or to all, and is not the actor's own |
+| `read` | the reader's cursor in the author's log: every message of that log up to this one that was addressed to the reader reached it (made on delivery, on the last message of each log delivered; a peek makes none; an older per-message mark reads the same) | the message is addressed to the actor, or to all, and is not the actor's own |
 | `taken` | this member is on the piece of work | the message opens work under the room's profile |
 
 ## Form

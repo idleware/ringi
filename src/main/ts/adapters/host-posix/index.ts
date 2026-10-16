@@ -1,7 +1,7 @@
-// host-posix: what macOS and Linux say about a process, and a detached start, behind ProcessHost
-// (core/agents/ports/host.ts). Elsewhere every probe says nothing rather than guess.
+// host-posix: what macOS and Linux say about a process, behind ProcessHost (core/agents/ports/host.ts). Elsewhere every
+// probe says nothing rather than guess.
 
-import {spawn, spawnSync} from 'node:child_process'
+import {spawnSync} from 'node:child_process'
 import path from 'node:path'
 import type {Ancestor, ProcessHost} from '../../core/agents/ports/host.ts'
 
@@ -23,7 +23,4 @@ const ancestors = (first: number): Ancestor[] => {
   return result
 }
 
-export const hostPosix = (): ProcessHost => ({
-  supported, alive, ancestors,
-  start: ({file, args, env}) => { spawn(file, [...args], {detached: true, stdio: 'ignore', env}).unref() },
-})
+export const hostPosix = (): ProcessHost => ({supported, alive, ancestors})

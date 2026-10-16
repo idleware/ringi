@@ -7,6 +7,7 @@ import {verifyHub, verifyMain} from './main.ts'
 import {readCommits} from './commits.ts'
 import {branchData} from './branch.ts'
 import {syncStreams} from './sync-streams.ts'
+import {legacyTelemetry} from './streams.ts'
 import type {Handle} from './types.ts'
 import {TRACK} from './types.ts'
 
@@ -22,8 +23,7 @@ const syncChat = (H: Handle, fetched: Map<string, string>): void => {
   syncStreams(H, fetched)
 }
 const syncUnlocked = (H: Handle): Handle => {
-  H.remoteAlarms = {...pushAlarms(H)}
-  H.heartbeatErrors = {}
+  H.remoteAlarms = Object.fromEntries(Object.entries(pushAlarms(H)).filter(([ref]) => !legacyTelemetry(ref)))
   const url = origin(H)
   if (!url) {if (rev(H, 'refs/heads/main')) verifyHub(H); return H}
   checkUrl(url)

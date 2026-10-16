@@ -23,7 +23,7 @@ import {Fail, fail, withoutCredentials} from '../../main/ts/lib/index.ts'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const CLI = path.join(HERE, '../../../target/esm/cli.js')
 const BASE = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CLAUDE|CODEX|CURSOR|RINGI_|GIT_)/.test(k)))
-const ENV = {...BASE, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', RINGI_PULSE: 'off'}
+const ENV = {...BASE, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0'}
 type GitOpt = {input?: string, env?: NodeJS.ProcessEnv, ok?: boolean}
 function git(dir: string, args: string[], opt: GitOpt & {ok: true}): SpawnSyncReturns<string>
 function git(dir: string, args: string[], opt?: GitOpt): string
@@ -564,7 +564,7 @@ describe('signed remote hubs', () => {
       one.signal(one.room('r')!, 'bob', target, 'opened')
       two.signal(two.room('r')!, 'bob', target, 'taken')
       Remote.sync(w.op)
-      const checked = Remote.scanStream({H: w.op, R: room(w.op), actor: 'bob', kind: 'signals', head: w.op.rev('refs/heads/bob/signals')!})
+      const checked = Remote.scanStream({H: w.op, R: room(w.op), actor: 'bob', head: w.op.rev('refs/heads/bob/signals')!})
       assert.equal(checked.why, undefined)
       assert.deepEqual(checked.records.map(r => r.fields.get('Signal')), ['opened', 'taken'])
       assert.ok(second.H.git(['for-each-ref', '--format=%(objectname)', 'refs/ringi/unpublished/']).trim())
@@ -827,9 +827,6 @@ describe('signed remote hubs', () => {
       assert.ok(signals.some(s => s.signal === 'state.completed' && s.actor === 'codex' && s.ok), 'completion stream was signed, published and verified on the other machine')
       for (const mark of ['read', 'taken']) assert.ok(signals.some(s => s.signal === mark && s.actor === 'codex' && s.ok), `${mark} mark was signed, published and verified on the other machine`)
       assert.equal(fs.existsSync(path.join(codex.home, 'keys', codex.H.name, 'operator')), false)
-      w.ok('worker', ['pulse', '--once'], 'chat-codex')
-      const telemetry = w.ok('root', ['heartbeats', '--published', '--json'])
-      assert.match(telemetry, /codex/)
       Remote.sync(codex.H)
       const operatorHead = codex.H.rev('refs/heads/chat')!
       const forged = message(codex.H, codex.home, 'operator', 'Never deliver this\n\nTo: codex\n', [operatorHead], {signer: 'codex'})

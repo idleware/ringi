@@ -11,6 +11,9 @@ import {fileURLToPath, pathToFileURL} from 'node:url'
 import {wireHub} from '../../main/ts/core/hub/ports/index.ts'
 import {stateFs} from '../../main/ts/adapters/state-fs/index.ts'
 import {gitTransport} from '../../main/ts/adapters/store-git/transport.ts'
+import {GitStore} from '../../main/ts/adapters/store-git/index.ts'
+import {signCommit} from '../../main/ts/adapters/store-git/signing.ts'
+import {validateRef} from '../../main/ts/adapters/store-git/remote/push.ts'
 import {keysFile} from '../../main/ts/adapters/keys-file/index.ts'
 import {runGit, ident} from '../../main/ts/adapters/store-git/run.ts'
 import {createHub, adoptHub, openHub, openRoom, openContract, createRoom, attachRoom, roomNames, append, amendContract, deleteRoom, readProfileResource} from '../../main/ts/core/hub/rooms/index.ts'
@@ -89,7 +92,7 @@ for (const signed of [false, true]) it(`routes independent rooms whose contracts
   if (!signed) assert.equal(f.signerCalls(), 0)
 })
 
-it('uses logical idempotent tuples and preserves telemetry history', t => {
+it('uses logical idempotent signal tuples without changing the stream tree', t => {
   const f = fixture(t), R = f.makeRoom('stream')
   const id = append(R, 'alice', task('task'))
   const before = R.store.signalHeads(R.s)[0].head
@@ -97,15 +100,77 @@ it('uses logical idempotent tuples and preserves telemetry history', t => {
   assert.equal(R.store.signalHeads(R.s)[0].head, before)
   R.store.signal(R.s, 'bob', id, 'read')
   const {all} = linked(reopen(f.H, R), 'bob')
-  assert.deepEqual(Signals.marksOn(Signals.check(R, all, R.store.signals(R.s))).get(id)?.read, ['bob'])
-  const beat = (state: string) => `State: ${state}\nAlive: yes\nNext: 30\n`
-  const a = R.store.heartbeat!(R.s, 'alice', id, beat('working'))
-  const b = R.store.heartbeat!(R.s, 'alice', id, beat('waiting'))
-  assert.notEqual(a, b)
-  assert.ok(R.store.extends(a, b))
-  assert.match(R.store.heartbeats!(R.s)[0].text, /State: waiting/)
+  assert.deepEqual(Signals.marksOn(R, all, Signals.check(R, all, R.store.signals(R.s))).get(id)?.read, ['bob'])
   assert.equal(git(R, ['for-each-ref', '--format=%(refname)', 'refs/tags/']), '')
-  assert.equal(git(R, ['rev-parse', `${b}^{tree}`]), git(R, ['rev-parse', `${a}^{tree}`]))
+  for (const {head} of R.store.signalHeads(R.s)) assert.equal(git(R, ['rev-parse', `${head}^{tree}`]), git(R, ['rev-parse', `${R.genesis}^{tree}`]))
+})
+
+it('ignores valid, corrupt and deleted legacy telemetry without removing refs, pins or durable alarms', t => {
+  const f = fixture(t, true), origin = path.join(f.home, 'origin.git')
+  runGit(['init', '-q', '--bare', '-b', 'main', origin], {where: f.home})
+  const R = f.makeRoom('legacy', 'git+' + pathToFileURL(origin).href), store = R.store as GitStore
+  const id = append(R, 'alice', task('accepted'))
+  const tree = git(R, ['rev-parse', `${R.genesis}^{tree}`])
+  const valid = signCommit(store.h, 'alice', git(R, ['commit-tree', tree, '-p', R.genesis],
+    `Room: ${R.genesis}\nControl: ${R.head}\nTarget: ${id}\nState: working\nAlive: yes\nNext: 30\n`))
+  const corrupt = git(R, ['commit-tree', tree, '-p', R.genesis], 'not telemetry facts\n', 'bob')
+  const ref = 'refs/heads/alice/telemetry', pin = 'refs/ringi/remote-accepted/alice/telemetry'
+  git(R, ['update-ref', ref, valid])
+  git(R, ['update-ref', pin, valid])
+  git(R, ['push', '-q', origin, `${valid}:${ref}`, `${corrupt}:refs/heads/bob/telemetry`])
+  const alarmFile = path.join(store.dir, 'ringi', 'push-alarms.json')
+  const durable = JSON.stringify({[ref]: 'legacy publication conflict'}) + '\n'
+  fs.writeFileSync(alarmFile, durable)
+  store.sync()
+  assert.deepEqual(store.h.remoteAlarms, {})
+  assert.deepEqual(loadRoom(reopen(f.H, R), 'bob').st.alarms, [])
+  assert.deepEqual(store.signalHeads(R.s).map(x => x.actor), ['alice'])
+  assert.equal(store.signals(R.s)[0].target, id)
+  assert.equal(git(R, ['rev-parse', ref]), valid)
+  assert.equal(git(R, ['rev-parse', pin]), valid)
+  assert.equal(store.rev('refs/heads/bob/telemetry'), null, 'a fetched legacy stream is never promoted')
+  assert.equal(git(R, ['rev-parse', 'refs/remotes/origin/bob/telemetry']), corrupt)
+  assert.equal(fs.readFileSync(alarmFile, 'utf8'), durable)
+  assert.throws(() => validateRef(store.h, ref, valid), /unknown actor stream/)
+  git(R, ['push', '-q', origin, `:${ref}`, ':refs/heads/bob/telemetry'])
+  store.sync()
+  assert.deepEqual(store.h.remoteAlarms, {})
+  assert.deepEqual(loadRoom(reopen(f.H, R), 'bob').st.alarms, [])
+  assert.equal(git(R, ['rev-parse', ref]), valid)
+  assert.equal(git(R, ['rev-parse', pin]), valid)
+  assert.equal(fs.readFileSync(alarmFile, 'utf8'), durable)
+  const current = {'refs/heads/alice/signals': 'current signal conflict', 'refs/heads/chat': 'current chat conflict', 'refs/heads/main': 'current main conflict'}
+  fs.writeFileSync(alarmFile, JSON.stringify({...current, [ref]: 'legacy conflict', 'refs/heads/main/telemetry': 'unsupported alarm'}))
+  const before = fs.readFileSync(alarmFile)
+  store.sync()
+  assert.deepEqual(store.h.remoteAlarms, {...current, 'refs/heads/main/telemetry': 'unsupported alarm'})
+  assert.deepEqual(fs.readFileSync(alarmFile), before, 'the current alarm view never rewrites persisted evidence')
+})
+
+it('retries a retained signal tuple with the same commit and preserves legacy alarm evidence', t => {
+  const f = fixture(t, true), origin = path.join(f.home, 'origin.git')
+  runGit(['init', '-q', '--bare', '-b', 'main', origin], {where: f.home})
+  const R = f.makeRoom('retry', 'git+' + pathToFileURL(origin).href), store = R.store as GitStore
+  const id = append(R, 'alice', task('accepted')), ref = 'refs/heads/bob/signals'
+  const alarmFile = path.join(store.dir, 'ringi', 'push-alarms.json'), legacy = {'refs/heads/alice/telemetry': 'legacy publication conflict'}
+  fs.writeFileSync(alarmFile, JSON.stringify(legacy))
+  const hook = path.join(origin, 'hooks', 'pre-receive')
+  fs.writeFileSync(hook, '#!/bin/sh\nwhile read old new ref; do\n  if [ "$ref" = "refs/heads/bob/signals" ]; then exit 1; fi\ndone\n', {mode: 0o700})
+  assert.throws(() => store.signal(R.s, 'bob', id, 'read'), /ALARM.*push rejected/)
+  const retained = store.rev(ref)!
+  assert.ok(retained)
+  assert.equal(store.rev('refs/ringi/remote-accepted/bob/signals'), null)
+  assert.deepEqual(store.signals(R.s).filter(x => x.actor === 'bob').map(x => x.id), [retained])
+  assert.ok(JSON.parse(fs.readFileSync(alarmFile, 'utf8'))[ref])
+  fs.rmSync(hook)
+  store.signal(R.s, 'bob', id, 'read')
+  assert.equal(store.rev(ref), retained)
+  assert.equal(store.rev('refs/ringi/remote-accepted/bob/signals'), retained)
+  assert.equal(runGit(['--git-dir', origin, 'rev-parse', ref], {where: f.home}).trim(), retained)
+  assert.deepEqual(store.signals(R.s).filter(x => x.actor === 'bob').map(x => x.id), [retained])
+  assert.deepEqual(JSON.parse(fs.readFileSync(alarmFile, 'utf8')), legacy)
+  store.sync()
+  assert.deepEqual(store.h.remoteAlarms, {})
 })
 
 it('stops semantic failures at the accepted stream prefix and detects its deletion', t => {

@@ -33,7 +33,6 @@ export const stateFs = ({root, build}: {root: string, build: Build}): LocalState
   const marker = path.join(root, 'home.json')
   const state: LocalState = {
     root,
-    present: () => fs.existsSync(root),
     ensure: () => {
       if (fs.existsSync(marker)) {
         const v = readJson<{version?: number}>(marker, {}).version

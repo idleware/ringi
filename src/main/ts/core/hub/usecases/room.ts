@@ -21,7 +21,7 @@ export * from './send.ts'
 // --- reading ---
 
 // Who marked a message how (read, taken), from the marks that pass their check.
-export const marks = (R: Room, all: All): Map<string, Record<string, string[]>> => Signals.marksOn(Signals.check(R, all, R.store.signals(R.s)))
+export const marks = (R: Room, all: All): Map<string, Record<string, string[]>> => Signals.marksOn(R, all, Signals.check(R, all, R.store.signals(R.s)))
 export const message = ({R, me}: Actor, ref: string): {all: All, m: Message, replies: Message[], marks: Record<string, string[]> | undefined} => {
   const {all} = linked(R, me)
   const m = lookup(all, ref)

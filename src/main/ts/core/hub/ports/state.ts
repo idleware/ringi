@@ -8,8 +8,6 @@ export type Key = readonly string[]
 export interface LocalState {
   // Where the state lives, as the operator would look for it; the turns ringi starts get it too.
   readonly root: string
-  // Whether the state exists at all: a removed home ends the processes that serve it (pulse).
-  present(): boolean
   // The state is made on first use; one of another version, or anything else in its place, is refused.
   ensure(): void
   // One process of this machine at a time under `name`.

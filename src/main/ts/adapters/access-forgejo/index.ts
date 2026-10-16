@@ -1,8 +1,8 @@
 // access-forgejo: a Forgejo organisation as a hub's space (`forgejo+https://forge.example/<org>`), one private
 // repository per room, and who may push which branch, through Forgejo's API. Principals are Forgejo accounts: a
 // writable deploy key can be allowed on a protected branch only together with every other one, so it cannot keep one
-// actor to its streams. main, chat and the operator's streams take the root's account (chat also each admitted
-// actor's), an actor's streams only its own, every other branch nobody, every tag the root alone (rules.ts). What is reported is
+// actor to its signals. main, chat and the operator's signals take the root's account (chat also each admitted
+// actor's), an actor's signals only its own, every other branch nobody, every tag the root alone (rules.ts). What is reported is
 // what the API reads back.
 
 import crypto from 'node:crypto'
@@ -10,9 +10,9 @@ import {fail} from '../../lib/index.ts'
 import type {Access, AccessType} from '../../core/hub/ports/access.ts'
 import type {Call} from './api.ts'
 import {caller, space, typed} from './api.ts'
-import {STREAMS, rulesOf} from './rules.ts'
+import {rulesOf, signalsOf} from './rules.ts'
 
-// The root's own actor, whose streams the root's account writes.
+// The root's own actor, whose signals the root's account writes.
 const OPERATOR = 'operator'
 
 const keyLine = (key: string) => key.trim().split(/\s+/).slice(0, 2).join(' ')
@@ -43,16 +43,16 @@ const spaceOf = (locator: string, authRef: string): Space => {
   return {call, org, repo, rules: room => rulesOf(call, repo(room)),
     self: async () => (await call<{login: string}>('GET', '/user'))?.login ?? fail('Forgejo names no user for this token')}
 }
-// The operator's streams and the root's account are the root's: no grant or revocation touches them.
+// The operator's signals and the root's account are the root's: no grant or revocation touches them.
 const notRoot = async (S: Space, actor: string, principal: string) => {
-  if (actor === OPERATOR) fail('the operator\'s streams are the root\'s; they are neither granted nor revoked')
+  if (actor === OPERATOR) fail('the operator\'s signals are the root\'s; they are neither granted nor revoked')
   if (principal === await S.self()) fail(`${principal} is the root's account; an actor writes through its own`)
 }
 // An actor writes through an account no other actor and not the root writes through.
 const ownAccount = async (S: Space, room: string, actor: string, principal: string) => {
   await notRoot(S, actor, principal)
-  const holder = Object.entries((await S.rules(room).effective(room)).streams).find(([a, p]) => p === principal && a !== actor)
-  if (holder) fail(`${principal} already writes ${holder[0]}'s streams; each actor needs its own account`)
+  const holder = Object.entries((await S.rules(room).effective(room)).signals).find(([a, p]) => p === principal && a !== actor)
+  if (holder) fail(`${principal} already writes ${holder[0]}'s signals; each actor needs its own account`)
 }
 type Repo = {ssh_url: string, private: boolean}
 // The room's repository, private and with the matrix's rules read back, before its address is handed to anyone.
@@ -63,12 +63,12 @@ const ensureRoom = async (S: Space, room: string) => {
   const r = S.rules(room), root = await S.self()
   await r.set('main', [root])
   if (!(await r.has('chat'))) await r.set('chat', [root])
-  for (const s of STREAMS) await r.set(`${OPERATOR}/${s}`, [root])
+  await r.set(signalsOf(OPERATOR), [root])
   await r.set('**', [])
   await r.closeTags(root)
   const repo = await S.call<Repo>('GET', S.repo(room)), now = await r.effective(room)
-  if (!repo?.private || now.main.join() !== root || !now.chat.includes(root) || now.streams[OPERATOR] !== root)
-    fail(`${S.org}/${room} on the forge is not private with main, chat and the operator's streams for ${root}`)
+  if (!repo?.private || now.main.join() !== root || !now.chat.includes(root) || now.signals[OPERATOR] !== root)
+    fail(`${S.org}/${room} on the forge is not private with main, chat and the operator's signals for ${root}`)
   return {address: typed(repo!.ssh_url)}
 }
 // What an account may do in a room's repository, as the forge reads it.
@@ -80,24 +80,23 @@ const grant = async (S: Space, room: string, actor: string, principal: string, k
   await S.call('PUT', `${S.repo(room)}/collaborators/${encodeURIComponent(principal)}`, {permission: 'write'})
   const r = S.rules(room), chat = await r.pushers('chat')
   if (!chat.includes(principal)) await r.set('chat', [...chat, principal])
-  for (const s of STREAMS) await r.set(`${actor}/${s}`, [principal])
+  await r.set(signalsOf(actor), [principal])
   if (!['write', 'admin', 'owner'].includes(await permission(S, room, principal))) fail(`${principal} cannot write ${S.org}/${room} on the forge after the grant`)
 }
-// Only the account the actor writes through is taken back, judged by the actor's own rules alone, so a revocation
-// left half done is finished; any other account on them, or this one on another actor's, stops it before a change.
+// Only the account the actor writes through is taken back, judged by the actor's own signals rule alone, so a
+// revocation left half done is finished; any other account on it, or this one on another actor's, stops it before a
+// change.
 const revoke = async (S: Space, room: string, actor: string, principal: string) => {
   await notRoot(S, actor, principal)
   const r = S.rules(room), others = (await r.holders(principal)).filter(a => a !== actor)
-  if (others.length) fail(`${principal} writes ${others.join(' and ')}'s streams in ${S.org}/${room}, not ${actor}'s; nothing is revoked`)
-  for (const s of STREAMS) {
-    const on = await r.named(`${actor}/${s}`) ?? fail(`${actor}/${s} in ${S.org}/${room} lets more than the accounts it names; nothing is revoked`)
-    const wrong = on.filter(u => u !== principal)
-    if (wrong.length) fail(`${actor} writes ${S.org}/${room} through ${wrong.join(', ')}, not ${principal}; nothing is revoked`)
-  }
-  for (const s of STREAMS) await r.drop(`${actor}/${s}`)
+  if (others.length) fail(`${principal} writes ${others.join(' and ')}'s signals in ${S.org}/${room}, not ${actor}'s; nothing is revoked`)
+  const on = await r.named(signalsOf(actor)) ?? fail(`${signalsOf(actor)} in ${S.org}/${room} lets more than the accounts it names; nothing is revoked`)
+  const wrong = on.filter(u => u !== principal)
+  if (wrong.length) fail(`${actor} writes ${S.org}/${room} through ${wrong.join(', ')}, not ${principal}; nothing is revoked`)
+  await r.drop(signalsOf(actor))
   await r.set('chat', (await r.pushers('chat')).filter(u => u !== principal))
   await S.call('DELETE', `${S.repo(room)}/collaborators/${encodeURIComponent(principal)}`)
-  const left = [...await Promise.all(STREAMS.map(s => r.has(`${actor}/${s}`))), (await r.pushers('chat')).includes(principal),
+  const left = [await r.has(signalsOf(actor)), (await r.pushers('chat')).includes(principal),
     ['write', 'admin', 'owner'].includes(await permission(S, room, principal))]
   if (left.some(Boolean)) fail(`${principal} still writes ${S.org}/${room} on the forge after the revocation`)
 }

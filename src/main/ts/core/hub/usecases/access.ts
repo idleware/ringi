@@ -51,7 +51,7 @@ export const grantRoom = async (R: Room, actor: string, principal: string, key?:
   const access = accessOf(R.hub) ?? fail(`hub ${R.hub.name} makes no rooms on a forge; give ${actor} access to ${R.name}'s repository yourself`)
   await access.grant(R.name, actor, principal, key)
   const now = await access.effective(R.name)
-  if (now.streams[actor] !== principal || !now.chat.includes(principal)) fail(`${R.name} on the forge does not let ${principal} write ${actor}'s streams and the chat; run room admit again`)
+  if (now.signals[actor] !== principal || !now.chat.includes(principal)) fail(`${R.name} on the forge does not let ${principal} write ${actor}'s signals and the chat; run room admit again`)
   hubPorts().state.write(endpointKey(R.hub, R.name), {...R.endpoint, principals: {...R.endpoint.principals, [actor]: principal}})
 }
 // The room's repository on its medium gone; this machine's copy is deleted apart (rooms.erase).

@@ -17,8 +17,6 @@ One table. **operator**: the human in a terminal, in the current hub and room. *
 | `ringi tasks [--all] \| log [-n n] \| read <msg> \| thread <msg> \| cat <msg> [<path>] \| get <msg> [-o <dir>]` | both | reading the room (agents: ringi agent …) |
 | `ringi signals [--all] [--repair]` | both | what happened (signals) and where attention is (read and taken marks), each checked; --repair restores your missing signals |
 | `ringi profile` | both | the room's profile: what a piece of work is, its states, who may move it |
-| `ringi heartbeats [--json] \| heartbeats --published [--room <id>]` | operator | each session's pulse on this machine, from its process and its tool's trace, without the model: working, waiting (for what) or gone; --published: the room's telemetry as an orchestrator reads it |
-| `ringi pulse [--beat <s>] [--once]` | operator | beat for every session here: sync its room, append its telemetry, naming the last pulled message of its room; join and continue start it (RINGI_PULSE=off: not) |
 | `ringi forget <room>/<log>` | operator | after a changed-history alarm: accept a new baseline for that log |
 | `ringi skill install \| uninstall` | operator | the skill for Claude Code, Codex and Cursor |
 | `ringi join <room> [--as <id>] [--scope <text>]` | session | bind this chat to a room as an agent, with what the operator delegates; <room>: its name on this machine, or the operator's invitation (ringi:…) to one elsewhere |

@@ -1,5 +1,4 @@
 // session: what the operator says in an agent's chat (join, continue, stop, leave) becomes the session's requests.
-import * as Heartbeat from '../../../core/agents/heartbeat/pulse.ts'
 import * as Session from '../../../core/agents/sessions/session.ts'
 import {fail} from '../../../lib/index.ts'
 import {opt, out} from '../args.ts'
@@ -28,12 +27,10 @@ export const join = (o: Opts) => {
     return
   }
   out(`joined ${r.room} as ${r.agent}`)
-  Heartbeat.ensurePulse(process.argv[1])
   briefing(r.session!)
 }
 export const resume = (o: Opts) => {
   const s = Session.resume(o._[0])
-  Heartbeat.ensurePulse(process.argv[1])
   briefing(s)
 }
 export const stop = () => {

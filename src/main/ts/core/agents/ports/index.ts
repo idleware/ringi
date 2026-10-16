@@ -5,7 +5,7 @@ import {fail} from '../../../lib/fail.ts'
 import type {AgentTool} from './tools.ts'
 import type {ProcessHost} from './host.ts'
 
-export type {AgentTool, Env, SessionRef} from './tools.ts'
+export type {AgentTool, Env} from './tools.ts'
 
 export type AgentPorts = {tools: readonly AgentTool[], host: ProcessHost}
 

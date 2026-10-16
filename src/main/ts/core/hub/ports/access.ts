@@ -3,8 +3,8 @@
 // so every call is asynchronous. Trust stays end to end (root, pins, signatures); the medium's rules are defence in
 // depth, read back from the medium, never assumed.
 
-// Who may write what in a room's repository: `main` and `chat` by principal, each actor's streams by its principal.
-export type Grants = {main: string[], chat: string[], streams: Record<string, string>}
+// Who may write what in a room's repository: `main` and `chat` by principal, each actor's signals by its principal.
+export type Grants = {main: string[], chat: string[], signals: Record<string, string>}
 export type AccessAbility = {actorBranches: boolean, privateRepos: boolean, deleteServer: boolean}
 
 export interface Access {
@@ -14,7 +14,7 @@ export interface Access {
   ownKey(key: string): Promise<void>
   // The room's repository, found or made private with main and chat for the root and nothing else; its typed address.
   ensureRoom(room: string): Promise<{address: string}>
-  // An actor's write access through its own principal: the repository, chat and its exact streams; with `key`, also
+  // An actor's write access through its own principal: the repository, chat and its own signals; with `key`, also
   // that public key on the principal's account, if the operator's credentials may put it there. Or its removal.
   grant(room: string, actor: string, principal: string, key?: string): Promise<void>
   revoke(room: string, actor: string, principal: string): Promise<void>

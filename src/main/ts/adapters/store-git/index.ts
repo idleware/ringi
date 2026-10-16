@@ -1,5 +1,5 @@
 // Store on git/3: an explicit contract source or one self-contained room repository.
-// main holds the frozen contract; chat holds root controls and participant messages. Actor signals/telemetry are
+// main holds the frozen contract; chat holds root controls and participant messages. Actor signals are
 // append-only commit streams. Reader evidence lives below refs/ringi/accepted; message files remain in chat trees.
 // Signing is injected for every published commit. Repo, Branches and Marks separate storage from verification.
 

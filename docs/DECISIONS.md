@@ -415,3 +415,23 @@ Git covers several of these by construction. That is the bet here.
 - **The first join over SSH.** Before its admission an agent cannot read the room's repository, so its key is made
   before the first fetch, and an explicit SSH access refusal shows that key to admit; any other failure is reported
   as it is, never as "not admitted yet".
+
+## ringi: transport and protocol, no presence (2026-10-14)
+
+- **What ringi is.** The operator: ringi does two things, the transport and an extension of the A2A protocol. Whether
+  an agent is alive or working is its orchestrator's question, so the heartbeat is gone: no `pulse`, no
+  `heartbeats`, no `<agent>/telemetry` stream, no Presence in the store, no reading of the tools' traces. A quiet
+  session fetches nothing on its own; the orchestrator wakes or polls it. The telemetry branches of older rooms stay
+  where they are, unread. Watching sessions may become a package of its own for orchestrators (parked in the
+  workspace backlog as agent-session-probe).
+- **A read is a cursor.** The operator: an agent saw what came before the message it marked read, so it needs one
+  marker it moves, not a mark per message. Messages are ordered per author's log and by what they answer (core-1
+  §5), not by the chat branch, so the cursor is per log: a delivery marks the last message of each log it reached,
+  and a message counts as read by everyone whose cursor in its log reaches it and to whom it was addressed. Older
+  per-message marks read the same way. At most one mark per author per turn instead of one per message.
+- **What a host enforces is the host's.** Free plans of GitHub (private repositories get no branch protection) and
+  GitLab (pushes allowed by role, not per user) cannot keep an actor to its branch or refuse a force push. The
+  operator: the first record is always the root's; that any member may tamper on the server afterwards is accepted,
+  and whoever wants less risk runs a host of their own or pays for a plan. The specification says so, with
+  what still holds (signatures, pins, alarms) and what does not (prevention, and a later joiner may accept a shortened
+  history).

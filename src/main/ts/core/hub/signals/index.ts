@@ -10,8 +10,9 @@
 // prefix; a signal that disagrees, or an accepted stream that changes or disappears, is an alarm. A signal missing
 // after a crash between message and signal changes nothing and is restored with `signals --repair`.
 //
-// Marks are the second layer, in the same stream: where attention is, not what was decided. `read` says a message
-// reached its reader (made on delivery); `taken` says a member took a piece of work. A mark changes no state
+// Marks are the second layer, in the same stream: where attention is, not what was decided. `read` is its reader's
+// cursor in one author's log: every message of that log up to it that was addressed to the reader reached it (made on
+// delivery, one per log); `taken` says a member took a piece of work. A mark changes no state
 // or assignment. It is checked only for being possible: its target is an accepted message of the room, its
 // actor a member; `read` only for a message addressed to the actor or to all, `taken` only for a message that opens
 // work.

@@ -86,11 +86,6 @@ export interface Verification {
   // What the store skipped while reading the room (commits that are no valid message), as alarms.
   alarms?(room: StoredRoom): string[]
 }
-// Presence: advisory facts in an actor's telemetry stream; optional.
-export interface Presence {
-  heartbeat(room: StoredRoom, who: string, target: Rev, text: string): Rev
-  heartbeats(room: StoredRoom): Array<{agent: string, target: Rev, time: number, text: string}>
-}
 // A signed store: its root, members' keys, and a transport alarm the operator forgets after review.
 export interface Signed {
   admit(room: StoredRoom, who: string, key: string): Rev
@@ -99,9 +94,8 @@ export interface Signed {
   // The signers file a new signed room starts with: the root alone.
   rootRoster(): string
 }
-// A store: the log with its attachments, signals, evidence and verification; presence and signing
-// where it has them.
-export interface Store extends Log, Attachments, Signals, Evidence, Verification, Partial<Presence>, Partial<Signed> {}
+// A store: the log with its attachments, signals, evidence and verification; signing where it has it.
+export interface Store extends Log, Attachments, Signals, Evidence, Verification, Partial<Signed> {}
 
 // A hub's descriptor: what this machine knows about a hub before reading anything from its store.
 export type Descriptor = {

@@ -8,14 +8,15 @@ import type {Call} from './api.ts'
 type Rule = {rule_name: string, enable_push?: boolean, enable_push_whitelist?: boolean, push_whitelist_usernames: string[] | null,
   push_whitelist_teams?: string[] | null, push_whitelist_deploy_keys?: boolean, unprotected_file_patterns?: string}
 type TagRule = {name_pattern: string, whitelist_usernames?: string[] | null, whitelist_teams?: string[] | null}
-export const STREAMS = ['signals', 'telemetry']
+// An actor's one branch of its own: its signals.
+export const signalsOf = (actor: string) => `${actor}/signals`
 
 // Who a rule lets push: those it names, only while it lets pushes through its list at all.
 const pushers = (rs: Rule[], name: string) => {
   const r = rs.find(x => x.rule_name === name)
   return r?.enable_push && r.enable_push_whitelist ? r.push_whitelist_usernames ?? [] : []
 }
-const actorOf = (n: string) => STREAMS.map(st => n.endsWith(`/${st}`) ? n.slice(0, -st.length - 1) : null).find(a => a !== null) ?? null
+const actorOf = (n: string) => n.endsWith('/signals') ? n.slice(0, -'/signals'.length) : null
 const known = (n: string) => ['main', 'chat', '**'].includes(n) || AGENT_RE.test(actorOf(n) ?? '')
 const loose = (r: Rule) => (r.push_whitelist_teams ?? []).length || r.push_whitelist_deploy_keys || r.unprotected_file_patterns || (r.enable_push && !r.enable_push_whitelist)
 // Whom a rule lists, whatever it lets; and whom it names as its only pushers, none for one that lets more than it lists.
@@ -32,30 +33,30 @@ const closed = (tags: TagRule[], root: string[]) => {
   return all && root.length === 1 && ['', root[0]].includes((tags[0].whitelist_usernames ?? []).join())
 }
 const actors = (rs: Rule[]) => [...new Set(rs.flatMap(r => actorOf(r.rule_name) ?? []))]
-// An actor's streams agree when each lets exactly the same one principal push.
-const agreed = (rs: Rule[], actor: string) => {
-  const each = STREAMS.map(st => pushers(rs, `${actor}/${st}`))
-  return each.every(p => p.length === 1 && p[0] === each[0][0]) ? each[0][0] : null
+// An actor's signals are its own when exactly one account may push them.
+const owner = (rs: Rule[], actor: string) => {
+  const p = pushers(rs, signalsOf(actor))
+  return p.length === 1 ? p[0] : null
 }
-// Accounts that push the streams of more than one actor: neither could be told from the other.
+// Accounts that push the signals of more than one actor: neither could be told from the other.
 const shared = (rs: Rule[]) => {
   const by: Record<string, string[]> = {}
-  for (const a of actors(rs)) { const p = agreed(rs, a); if (p) (by[p] ??= []).push(a) }
-  return Object.entries(by).filter(([, as]) => as.length > 1).map(([p, as]) => `${p} pushes the streams of ${as.join(' and ')}`)
+  for (const a of actors(rs)) { const p = owner(rs, a); if (p) (by[p] ??= []).push(a) }
+  return Object.entries(by).filter(([, as]) => as.length > 1).map(([p, as]) => `${p} pushes the signals of ${as.join(' and ')}`)
 }
 // What lets more than the matrix, or is missing from it: an unknown rule, one that lets every writer, teams, deploy
-// keys or files through, main, chat or the "nobody" fallback missing, an actor whose streams disagree, one account for
+// keys or files through, main, chat or the "nobody" fallback missing, an actor whose signals more than one account pushes, one account for
 // several actors, or a tag rule that lets anyone but the root.
 const wider = (rs: Rule[], tags: TagRule[]): string[] => [
   ...rs.filter(r => !known(r.rule_name)).map(r => `rule ${r.rule_name}`),
   ...rs.filter(loose).map(r => `rule ${r.rule_name} lets every writer, teams, deploy keys or files through`),
   ...['main', 'chat'].filter(n => !rs.some(r => r.rule_name === n)).map(n => `no ${n} rule`),
   ...(shut(rs.find(r => r.rule_name === '**')) ? [] : ['no "**" rule that lets nobody push']),
-  ...actors(rs).filter(a => !agreed(rs, a)).map(a => `${a}'s streams do not let one same account push`),
+  ...actors(rs).filter(a => !owner(rs, a)).map(a => `${a}'s signals do not let exactly one account push`),
   ...shared(rs),
   ...(closed(tags, pushers(rs, 'main')) ? [] : ['tags are not closed to all but the root']),
 ]
-const streams = (rs: Rule[]): Grants['streams'] => Object.fromEntries(actors(rs).map(a => [a, agreed(rs, a)!]))
+const signals = (rs: Rule[]): Grants['signals'] => Object.fromEntries(actors(rs).map(a => [a, owner(rs, a)!]))
 
 export const rulesOf = (call: Call, repo: string) => {
   const all = async () => (await call<Rule[]>('GET', `${repo}/branch_protections`)) ?? []
@@ -64,8 +65,8 @@ export const rulesOf = (call: Call, repo: string) => {
   return {
     pushers: async (name: string) => pushers(await all(), name),
     named: async (name: string) => named(await all(), name),
-    // The actors whose stream rules list this account, whatever else the rules let.
-    holders: async (principal: string) => { const rs = await all(); return actors(rs).filter(a => STREAMS.some(st => listed(rs, `${a}/${st}`).includes(principal))) },
+    // The actors whose signals rule lists this account, whatever else the rule lets.
+    holders: async (principal: string) => { const rs = await all(); return actors(rs).filter(a => listed(rs, signalsOf(a)).includes(principal)) },
     has: async (name: string) => (await all()).some(r => r.rule_name === name),
     // Exactly these pushers, made or changed; none lets nobody push.
     set: async (name: string, users: string[]) => {
@@ -80,7 +81,7 @@ export const rulesOf = (call: Call, repo: string) => {
     effective: async (room: string): Promise<Grants> => {
       const rs = await all(), why = wider(rs, await tags())
       if (why.length) fail(`room ${room} on Forgejo allows more than ringi's rules: ${why.join('; ')}`)
-      return {main: pushers(rs, 'main'), chat: pushers(rs, 'chat'), streams: streams(rs)}
+      return {main: pushers(rs, 'main'), chat: pushers(rs, 'chat'), signals: signals(rs)}
     },
   }
 }

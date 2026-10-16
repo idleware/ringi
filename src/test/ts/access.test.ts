@@ -95,7 +95,7 @@ const fake = async (t: TestContext, served?: string) => {
 }
 
 describe('access: forgejo', () => {
-  it('makes a private room repository that only the root may push, its own streams too, and asking again changes nothing', async t => {
+  it('makes a private room repository that only the root may push, its own signals too, and asking again changes nothing', async t => {
     const f = await fake(t)
     assert.deepEqual(await f.access.inspect(), {version: '13.0.0', principal: 'root', can: {actorBranches: true, privateRepos: true, deleteServer: true}})
     assert.deepEqual(await f.access.ensureRoom('fix'), {address: 'git+ssh://git@forge.test:2222/ringi/fix.git'})
@@ -103,57 +103,60 @@ describe('access: forgejo', () => {
     assert.equal(repo.private, true)
     assert.deepEqual(repo.rules.map(r => [r.rule_name, r.enable_push, r.enable_push_whitelist, r.push_whitelist_usernames, r.push_whitelist_deploy_keys]),
       [['main', true, true, ['root'], false], ['chat', true, true, ['root'], false], ['operator/signals', true, true, ['root'], false],
-        ['operator/telemetry', true, true, ['root'], false], ['**', false, true, [], false]])
+        ['**', false, true, [], false]])
     assert.deepEqual(repo.tags, [{name_pattern: '*', whitelist_usernames: ['root']}])
     const before = f.writes.filter(w => !w.startsWith('PATCH')).length
     await f.access.ensureRoom('fix')
     assert.equal(f.writes.filter(w => !w.startsWith('PATCH')).length, before, 'nothing is made twice')
-    assert.deepEqual(await f.access.effective('fix'), {main: ['root'], chat: ['root'], streams: {operator: 'root'}})
+    assert.deepEqual(await f.access.effective('fix'), {main: ['root'], chat: ['root'], signals: {operator: 'root'}})
   })
 
-  it('gives an actor the room, chat and its own streams through its account, and takes them back', async t => {
+  it('gives an actor the room, chat and its own signals through its account, and takes them back', async t => {
     const f = await fake(t)
     await f.access.ensureRoom('fix')
     await f.access.grant('fix', 'claude', 'claude-zurich')
     await f.access.grant('fix', 'codex', 'codex-amsterdam')
     await f.access.grant('fix', 'claude', 'claude-zurich')
-    const both = {main: ['root'], chat: ['root', 'claude-zurich', 'codex-amsterdam'], streams: {operator: 'root', claude: 'claude-zurich', codex: 'codex-amsterdam'}}
+    const both = {main: ['root'], chat: ['root', 'claude-zurich', 'codex-amsterdam'], signals: {operator: 'root', claude: 'claude-zurich', codex: 'codex-amsterdam'}}
     assert.deepEqual(await f.access.effective('fix'), both)
     assert.deepEqual([...f.repos.get('fix')!.collaborators], [['claude-zurich', 'write'], ['codex-amsterdam', 'write']])
     // A revocation names the account the actor writes through, or takes nothing back.
-    await assert.rejects(f.access.revoke('fix', 'claude', 'codex-amsterdam'), /codex-amsterdam writes codex's streams in ringi\/fix, not claude's; nothing is revoked/)
+    await assert.rejects(f.access.revoke('fix', 'claude', 'codex-amsterdam'), /codex-amsterdam writes codex's signals in ringi\/fix, not claude's; nothing is revoked/)
     await assert.rejects(f.access.revoke('fix', 'claude', 'someone'), /claude writes ringi\/fix through claude-zurich, not someone; nothing is revoked/)
-    await assert.rejects(f.access.revoke('fix', 'operator', 'root'), /the operator's streams are the root's/)
+    await assert.rejects(f.access.revoke('fix', 'operator', 'root'), /the operator's signals are the root's/)
     // An account listed on another actor's stream, however loose that rule, is that actor's too: nothing is taken back.
     const theirs = f.repos.get('fix')!.rules.find(r => r.rule_name === 'codex/signals')!, writes = f.writes.length
     Object.assign(theirs, {push_whitelist_usernames: ['codex-amsterdam', 'claude-zurich'], push_whitelist_teams: ['other-team']})
-    await assert.rejects(f.access.revoke('fix', 'claude', 'claude-zurich'), /claude-zurich writes codex's streams in ringi\/fix, not claude's; nothing is revoked/)
+    await assert.rejects(f.access.revoke('fix', 'claude', 'claude-zurich'), /claude-zurich writes codex's signals in ringi\/fix, not claude's; nothing is revoked/)
     assert.equal(f.writes.length, writes, 'a refused revocation writes nothing')
     Object.assign(theirs, {push_whitelist_usernames: ['codex-amsterdam'], push_whitelist_teams: []})
     assert.deepEqual(await f.access.effective('fix'), both)
-    const after = {main: ['root'], chat: ['root', 'codex-amsterdam'], streams: {operator: 'root', codex: 'codex-amsterdam'}}
+    const after = {main: ['root'], chat: ['root', 'codex-amsterdam'], signals: {operator: 'root', codex: 'codex-amsterdam'}}
     await f.access.revoke('fix', 'claude', 'claude-zurich')
     await f.access.revoke('fix', 'claude', 'claude-zurich')
     assert.deepEqual(await f.access.effective('fix'), after)
-    // A revocation left half done, one stream rule gone and the rest still there, is finished by asking again.
+    // A revocation left half done, the signals rule gone and the chat and repository still the account's, is finished
+    // by asking again.
+    const rules = () => f.repos.get('fix')!.rules
     await f.access.grant('fix', 'claude', 'claude-zurich')
-    const rules = f.repos.get('fix')!.rules
-    rules.splice(rules.findIndex(r => r.rule_name === 'claude/signals'), 1)
-    await assert.rejects(f.access.effective('fix'), /claude's streams do not let one same account push/)
-    // What is left must name only this account, and let no more than it names, or nothing is taken back.
-    const left = rules.find(r => r.rule_name === 'claude/telemetry')!
-    left.push_whitelist_usernames = ['someone-else']
-    await assert.rejects(f.access.revoke('fix', 'claude', 'claude-zurich'), /claude writes ringi\/fix through someone-else, not claude-zurich; nothing is revoked/)
-    left.enable_push_whitelist = false
-    await assert.rejects(f.access.revoke('fix', 'claude', 'claude-zurich'), /claude\/telemetry in ringi\/fix lets more than the accounts it names; nothing is revoked/)
-    assert.equal(rules.includes(left), true, 'a refused revocation drops no rule')
-    Object.assign(left, {push_whitelist_usernames: ['claude-zurich'], enable_push_whitelist: true})
+    rules().splice(rules().findIndex(r => r.rule_name === 'claude/signals'), 1)
     await f.access.revoke('fix', 'claude', 'claude-zurich')
     assert.deepEqual(await f.access.effective('fix'), after)
     assert.deepEqual([...f.repos.get('fix')!.collaborators.keys()], ['codex-amsterdam'])
-    // An actor whose two streams disagree is a policy the forge does not keep as ringi wants: refused, not reported.
-    f.repos.get('fix')!.rules.find(r => r.rule_name === 'codex/telemetry')!.push_whitelist_usernames = ['someone-else']
-    await assert.rejects(f.access.effective('fix'), /codex's streams do not let one same account push/)
+    // The actor's signals rule must name only this account, and let no more than it names, or nothing is taken back.
+    await f.access.grant('fix', 'claude', 'claude-zurich')
+    const mine = rules().find(r => r.rule_name === 'claude/signals')!
+    mine.push_whitelist_usernames = ['someone-else']
+    await assert.rejects(f.access.revoke('fix', 'claude', 'claude-zurich'), /claude writes ringi\/fix through someone-else, not claude-zurich; nothing is revoked/)
+    mine.enable_push_whitelist = false
+    await assert.rejects(f.access.revoke('fix', 'claude', 'claude-zurich'), /claude\/signals in ringi\/fix lets more than the accounts it names; nothing is revoked/)
+    assert.equal(rules().includes(mine), true, 'a refused revocation drops no rule')
+    Object.assign(mine, {push_whitelist_usernames: ['claude-zurich'], enable_push_whitelist: true})
+    await f.access.revoke('fix', 'claude', 'claude-zurich')
+    assert.deepEqual(await f.access.effective('fix'), after)
+    // Signals two accounts may push are a policy the forge does not keep as ringi wants: refused, not reported.
+    rules().find(r => r.rule_name === 'codex/signals')!.push_whitelist_usernames = ['codex-amsterdam', 'someone-else']
+    await assert.rejects(f.access.effective('fix'), /codex's signals do not let exactly one account push/)
     await f.access.deleteServer('fix')
     assert.equal(f.repos.has('fix'), false)
   })
@@ -183,7 +186,7 @@ describe('access: forgejo', () => {
     await f.access.ensureRoom('fix')
     await f.access.grant('fix', 'claude', 'claude-zurich')
     await assert.rejects(f.access.grant('fix', 'codex', 'root'), /the root's account/)
-    await assert.rejects(f.access.grant('fix', 'codex', 'claude-zurich'), /already writes claude's streams/)
+    await assert.rejects(f.access.grant('fix', 'codex', 'claude-zurich'), /already writes claude's signals/)
     const repo = f.repos.get('fix')!
     const widen = async (change: () => void, undo: () => void, why: RegExp) => {
       change()
@@ -206,12 +209,11 @@ describe('access: forgejo', () => {
     const mine = repo.rules.find(r => r.rule_name === 'claude/signals')!
     await widen(() => { mine.enable_push_whitelist = false }, () => { mine.enable_push_whitelist = true }, /rule claude\/signals lets every writer/)
     const stream = (name: string, who: string) => ({rule_name: name, enable_push: true, enable_push_whitelist: true, push_whitelist_usernames: [who], push_whitelist_deploy_keys: false})
-    await widen(() => repo.rules.push(stream('*/signals', 'x'), stream('*/telemetry', 'x')), () => { repo.rules.pop(); repo.rules.pop() }, /rule \*\/signals/)
-    await widen(() => repo.rules.push(stream('zoe/telemetry', 'someone')), () => repo.rules.pop(), /zoe's streams do not let one same account push/)
-    await widen(() => repo.rules.push(stream('zoe/signals', 'claude-zurich'), stream('zoe/telemetry', 'claude-zurich')), () => { repo.rules.pop(); repo.rules.pop() },
-      /claude-zurich pushes the streams of claude and zoe/)
-    await widen(() => repo.rules.push(stream('zoe/signals', 'root'), stream('zoe/telemetry', 'root')), () => { repo.rules.pop(); repo.rules.pop() },
-      /root pushes the streams of operator and zoe/)
+    await widen(() => repo.rules.push(stream('*/signals', 'x')), () => repo.rules.pop(), /rule \*\/signals/)
+    // A telemetry branch of an older ringi is no rule of this one's.
+    await widen(() => repo.rules.push(stream('zoe/telemetry', 'someone')), () => repo.rules.pop(), /rule zoe\/telemetry/)
+    await widen(() => repo.rules.push(stream('zoe/signals', 'claude-zurich')), () => repo.rules.pop(), /claude-zurich pushes the signals of claude and zoe/)
+    await widen(() => repo.rules.push(stream('zoe/signals', 'root')), () => repo.rules.pop(), /root pushes the signals of operator and zoe/)
   })
 
   it('makes rooms only in private repositories, and says so when a deletion did not take', async t => {
@@ -283,7 +285,7 @@ describe('rooms on a forge, through the command line', () => {
     assert.equal(/ringi room admit claude '([^']+)'/.exec(first.out)![1], key, 'the key it was shown is the one it joins with')
     const admitted = await run(op, ['room', 'admit', 'claude', key, '--as', 'claude-zurich', '--room', 'fix'])
     assert.equal(admitted.code, 0, admitted.err)
-    assert.deepEqual(await f.access.effective('fix'), {main: ['root'], chat: ['root', 'claude-zurich'], streams: {operator: 'root', claude: 'claude-zurich'}})
+    assert.deepEqual(await f.access.effective('fix'), {main: ['root'], chat: ['root', 'claude-zurich'], signals: {operator: 'root', claude: 'claude-zurich'}})
     assert.equal(f.keys.get('claude-zurich')!.length, 1, 'the agent\'s key is on its account')
     const joined = await run(agent, ['join', invitation, '--as', 'claude'], 'C')
     assert.equal(joined.code, 0, joined.err)
@@ -293,11 +295,10 @@ describe('rooms on a forge, through the command line', () => {
     const task = (JSON.parse((await run(agent, ['agent', 'inbox', '--json'], 'C')).out) as Array<{id: string, kind: string}>).find(m => m.kind === 'task')!
     const done = await run(agent, ['agent', 'reply', task.id, '--state', 'completed', '-m', 'Done'], 'C')
     assert.equal(done.code, 0, done.err)
-    assert.equal((await run(agent, ['pulse', '--once'], 'C')).code, 0)
     const refs = spawnSync('git', ['--git-dir', path.join(served, 'fix.git'), 'for-each-ref', '--format=%(refname)'], {encoding: 'utf8'}).stdout.trim().split('\n')
     assert.deepEqual(refs.filter(r => !r.startsWith('refs/heads/')), [], 'only branches are pushed')
-    const {streams} = await f.access.effective('fix'), streamOf = (b: string) => /^([^/]+)\/(signals|telemetry)$/.exec(b)?.[1]
-    for (const b of refs.map(r => r.slice('refs/heads/'.length))) assert.ok(['main', 'chat'].includes(b) || streams[streamOf(b) ?? ''], `${b} is a branch the matrix lets someone push`)
+    const {signals} = await f.access.effective('fix'), actorOf = (b: string) => /^([^/]+)\/signals$/.exec(b)?.[1]
+    for (const b of refs.map(r => r.slice('refs/heads/'.length))) assert.ok(['main', 'chat'].includes(b) || signals[actorOf(b) ?? ''], `${b} is a branch the matrix lets someone push`)
     for (const b of ['operator/signals', 'claude/signals']) assert.ok(refs.includes(`refs/heads/${b}`), `${b} was pushed`)
     // Another hub of the same operator in the same space: its root key sits beside the first one.
     const other = await run(op, ['hub', 'create', 'other', '--signed', '--forge', f.space, '--auth-file', f.auth, '--host-key-file', pins])
