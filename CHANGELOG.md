@@ -1,3 +1,8 @@
+## [0.10.0](https://github.com/idleware/ringi/compare/v0.9.1...v0.10.0) (2026-10-16)
+
+### Features
+* feat: drop the heartbeat, a read cursor per log ([9ce2868](https://github.com/idleware/ringi/commit/9ce2868753abf2f7d87eadb18134dc2a40415333))
+
 ## [0.9.1](https://github.com/idleware/ringi/compare/v0.9.0...v0.9.1) (2026-10-14)
 
 ### Fixes & improvements
