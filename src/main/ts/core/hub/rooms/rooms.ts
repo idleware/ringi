@@ -8,7 +8,8 @@ import type {Member, RoomEndpoint} from '../ports/store.ts'
 import {openContract, readProfileResource} from './hubs.ts'
 import {endpointRefusal} from './compat.ts'
 import {ID_RE} from '../protocol/index.ts'
-import type {Hub, Room} from './index.ts'
+import {isRegisteredRoom} from './index.ts'
+import type {Hub, Room, RoomV1} from './index.ts'
 import {endpointKey, roomLock, roomNames, selectedStore} from './room-catalogue.ts'
 import {openedRoom} from './room-view.ts'
 export {roomNames} from './room-catalogue.ts'
@@ -16,7 +17,7 @@ export {createRoom, attachRoom, deleteRoom} from './room-life.ts'
 
 const missing = (H: Hub, name: string, quiet: boolean): null =>
   quiet ? null : fail(`no room ${name} in hub ${H.name}; rooms: ${roomNames(H).join(', ') || 'none'}`)
-export const openRoom = (H: Hub, name: string | null | undefined, {quiet = false, refresh = false}: {quiet?: boolean, refresh?: boolean} = {}): Room | null => {
+export const openRoom = (H: Hub, name: string | null | undefined, {quiet = false, refresh = false}: {quiet?: boolean, refresh?: boolean} = {}): RoomV1 | null => {
   if (!name) return fail('no room: the operator creates one with ringi room create <id>, or picks one with ringi room switch <id>')
   if (!ID_RE.test(name)) fail(`bad room name ${name}`)
   const endpoint = hubPorts().state.read<RoomEndpoint | null>(endpointKey(H, name), null)
@@ -28,12 +29,13 @@ export const openRoom = (H: Hub, name: string | null | undefined, {quiet = false
   store.sync()
   return openedRoom(H, endpoint, store)
 }
-export const room = (H: Hub, name: string | null | undefined): Room => openRoom(H, name)!
+export const room = (H: Hub, name: string | null | undefined): RoomV1 => openRoom(H, name)!
 export const ROOM_MD = (name: string): string => `# room ${name}\n\nA ringi room: members.json lists who takes part; profile.json is what a piece of work is here, fixed when the room was made.\n`
 export const profileText = (H: Hub, name: string): string | null =>
   (() => { const {store, main} = openContract(H); return store.contractFile(main, `profiles/${name}.json`) ?? (name === DEFAULT_PROFILE ? readProfileResource(DEFAULT_PROFILE) : null) })()
 // A control change under the hub lock. In a signed room membership changes only through `room admit`.
-export const controlChange = (R: Room, who: string, subject: string, mutate: (m: Record<string, Member>) => void, extra: Array<[string, string]> = []): void =>
+export const controlChange = (R: Room, who: string, subject: string, mutate: (m: Record<string, Member>) => void, extra: Array<[string, string]> = []): void => {
+  if (isRegisteredRoom(R)) fail('endpoint/2 control changes require the registered room control operation')
   locked(roomLock(R.hub, R.name), () => {
     const s = R.store.room(R.name) ?? fail(`room ${R.name} is gone`)
     const members = strictJson<Record<string, Member>>(R.store.controlFile(s, 'members.json') ?? '{}', `room ${R.name}: members.json`)
@@ -43,3 +45,4 @@ export const controlChange = (R: Room, who: string, subject: string, mutate: (m:
     R.head = R.store.updateControl(s, who, compose(subject, [['To', '*'], ['Kind', 'room'], ...extra]), {'members.json': JSON.stringify(members, null, 2) + '\n'})
     R.members = members
   })
+}

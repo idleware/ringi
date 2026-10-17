@@ -19,10 +19,12 @@ export const briefing = (s: Session.Session) => {
 }
 export const join = (o: Opts) => {
   const [room] = o._
-  if (!room) fail('usage: ringi join <room or its invitation> [--as <id>] [--scope "<what the operator delegates>"]')
-  const r = Session.join({room, agent: opt(o, 'as'), scope: opt(o, 'scope')})
-  if (r.key) {
-    out(`${r.agent}'s key on this machine (${r.key.fingerprint}). Ask the root to admit it, then join again:\n  ringi room admit ${r.agent} '${r.key.publicKey}' --room ${r.room}`)
+  if (!room) fail('usage: ringi join <room or its invitation> [--as <id>] [--scope "<what the operator delegates>"] [--identity <key file>]')
+  const r = Session.join({room, agent: opt(o, 'as'), scope: opt(o, 'scope'), identity: opt(o, 'identity')})
+  if (r.pending) {
+    const {key, login, realm} = r.pending
+    const first = login ? `add this key to ${login}'s SSH keys on ${realm}; then ` : ''
+    out(`${r.agent}'s key on this machine (${key.fingerprint}):\n  ${key.publicKey}\n${first}the root runs:\n  ringi room admit ${r.agent} '${key.publicKey}' --room ${r.room}\nthen join again`)
     process.exitCode = 3
     return
   }

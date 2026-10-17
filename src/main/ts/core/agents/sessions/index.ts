@@ -5,6 +5,7 @@ import crypto from 'node:crypto'
 import {hubPorts} from '../../hub/ports/index.ts'
 import {agentPorts} from '../ports/index.ts'
 import {fail} from '../../../lib/index.ts'
+import type {RoomRegistrationId} from '../../hub/rooms/room-catalogue.ts'
 export {bound} from './binding.ts'
 export type {Bound} from './binding.ts'
 
@@ -13,8 +14,10 @@ const LEASE = 60 * 60 * 1000
 export type Session = {
   handle: string
   product: string | null
-  hub: string
+  // The room by its canonical address; its registration on this machine and the full context the seat belongs to.
   room: string
+  id: RoomRegistrationId
+  context: readonly string[]
   genesis: string
   agent: string
   scope: string | null
@@ -74,13 +77,15 @@ export const pidAlive = (pid: number): boolean => agentPorts().host.alive(pid)
 export const liveness = (s: Session): 'active' | 'stopped' | 'gone' => s.state === 'stopped' ? 'stopped'
   : Date.now() - Date.parse(s.lastSeen) < LEASE && (!s.pid || pidAlive(s.pid)) ? 'active' : 'gone'
 
-export const seatHolder = (hub: string, genesis: string, agent: string, except: string): Session | undefined =>
-  allSessions().find(s => s.hub === hub && s.genesis === genesis && s.agent === agent && s.handle !== except)
+// The same room as this machine registered it: its address, history and repository, never a copy's.
+export const sameRoom = (s: Pick<Session, 'context'>, R: {context: readonly string[]}): boolean => JSON.stringify(s.context) === JSON.stringify(R.context)
+export const seatHolder = (R: {context: readonly string[]}, agent: string, except: string): Session | undefined =>
+  allSessions().find(s => sameRoom(s, R) && s.agent === agent && s.handle !== except)
 
 export const ownSession = (handle: string): Session | null => readSession(handle)
 
-// A seat is named by its room and agent: a room's name is unique on a machine, whatever hub keeps it.
+// A seat is named by its room (an address or a name) and agent, split at the last slash.
 export const parseSelector = (sel: string | undefined): {room: string, agent: string} => {
-  const m = /^([^/]+)\/([^/]+)$/.exec(sel ?? '')
+  const m = /^(.+)\/([^/]+)$/.exec(sel ?? '')
   return m ? {room: m[1], agent: m[2]} : fail('a session is named <room>/<agent>')
 }

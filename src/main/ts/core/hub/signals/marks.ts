@@ -16,8 +16,8 @@ const RULES: Record<string, (R: RoomModel, actor: string, m: Message) => string 
   taken: (R, _actor, m) => m.kind !== R.profile.opens || m.bad ? `the message does not open work (${R.profile.opens})` : undefined,
 }
 // Why the actor cannot put this mark on this message, or nothing when it can.
-export const markWhy = (R: RoomModel, actor: string, m: Message, mark: string): string | undefined => {
-  if (!R.members[actor]) return `${actor} is not a member of ${R.name}`
+export const markWhy = (R: RoomModel, actor: string, m: Message, mark: string, members = R.members): string | undefined => {
+  if (!members[actor]) return `${actor} is not a member of ${R.name}`
   const rule = RULES[mark]
   return rule ? rule(R, actor, m) : `unknown mark ${mark}`
 }

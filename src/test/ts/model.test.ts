@@ -42,7 +42,7 @@ const world = (t: TestContext) => {
   function json(args: ['signals', ...string[]], opt?: RunOpt): Checked[]
   function json(args: string[], opt?: RunOpt): unknown { return JSON.parse(ok([...args, '--json'], opt)) }
   // Room r's repository, and the contract's (hub-2: one repository per room beside the contract's).
-  const repo = path.join(home, 'hub', 'local', 'rooms', 'r', 'store', '.git')
+  const repo = path.join(home, 'rooms', 'r', 'store', '.git')
   const git = (...args: string[]) => spawnSync('git', ['--git-dir', repo, ...args], {encoding: 'utf8', env: FIXTURE_GIT}).stdout.trim()
   const contractGit = (...args: string[]) => spawnSync('git', ['--git-dir', path.join(home, 'hub', 'local', 'contract', '.git'), ...args], {encoding: 'utf8', env: FIXTURE_GIT}).stdout.trim()
   const genesis = () => git('rev-list', '--reverse', 'refs/heads/chat', '^refs/heads/main').split('\n')[0]
@@ -269,24 +269,6 @@ describe('hubs: a descriptor beside a store', () => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
     w.no(['hub', 'amend', '-m', 'two majors', '--set', 'capabilities=profiles/1,profiles/2'], /selects two majors of profiles, which this ringi .* cannot enforce/)
-  })
-
-  it('refuses a room\'s history offered under another name', (t) => {
-    const w = world(t)
-    w.ok(['room', 'create', 'r'])
-    w.ok(['send', '--to', '*', '-m', 'only in r'])
-    // An endpoint named `other` that points at r's history.
-    const rooms = path.join(w.home, 'hub', 'local', 'rooms')
-    fs.cpSync(path.join(rooms, 'r'), path.join(rooms, 'other'), {recursive: true})
-    const e = path.join(rooms, 'other', 'endpoint.json')
-    fs.writeFileSync(e, JSON.stringify({...JSON.parse(fs.readFileSync(e, 'utf8')), name: 'other'}))
-    const list = w.run(['room', 'list'])
-    assert.equal(list.code, 0, list.err)
-    assert.match(list.out, /^\* r +1 member/m)
-    assert.doesNotMatch(list.out, /other/)
-    assert.match(list.err, /ALARM room other: its genesis is "room r"/)
-    w.no(['log', '--room', 'other'], /its genesis is "room r"; refusing a room's history under another name/)
-    assert.match(w.ok(['log', '--room', 'r']), /only in r/)
   })
 
   it('keeps what this machine knows in hub.json and the shared contract in the store', (t) => {

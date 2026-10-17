@@ -34,24 +34,41 @@ const remaining = (r: SignRequest): number => {
   if (!r.namespace || /[\r\n\0]/.test(r.namespace)) throw refusal('denied', 'invalid signature namespace')
   return Math.max(1, Math.min(30000, Math.floor(ms)))
 }
+// Where a key reference keeps its key: the legacy `ringi-key:<hub>/<agent>`, a machine's key for an account realm
+// (`ringi-key:realm/<id>/<account>`), a room's own key (`ringi-key:room/<id>/<label>`), or an explicit file the operator
+// configured (`file:<absolute path>`, never made here). Anything else is refused, never guessed.
+const located = (home: string, ref: string): {file: string, makes: boolean} => {
+  const scoped = /^ringi-key:(realm|room)\/([0-9a-f]{16,64})\/([^/]+)$/.exec(ref)
+  if (scoped) return {file: path.join(home, 'keys', scoped[1], scoped[2], name(scoped[3])), makes: true}
+  const legacy = /^ringi-key:([^/]+)\/([^/]+)$/.exec(ref)
+  if (legacy) return {file: path.join(home, 'keys', name(legacy[1]), name(legacy[2])), makes: true}
+  if (ref.startsWith('file:') && path.isAbsolute(ref.slice('file:'.length))) return {file: ref.slice('file:'.length), makes: false}
+  throw refusal('denied', `no key reference ringi reads: ${ref.split(':')[0]}:…`)
+}
 export const keysFile = (home: string): SigningContext => {
   const files = new Map<KeyRef, string>()
   const refs = new Map<string, KeyRef>()
   const keyFile = (key: KeyRef): string => files.get(key) ?? (() => { throw refusal('denied', 'key reference belongs to another signer') })()
   const custody = (hub: string, principal: string) => path.join(home, 'keys', name(hub), name(principal))
+  // The key in `file`, made there first if asked and allowed; a reference to it this signer alone knows.
+  const reference = (file: string, owner: string, create: boolean, makes: boolean): KeyRef => {
+    if (!fs.existsSync(file)) {
+      if (!create || !makes) throw refusal('unavailable', `no private key for ${owner} on this machine; ${owner === 'operator' ? 'root keys are never obtained from a hub' : 'join here to generate one, then ask the root to admit its public key'}`)
+      mkdirIn(home, path.dirname(file))
+      guardWrite(home, () => command(['-q', '-t', 'ed25519', '-N', '', '-C', `${owner}@ringi`, '-f', file]))
+    }
+    const ref = refs.get(file) ?? crypto.randomUUID() as KeyRef
+    files.set(ref, file)
+    refs.set(file, ref)
+    return ref
+  }
   return {
     custody,
-    resolve: (hub, principal, create = false) => {
-      const file = custody(hub, principal)
-      if (!fs.existsSync(file)) {
-        if (!create) throw refusal('unavailable', `no private key for ${principal} on this machine; ${principal === 'operator' ? 'root keys are never obtained from a hub' : 'join here to generate one, then ask the root to admit its public key'}`)
-        mkdirIn(home, path.dirname(file))
-        guardWrite(home, () => command(['-q', '-t', 'ed25519', '-N', '', '-C', `${principal}@ringi`, '-f', file]))
-      }
-      const ref = refs.get(file) ?? crypto.randomUUID() as KeyRef
-      files.set(ref, file)
-      refs.set(file, ref)
-      return ref
+    resolve: (hub, principal, create = false) => reference(custody(hub, principal), principal, create, true),
+    custodyRef: ref => located(home, ref).file,
+    resolveRef: (ref, create = false) => {
+      const {file, makes} = located(home, ref)
+      return reference(file, path.basename(file), create, makes)
     },
     signer: {
       publicIdentity: ref => identity(keyFile(ref)),

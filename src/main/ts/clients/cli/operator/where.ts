@@ -2,13 +2,13 @@
 
 import {config} from '../../../core/hub/usecases/context.ts'
 import * as Overview from '../../../core/agents/overview.ts'
-import type {Room} from '../../../core/hub/rooms/index.ts'
+import type {RoomV2} from '../../../core/hub/rooms/index.ts'
 import {sleep} from '../../../lib/index.ts'
 import type {Opts} from '../args.ts'
 import {flag, opt, out} from '../args.ts'
 import {hubLine, printOverview, showMessage} from './where-format.ts'
 
-const follow = async (R: Room, o: Opts, seen: Set<string>) => {
+const follow = async (R: RoomV2, o: Opts, seen: Set<string>) => {
   out('following; new messages appear as they land (Ctrl-C to stop)')
   for (;;) {
     await sleep(Number(opt(o, 'interval') ?? 2) * 1000)
@@ -19,7 +19,7 @@ const follow = async (R: Room, o: Opts, seen: Set<string>) => {
 export const where = async (o: Opts) => {
   const w = Overview.where(opt(o, 'room') ?? config().room)
   const R = w.room
-  if (!R) return out('no current room: ringi room create <id> | ringi room switch <id>')
+  if (!R) return out('no current room: ringi room create [<address>] | ringi room switch <address>')
   out(hubLine(R))
   printOverview(w, R)
   const n = Number(opt(o, 'n') ?? (flag(o, 'short') ? 10 : 5))

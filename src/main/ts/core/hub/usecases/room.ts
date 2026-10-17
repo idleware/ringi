@@ -10,7 +10,7 @@ import * as HubSignals from '../signals/write.ts'
 import {fail, short} from '../../../lib/index.ts'
 import {link, lookup, ordered, rootOf, under} from '../protocol/index.ts'
 import type {All, Message} from '../protocol/index.ts'
-import {linked, loadRoomUnlocked, loadState, readerLock, saveState} from '../history/index.ts'
+import {linked, loadRoomUnlocked, loadState, readerLock, readerSignals, saveState} from '../history/index.ts'
 import type {Actor} from './actor.ts'
 import {taskView} from './view.ts'
 import type {TaskView} from './view.ts'
@@ -20,12 +20,15 @@ export * from './send.ts'
 
 // --- reading ---
 
-// Who marked a message how (read, taken), from the marks that pass their check.
-export const marks = (R: Room, all: All): Map<string, Record<string, string[]>> => Signals.marksOn(R, all, Signals.check(R, all, R.store.signals(R.s)))
+// Who marked a message how (read, taken), from the marks that pass their check, as this reader may count them.
+export const marks = (R: Room, all: All, reader: string): Map<string, Record<string, string[]>> => {
+  const records = readerSignals(R, loadState(R, reader))
+  return Signals.marksOn(R, all, Signals.check(R, all, records))
+}
 export const message = ({R, me}: Actor, ref: string): {all: All, m: Message, replies: Message[], marks: Record<string, string[]> | undefined} => {
   const {all} = linked(R, me)
   const m = lookup(all, ref)
-  return {all, m, replies: [...all.values()].filter(x => x.reId === m.id), marks: marks(R, all).get(m.id)}
+  return {all, m, replies: [...all.values()].filter(x => x.reId === m.id), marks: marks(R, all, me).get(m.id)}
 }
 export const thread = ({R, me}: Actor, ref: string): {all: All, msgs: Message[]} => {
   const {all} = linked(R, me)
@@ -43,7 +46,7 @@ export const tasks = ({R, me}: Actor, {all: everything = false}: {all?: boolean}
   let ts = tasksIn(all, P)
   if (!everything) ts = ts.filter(t => isOpen(t, P) && concerns(t, me))
   ts.sort((a, b) => a.at - b.at)
-  const m = marks(R, all)
+  const m = marks(R, all, me)
   return {tasks: ts, views: ts.map(t => taskView(t, m.get(t.root.id)?.taken ?? []))}
 }
 export const log = ({R, me}: Actor, {agent, all: everything = false, n = 20}: {agent?: string, all?: boolean, n?: number} = {}): Message[] => {
@@ -77,10 +80,10 @@ export const signals = ({R, me}: Actor, {repair = false}: {repair?: boolean} = {
       repaired = 0
       for (const m of logs.get(me) ?? []) repaired += HubSignals.emit(R, me, all, m)
     }
-    const records = R.store.signals(R.s)
+    const records = readerSignals(R, st)
     const checked = Signals.check(R, all, records)
     const p = Signals.pins(records, checked, st.signals)
-    saveState(R, me, {...loadState(R, me), signals: p.accepted})
+    saveState(R, me, {...loadState(R, me), signals: p.accepted, retired: st.retired})
     return {all, checked, alarms: [...p.alarms, ...checked.filter(c => !c.ok && !c.pending).map(c => `signal ${c.actor} ${c.signal} ${short(c.ref)}: ${c.why}`)], repaired}
   })
 

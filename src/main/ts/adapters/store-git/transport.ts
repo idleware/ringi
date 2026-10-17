@@ -11,12 +11,14 @@ import type {SigningContext} from '../../core/signing/index.ts'
 import type {TransportAuth} from './auth.ts'
 import {identityKey} from './remote/keys.ts'
 export type {TransportAuth, SshIdentity} from './auth.ts'
+// Future E8 layout; the active gitTransport below still declares git/3 until the coordinated switch.
+export const E8_GIT_LAYOUT = 'git/4'
 
-type Options = {signer?: SigningContext | (() => SigningContext), auth?: TransportAuth}
-const context = (d: {trust: string}, opt: Options) => d.trust === 'signed'
+export type Options = {signer?: SigningContext | (() => SigningContext), auth?: TransportAuth}
+export const context = (d: {trust: string}, opt: Options) => d.trust === 'signed'
   ? (typeof opt.signer === 'function' ? opt.signer() : opt.signer) ?? fail('signed hubs require an injected Signer')
   : undefined
-const gitStore = (s: Store): GitStore => s instanceof GitStore ? s : fail('git contract copying requires a git source and target')
+export const gitStore = (s: Store): GitStore => s instanceof GitStore ? s : fail('git contract copying requires a git source and target')
 const fresh = (at: string, endpoint: RoomEndpoint, home: string): void => {
   const dir = path.join(at, endpoint.store.path, '.git')
   if (fs.existsSync(at)) fail('room directory already exists; retained for review')

@@ -51,7 +51,7 @@ const world = (t: TestContext) => {
   function json(args: ['signals', ...string[]], opt?: RunOpt): Checked[]
   function json(args: string[], opt?: RunOpt): unknown { return JSON.parse(ok([...args, '--json'], opt)) }
   // A room's repository (hub-2: one per room).
-  const repo = (room: string) => path.join(home, 'hub', 'local', 'rooms', room, 'store', '.git')
+  const repo = (room: string) => path.join(home, 'rooms', room, 'store', '.git')
   const gitIn = (room: string, ...args: string[]) => {
     const r = spawnSync('git', ['--git-dir', repo(room), ...args], {encoding: 'utf8', env: FIXTURE_GIT})
     assert.ok(r.status === 0 || (args[0] === 'rev-parse' && args.includes('--verify') && r.status === 1),
@@ -59,11 +59,12 @@ const world = (t: TestContext) => {
     return r.stdout.trim()
   }
   const git = (...args: string[]) => gitIn('r', ...args)
-  // A commit by `who` on top of a room's chat, written past ringi; the tree is the tip's unless given.
+  // A commit by `who` on top of a room's chat, written past ringi, as `who` (git/4 skips a chat commit another one
+  // committed); the tree is the tip's unless given.
   const forge = (who: string, text: string, {tree, room = 'r'}: {tree?: string, room?: string} = {}): string => {
     const ref = 'refs/heads/chat', head = gitIn(room, 'rev-parse', ref)
     const r = spawnSync('git', ['--git-dir', repo(room), 'commit-tree', tree ?? `${head}^{tree}`, '-p', head, '-m', text],
-      {encoding: 'utf8', env: {...FIXTURE_GIT, GIT_AUTHOR_NAME: who, GIT_AUTHOR_EMAIL: `${who}@ringi`}})
+      {encoding: 'utf8', env: {...FIXTURE_GIT, GIT_AUTHOR_NAME: who, GIT_AUTHOR_EMAIL: `${who}@ringi`, GIT_COMMITTER_NAME: who, GIT_COMMITTER_EMAIL: `${who}@ringi`}})
     assert.equal(r.status, 0, r.stderr)
     gitIn(room, 'update-ref', ref, r.stdout.trim(), head)
     return r.stdout.trim()
@@ -80,7 +81,7 @@ describe('rooms', () => {
   it('exchanges tasks, replies and attachments', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'fix-badge'])
-    assert.match(w.ok(['join', 'fix-badge', '--as', 'codex', '--scope', 'implement tasks from operator; no commits'], {as: 'chat-codex'}), /joined fix-badge as codex[\s\S]*scope: implement tasks from operator/)
+    assert.match(w.ok(['join', 'fix-badge', '--as', 'codex', '--scope', 'implement tasks from operator; no commits'], {as: 'chat-codex'}), /joined local:\/\/fix-badge as codex[\s\S]*scope: implement tasks from operator/)
     assert.match(w.ok(['send', '--task', '--assign', 'codex', '-m', 'Fix the badge', '-m', 'acceptance: it renders']), /sent \w+ to codex/)
     const inbox = w.ok(['agent', 'inbox'], {as: 'chat-codex'})
     assert.match(inbox, /operator \(asserted\) → codex[\s\S]*Kind: task[\s\S]*Subject: Fix the badge/)
@@ -106,10 +107,10 @@ describe('rooms', () => {
     w.ok(['send', '--task', '--assign', 'codex', '-m', 'Job'])
     const joined = w.ok(['join', 'r', '--as', 'codex'], {as: 'C'})
     assert.match(joined, /scope: none recorded; the room's work for you/)
-    assert.match(joined, /^started: room r has its quorum \(1 of 1 agents\); your first turn starts now[\s\S]*Subject: Job/m)
+    assert.match(joined, /^started: room local:\/\/r has its quorum \(1 of 1 agents\); your first turn starts now[\s\S]*Subject: Job/m)
     assert.match(w.ok(['agent', 'whoami'], {as: 'C'}), /scope: none recorded; the room's work for you/)
     w.ok(['stop'], {as: 'C'})
-    assert.match(w.ok(['continue'], {as: 'C'}), /^started: room r has its quorum/m)
+    assert.match(w.ok(['continue'], {as: 'C'}), /^started: room local:\/\/r has its quorum/m)
   })
 
   it('waits for its quorum of agents and starts by itself', (t) => {
@@ -118,14 +119,14 @@ describe('rooms', () => {
     assert.match(w.ok(['room', 'create', 'r', '--quorum', '2']), /starts by itself at a quorum of 2 agent/)
     w.ok(['send', '--task', '--assign', 'codex', '-m', 'Job'])
     const first = w.ok(['join', 'r', '--as', 'codex'], {as: 'C'})
-    assert.match(first, /^waiting: room r waits for a quorum of 2 agents and has 1; nothing to do yet/m)
+    assert.match(first, /^waiting: room local:\/\/r waits for a quorum of 2 agents and has 1; nothing to do yet/m)
     assert.doesNotMatch(first, /Job|inbox:/)
-    assert.match(w.ok(['agent', 'inbox'], {as: 'C'}), /^waiting: room r waits for a quorum of 2 agents and has 1/m)
+    assert.match(w.ok(['agent', 'inbox'], {as: 'C'}), /^waiting: room local:\/\/r waits for a quorum of 2 agents and has 1/m)
     assert.match(w.ok(['where']), /waiting for a quorum of 2 agents, has 1/)
     // Nothing was read while it waited.
     assert.equal(w.json(['signals']).filter(s => s.signal === 'read').length, 0)
     const second = w.ok(['join', 'r', '--as', 'claude'], {as: 'L'})
-    assert.match(second, /^started: room r has its quorum \(2 of 2 agents\); your first turn starts now/m)
+    assert.match(second, /^started: room local:\/\/r has its quorum \(2 of 2 agents\); your first turn starts now/m)
     assert.match(second, /scope: none recorded; the room's work for you/)
     assert.match(w.ok(['agent', 'inbox'], {as: 'C'}), /Subject: Job/)
     assert.match(w.ok(['where']), /started at its quorum of 2 agents/)
@@ -142,28 +143,25 @@ describe('rooms', () => {
     assert.match(inbox, /for one/)
     assert.doesNotMatch(inbox, /for two/)
     assert.match(w.ok(['where']), /room two[\s\S]*sessions: none joined/)
-    assert.match(w.ok(['room', 'list']), /\* two/)
+    assert.match(w.ok(['room', 'list']), /\* local:\/\/two /)
   })
 
   it('requires --yes to delete, and takes the room of the current context', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
-    w.no(['room', 'delete'], /deleting r erases its store on this machine .*--yes/)
-    assert.match(w.ok(['room', 'delete', '--yes']), /deleted room r/)
+    w.no(['room', 'delete'], /deleting local:\/\/r takes it off this machine, for good\. Run again with --yes/)
+    assert.match(w.ok(['room', 'delete', '--yes']), /deleted room local:\/\/r/)
     assert.equal(fs.existsSync(w.repo('r')), false)
     w.no(['room', 'delete', '--yes'], /no current room/)
   })
 
-  it('erases a room and everything kept for it, and its sessions leave on their own', (t) => {
+  it('takes a room off this machine, keeping what it had aside, and its sessions leave on their own', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
     w.ok(['join', 'r', '--as', 'codex'], {as: 'C'})
     const task = w.lastId(['send', '--task', '--assign', 'codex', '-m', 'Job', '--attach', `${w.fixture}:spec.txt`])
     w.ok(['agent', 'inbox'], {as: 'C'})
     w.ok(['agent', 'reply', task, '--state', 'completed', '-m', 'done'], {as: 'C'})
-    const genesis = w.git('rev-list', '--reverse', 'refs/heads/chat', '^refs/heads/main').split('\n')[0]
-    const hub = JSON.parse(fs.readFileSync(path.join(w.home, 'hub', 'local', 'hub.json'), 'utf8')).genesis
-    assert.ok(fs.existsSync(path.join(w.home, 'readers', hub, genesis)))
     // Another room stays as it is, to the last ref.
     w.ok(['room', 'create', 'other'])
     w.ok(['join', 'other', '--as', 'claude'], {as: 'L'})
@@ -171,15 +169,44 @@ describe('rooms', () => {
     w.ok(['agent', 'inbox'], {as: 'L'})
     const kept = w.gitIn('other', 'for-each-ref')
     assert.match(kept, /refs\/heads\/claude\/signals/)
-    assert.match(w.ok(['room', 'delete', 'r', '--yes']), /deleted room r/)
-    assert.equal(fs.existsSync(path.join(w.home, 'hub', 'local', 'rooms', 'r')), false)
-    assert.equal(fs.existsSync(path.join(w.home, 'readers', hub, genesis)), false)
+    // Nothing is erased: the repository is moved aside and the records archived, out of every listing.
+    const deleted = w.ok(['room', 'delete', 'r', '--yes'])
+    assert.match(deleted, /deleted room local:\/\/r on this machine: its records archived in \S+; its repository moved aside to \S+\./)
+    assert.equal(fs.existsSync(path.join(w.home, 'rooms', 'r')), false)
+    assert.ok(fs.existsSync(path.join(/moved aside to (\S+)\./.exec(deleted)![1], 'store', '.git')))
+    assert.doesNotMatch(w.ok(['room', 'list']), /local:\/\/r /)
+    w.no(['log', '--room', 'r'], /unknown room/)
     assert.equal(w.gitIn('other', 'for-each-ref'), kept)
     assert.match(w.ok(['log', '--room', 'other']), /stays/)
     // The session finds the room gone and leaves on its own; the other room's session is untouched.
-    w.no(['agent', 'inbox'], /room r is gone from hub local; this session left it/, {as: 'C'})
+    w.no(['agent', 'inbox'], /room local:\/\/r is gone from this machine; this session left it/, {as: 'C'})
     w.no(['agent', 'inbox'], /this session is not in a room/, {as: 'C'})
-    assert.match(w.ok(['agent', 'whoami'], {as: 'L'}), /claude in other/)
+    assert.match(w.ok(['agent', 'whoami'], {as: 'L'}), /claude in local:\/\/other/)
+  })
+
+  it('selects a room by its bare name only while one known room has it', (t) => {
+    const w = world(t)
+    const mine = fs.realpathSync(path.join(w.home, '..')), elsewhere = `local://${path.join(mine, 'fix')}`
+    w.ok(['room', 'create', 'fix'])
+    assert.match(w.ok(['join', 'fix', '--as', 'codex'], {as: 'C'}), /joined local:\/\/fix as codex/)
+    w.ok(['room', 'create', elsewhere])
+    w.no(['join', 'fix', '--as', 'claude'], new RegExp(`ambiguous room; use one full address: .*${elsewhere.replace(/[.]/g, '\\.')}.*local://fix|local://fix.*${elsewhere.replace(/[.]/g, '\\.')}`), {as: 'L'})
+    assert.match(w.ok(['join', 'local://fix', '--as', 'claude'], {as: 'L'}), /joined local:\/\/fix as claude/)
+    w.no(['room', 'create', 'fix'], /room local:\/\/fix exists/)
+    w.no(['join', 'nothing'], /unknown room/, {as: 'L'})
+  })
+
+  it('keeps a room at a path of the operator\'s, and on delete forgets it and leaves its files there', (t) => {
+    const w = world(t)
+    const mine = fs.realpathSync(path.join(w.home, '..')), address = `local://${path.join(mine, 'work', 'fix')}`
+    w.no(['room', 'create', address], /parent must already exist/)
+    fs.mkdirSync(path.join(mine, 'work'))
+    assert.match(w.ok(['room', 'create', address]), new RegExp(`created room ${address.replace(/[.]/g, '\\.')} with profile`))
+    w.ok(['join', 'fix', '--as', 'codex'], {as: 'C'})
+    assert.match(w.ok(['room', 'delete', '--yes']), /its repository stays at .*\/work\/fix: remove it yourself/)
+    assert.ok(fs.existsSync(path.join(mine, 'work', 'fix', 'store', '.git')))
+    assert.match(w.ok(['room', 'list']), /no rooms on this machine/)
+    w.no(['agent', 'inbox'], /is gone from this machine; this session left it/, {as: 'C'})
   })
 
   it('ends old bindings when a room is recreated', (t) => {
@@ -205,15 +232,15 @@ describe('sessions', () => {
     const rec = JSON.parse(fs.readFileSync(path.join(w.home, 'sessions', f), 'utf8'))
     fs.writeFileSync(path.join(w.home, 'sessions', f), JSON.stringify({...rec, lastSeen: '2020-01-01T00:00:00Z'}))
     assert.match(w.ok(['where']), /claude +gone/)
-    assert.match(w.ok(['continue'], {as: 'A'}), /claude in fix; scope: review/)
+    assert.match(w.ok(['continue'], {as: 'A'}), /claude in local:\/\/fix; scope: review/)
     assert.match(w.ok(['where']), /claude +active/)
     // A pause keeps the seat and blocks every agent command.
     assert.match(w.ok(['stop'], {as: 'A'}), /keeps its seat/)
     w.no(['agent', 'inbox'], /stopped/, {as: 'A'})
     w.no(['join', 'fix', '--as', 'claude'], /held by another session \(env:A, stopped\)/, {as: 'B'})
     // The operator's explicit takeover from another chat, with the recorded scope.
-    assert.match(w.no(['continue'], /continue fix\/claude/, {as: 'B'}), /stopped/)
-    assert.match(w.ok(['continue', 'fix/claude'], {as: 'B'}), /claude in fix; scope: review/)
+    assert.match(w.no(['continue'], /continue local:\/\/fix\/claude/, {as: 'B'}), /stopped/)
+    assert.match(w.ok(['continue', 'fix/claude'], {as: 'B'}), /claude in local:\/\/fix; scope: review/)
     w.no(['agent', 'inbox'], /not in a room/, {as: 'A'})
     assert.match(w.ok(['leave'], {as: 'B'}), /seat of claude is free/)
     assert.match(w.ok(['join', 'fix', '--as', 'claude'], {as: 'A'}), /scope: none recorded/)
@@ -222,8 +249,11 @@ describe('sessions', () => {
   it('identifies each chat by its session', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
-    assert.match(w.ok(['join', 'r'], {env: {CLAUDE_CODE_SESSION_ID: 'abc', CLAUDECODE: '1'}}), /joined r as claude/)
+    assert.match(w.ok(['join', 'r'], {env: {CLAUDE_CODE_SESSION_ID: 'abc', CLAUDECODE: '1'}}), /joined local:\/\/r as claude/)
     assert.ok(w.sessions().some(s => s.handle === 'claude:abc'))
+    // A second chat of the same tool takes the next name; the first keeps its own on a join again.
+    assert.match(w.ok(['join', 'r'], {env: {CLAUDE_CODE_SESSION_ID: 'def', CLAUDECODE: '1'}}), /joined local:\/\/r as claude-2/)
+    assert.match(w.ok(['join', 'r'], {env: {CLAUDE_CODE_SESSION_ID: 'abc', CLAUDECODE: '1'}}), /joined local:\/\/r as claude\n/)
     // Without a chat id ringi falls back to the UI process among its ancestors (here, possibly the developer's own
     // Claude Code), and without that it asks for RINGI_SESSION; either way it never guesses a binding.
     w.no(['agent', 'whoami'], /cannot tell which session this is: set RINGI_SESSION|this session is not in a room/)
@@ -272,7 +302,7 @@ describe('agent inbox and waiting', () => {
     w.ok(['agent', 'inbox'], {as: 'C'})
     assert.equal(reads(), 4, 'nothing new delivered, nothing marked')
     // A reader whose local place fell behind is delivered the old messages again, and marks nothing its cursor passed.
-    const [state] = fs.readdirSync(w.home, {recursive: true}).map(String).filter(f => /readers\/.+\/codex\.json$/.test(f))
+    const [state] = fs.readdirSync(w.home, {recursive: true}).map(String).filter(f => /room-contexts\/.+\/readers\/codex\.json$/.test(f))
     const st = JSON.parse(fs.readFileSync(path.join(w.home, state), 'utf8'))
     fs.writeFileSync(path.join(w.home, state), JSON.stringify({...st, seen: {}}))
     assert.match(w.ok(['agent', 'inbox', '--limit', '1'], {as: 'C'}), /Subject: one/)
@@ -407,7 +437,7 @@ describe('contracts', () => {
   it('accepts minor versions and refuses unknown contracts', (t) => {
     const w = world(t)
     w.ok(['room', 'create', 'r'])
-    assert.match(w.ok(['hub']), /^local +git, asserted, contract 2\.0/m)
+    assert.match(w.ok(['hub']), /^local +asserted, contract 2\.0, 1 room\(s\)/m)
     w.ok(['hub', 'amend', '-m', 'note', '--set', 'version=2.1'])
     // A room keeps the contract it was made with; a room made after follows the new one.
     assert.match(w.ok(['where']), /contract 2\.0/)
@@ -423,7 +453,7 @@ describe('contracts', () => {
     w3.no(['room', 'create', 'r'], /not a ringi home \(no home\.json\)/)
     const w4 = world(t)
     fs.writeFileSync(path.join(w4.home, 'home.json'), JSON.stringify({version: 3}))
-    w4.no(['room', 'list'], /ringi home of version 3; this ringi .* needs version 4\. Move it away/)
+    w4.no(['room', 'list'], /ringi home of version 3; this ringi .* needs version 5\. Move it away/)
   })
 
 })
@@ -449,7 +479,7 @@ describe('state and locks', () => {
     w.ok(['join', 'r', '--as', 'codex'], {as: 'C'})
     const lock = path.join(w.home, 'locks', 'sessions.lock')
     fs.writeFileSync(lock, '999999.dead')
-    assert.match(w.ok(['agent', 'whoami'], {as: 'C'}), /codex in r/)
+    assert.match(w.ok(['agent', 'whoami'], {as: 'C'}), /codex in local:\/\/r /)
   })
 
   it('explains sandbox write failures', (t) => {

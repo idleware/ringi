@@ -3,13 +3,13 @@
 
 import {fail} from '../../lib/index.ts'
 import type {Handle} from './remote/types.ts'
-import {git, id, isRemote} from './remote/git.ts'
-import {identityKey, parseKey, rootKey, signingContext} from './remote/keys.ts'
+import {git, isRemote} from './remote/git.ts'
+import {identityKey, localSigningKey, parseKey, rootKey, signingContext} from './remote/keys.ts'
 import {checkSignature} from './remote/signature.ts'
 
 export const signBytes = (H: Handle, who: string, payload: Buffer | string): string => {
   if (!isRemote(H)) return ''
-  const context = signingContext(H), key = context.resolve(id(H.name), id(who))
+  const context = signingContext(H), key = localSigningKey(H, who)
   const identity = context.signer.publicIdentity(key), publicKey = parseKey(identity.key)
   if (who === 'operator' && publicKey.line !== rootKey(H).line) fail('the local operator key does not match this hub\'s pinned root')
   const signature = context.signer.sign({key, payload: Buffer.isBuffer(payload) ? payload : Buffer.from(payload), namespace: 'git', interaction: 'forbidden', deadline: performance.now() + 30000})

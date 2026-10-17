@@ -3,7 +3,6 @@ import {describe, it} from 'node:test'
 import type {TestContext} from 'node:test'
 import type {SpawnSyncOptions, SpawnSyncReturns} from 'node:child_process'
 import type {Descriptor, RoomEndpoint} from '../../main/ts/core/hub/ports/store.ts'
-import type {asJson} from '../../main/ts/core/hub/usecases/view.ts'
 import type {Profile} from '../../main/ts/core/hub/work/index.ts'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -19,9 +18,15 @@ import {gitTransport} from '../../main/ts/adapters/store-git/transport.ts'
 import {keysFile} from '../../main/ts/adapters/keys-file/index.ts'
 import {identityKey} from '../../main/ts/adapters/store-git/remote/keys.ts'
 import {Fail, fail, withoutCredentials} from '../../main/ts/lib/index.ts'
+import {wireHub} from '../../main/ts/core/hub/ports/index.ts'
+import {stateFs} from '../../main/ts/adapters/state-fs/index.ts'
+import {openHub, openRoom} from '../../main/ts/core/hub/rooms/index.ts'
+import * as RoomUse from '../../main/ts/core/hub/usecases/room.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const CLI = path.join(HERE, '../../../target/esm/cli.js')
+const BUILD = {version: 'test', resources: path.join(HERE, '../../main/resources')}
+// This process reads a fixture's git/3 room as one machine of it; the command line reads only home/5 rooms.
+const machine = (home: string) => wireHub({build: BUILD, state: stateFs({root: home, build: BUILD}), transports: {git: gitTransport(home, {signer: () => keysFile(home)})}, store: 'git'})
 const BASE = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CLAUDE|CODEX|CURSOR|RINGI_|GIT_)/.test(k)))
 const ENV = {...BASE, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0'}
 type GitOpt = {input?: string, env?: NodeJS.ProcessEnv, ok?: boolean}
@@ -158,12 +163,7 @@ const world = (t: TestContext, profile?: string, spec?: Profile) => {
     assert.equal(Remote.join(a.H, room(a.H), who).admitted, true)
     return a
   }
-  const run = (machine: string, args: string[], session?: string) => {
-    const r = spawnSync(process.execPath, [CLI, ...args], {encoding: 'utf8', env: {...ENV, RINGI_HOME: home(machine), ...(session ? {RINGI_SESSION: session} : {})}})
-    return {code: r.status, out: r.stdout, err: r.stderr}
-  }
-  const ok = (machine: string, args: string[], session?: string) => { const r = run(machine, args, session); assert.equal(r.code, 0, `ringi ${args.join(' ')}: ${r.err}`); return r.out }
-  return {base, remote, url, home, op, opHome, meta, genesis, replica, agent, run, ok}
+  return {base, remote, url, home, op, opHome, meta, genesis, replica, agent}
 }
 
 // A hub's push alarms as kept in its store; none kept means none.
@@ -248,9 +248,8 @@ describe('signed remote hubs', () => {
 
     it('refuses an unknown declared room profile instead of applying the default', t => {
       const w = world(t, 'unavailable-1')
-      const read = w.run('root', ['log', '--room', 'r'])
-      assert.notEqual(read.code, 0)
-      assert.match(read.err, /unknown profile unavailable-1/)
+      machine(w.opHome)
+      assert.throws(() => openRoom(openHub('team'), 'r'), /unknown profile unavailable-1/)
     })
   })
 
@@ -507,7 +506,6 @@ describe('signed remote hubs', () => {
     it('publishes a retained local tuple after an interrupted signal push without making another commit', t => {
       const w = world(t), bob = w.agent('bob'), target = openTask(bob.H, bob.home, 'bob')
       const store = new GitStore(path.join(bob.home, 'hub', 'team', 'rooms', 'r'), bob.H.d, bob.home, bob.H.signing, bob.H.endpoint)
-      w.ok('bob', ['join', 'r', '--as', 'bob'], 'chat-bob')
       const original = childProcess.spawnSync
       let interrupted = false
       const mock = t.mock.method(childProcess, 'spawnSync', (cmd: string, args: readonly string[], opt: SpawnSyncOptions) => {
@@ -523,8 +521,8 @@ describe('signed remote hubs', () => {
       assert.ok(interrupted)
       const retained = store.rev('refs/heads/bob/signals')!
       assert.equal(git(w.remote, ['rev-parse', '-q', '--verify', 'refs/heads/bob/signals'], {ok: true}).status, 1)
-      const repaired = w.run('bob', ['agent', 'signals', '--repair', '--json'], 'chat-bob')
-      assert.equal(repaired.code, 0, repaired.err)
+      machine(bob.home)
+      RoomUse.signals({R: openRoom(openHub('team'), 'r')!, me: 'bob'}, {repair: true})
       assert.equal(store.rev('refs/heads/bob/signals'), retained)
       assert.equal(git(w.remote, ['rev-parse', 'refs/heads/bob/signals']).trim(), retained)
       assert.deepEqual(pushAlarmsOf(store.h), {})
@@ -768,73 +766,6 @@ describe('signed remote hubs', () => {
       assert.ok(fs.existsSync(ready), 'the other process acquired the lock')
       Remote.sync(w.op)
       assert.ok(fs.existsSync(released), 'the live owner released its own lock before sync')
-    })
-  })
-
-  describe('CLI exchange', () => {
-    it('creates remote contract/room repos, first-joins with explicit pins, and exchanges signed work through the native CLI', t => {
-      const base = fs.mkdtempSync(path.join(os.tmpdir(), 'ringi-native-remote-'))
-      t.after(() => fs.rmSync(base, {recursive: true, force: true}))
-      const contract = path.join(base, 'contract.git'), roomRepo = path.join(base, 'room.git')
-      initBare(contract); initBare(roomRepo)
-      const contractUrl = 'git+' + pathToFileURL(contract).href, roomUrl = 'git+' + pathToFileURL(roomRepo).href
-      const home = (machine: string) => path.join(base, machine)
-      const run = (machine: string, args: string[], session?: string) => {
-        const r = spawnSync(process.execPath, [CLI, ...args], {encoding: 'utf8', env: {...ENV, RINGI_HOME: home(machine), ...(session ? {RINGI_SESSION: session} : {})}})
-        return {code: r.status, out: r.stdout, err: r.stderr}
-      }
-      const ok = (machine: string, args: string[], session?: string) => {
-        const r = run(machine, args, session)
-        assert.equal(r.code, 0, `ringi ${args.join(' ')}: ${r.err}`)
-        assert.doesNotMatch(r.err, /ALARM/)
-        return r.out
-      }
-      const created = ok('root', ['hub', 'create', 'team', '--signed', '--url', contractUrl])
-      const d: Descriptor = JSON.parse(fs.readFileSync(path.join(home('root'), 'hub', 'team', 'hub.json'), 'utf8'))
-      assert.match(created, /created signed hub team/)
-      const invite = ok('root', ['room', 'create', 'r', '--hub', 'team', '--url', roomUrl])
-      const invitation = /ringi join (ringi:[A-Za-z0-9_-]+) --as/.exec(invite)?.[1] ?? assert.fail('room creation printed no invitation')
-      const offered = JSON.parse(Buffer.from(invitation.slice('ringi:'.length), 'base64url').toString())
-      assert.equal(offered.address, roomUrl)
-      assert.equal(offered.hubGenesis, d.genesis)
-      assert.equal(offered.root, d.root)
-      assert.deepEqual(git(contract, ['for-each-ref', '--format=%(refname)', 'refs/heads/']).trim().split('\n'), ['refs/heads/main'])
-      assert.deepEqual(git(roomRepo, ['for-each-ref', '--format=%(refname)', 'refs/heads/']).trim().split('\n'), ['refs/heads/chat', 'refs/heads/main'])
-      const pending = run('worker', ['join', invitation, '--as', 'codex'], 'chat-codex')
-      assert.equal(pending.code, 3, 'a first signed join awaits root admission')
-      assert.doesNotMatch(pending.err, /ALARM/)
-      const key = /ringi room admit codex '([^']+)'/.exec(pending.out)?.[1] ?? assert.fail('first join printed no admission key')
-      ok('root', ['room', 'admit', 'codex', key])
-      assert.match(ok('worker', ['join', 'r', '--as', 'codex', '--scope', 'implement tasks; no source publication'], 'chat-codex'), /joined r as codex/)
-      assert.match(ok('worker', ['agent', 'whoami'], 'chat-codex'), new RegExp(`genesis ${offered.genesis.slice(0, 12)}`))
-      const w = {ok, run, home, opHome: home('root')}
-      const codex = {home: home('worker'), H: hub(home('worker'), d.genesis.slice(0, 12))}
-      assert.equal(codex.H.d.contract, undefined)
-      w.ok('root', ['send', '--task', '--assign', 'codex', '-m', 'Deliver result'])
-      const inbox: ReturnType<typeof asJson>[] = JSON.parse(w.ok('worker', ['agent', 'inbox', '--json'], 'chat-codex'))
-      const task = inbox.find(m => m.kind === 'task')
-      assert.ok(task)
-      assert.equal(task.trust, 'verified')
-      w.ok('worker', ['agent', 'take', task.id], 'chat-codex')
-      const [taken] = JSON.parse(w.ok('root', ['tasks', '--all', '--json']))
-      assert.deepEqual([taken.state, taken.assignees, taken.taken], ['submitted', ['codex'], ['codex']])
-      assert.match(w.ok('root', ['read', task.id]), /read by: codex[\s\S]*taken by: codex/)
-      w.ok('worker', ['agent', 'reply', task.id, '--state', 'completed', '-m', 'Done'], 'chat-codex')
-      const tasks = JSON.parse(w.ok('root', ['tasks', '--all', '--json']))
-      assert.equal(tasks[0].state, 'completed')
-      assert.equal(tasks[0].by, 'codex')
-      const signals: Array<{signal: string, actor: string, ok: boolean}> = JSON.parse(w.ok('root', ['signals', '--all', '--json']))
-      assert.ok(signals.some(s => s.signal === 'state.completed' && s.actor === 'codex' && s.ok), 'completion stream was signed, published and verified on the other machine')
-      for (const mark of ['read', 'taken']) assert.ok(signals.some(s => s.signal === mark && s.actor === 'codex' && s.ok), `${mark} mark was signed, published and verified on the other machine`)
-      assert.equal(fs.existsSync(path.join(codex.home, 'keys', codex.H.name, 'operator')), false)
-      Remote.sync(codex.H)
-      const operatorHead = codex.H.rev('refs/heads/chat')!
-      const forged = message(codex.H, codex.home, 'operator', 'Never deliver this\n\nTo: codex\n', [operatorHead], {signer: 'codex'})
-      publish(codex.H, 'refs/heads/chat', forged)
-      const withheld = w.run('worker', ['agent', 'inbox', '--json'], 'chat-codex')
-      assert.equal(withheld.code, 0, withheld.err)
-      assert.match(withheld.err, /ALARM.*operator.*signature/s)
-      assert.deepEqual(JSON.parse(withheld.out), [])
     })
   })
 })

@@ -1,44 +1,45 @@
 // binding: the seat a chat holds, checked on every agent command: joined, not stopped, its room alive and the same
 // room, still a member; a chat whose room is gone leaves it on its own.
 
-import {locked} from '../../hub/ports/index.ts'
-import type {Hub, Room} from '../../hub/rooms/index.ts'
-import {openHub, openRoom} from '../../hub/rooms/index.ts'
+import {hubPorts, locked} from '../../hub/ports/index.ts'
+import type {Hub, RoomV2} from '../../hub/rooms/index.ts'
+import {roomCatalogue, registrationContext} from '../../hub/rooms/room-catalogue.ts'
+import {roomNamed} from '../../hub/usecases/rooms.ts'
 import {fail, stamp} from '../../../lib/index.ts'
 import type {Me, Session} from './index.ts'
-import {dropSession, readSession, saveSession, whoAmI} from './index.ts'
+import {dropSession, readSession, sameRoom, saveSession, whoAmI} from './index.ts'
 
-export type Bound = {s: Session, H: Hub, R: Room, me: string}
+export type Bound = {s: Session, H: Hub, R: RoomV2, me: string}
 
 // The binding, checked on every agent command: joined, not stopped, room alive and the same room, still a member.
 export const bound = (): Bound => {
   const me = whoAmI()
   const s = readSession(me.handle) ?? fail(`this session is not in a room. Take part only when the operator says so in this chat:
-  "join <room> as <id>" runs ringi join <room> --as <id> --scope "<what they delegate>" (<room>: its name, or the invitation);
+  "join <room>" runs ringi join <room> --scope "<what they delegate>" (<room>: its address or name, or the invitation);
   after a restart, "continue" runs ringi continue.`)
   if (s.state === 'stopped') fail('this session is stopped: the operator paused it. It reacts to nothing until the operator says "continue" (ringi continue)')
-  const H = openHub(s.hub)
-  const R = openRoom(H, s.room, {quiet: true})
-  checkRoomIdentity(me, s, H, R)
-  if (!R!.members[s.agent]) fail(`${s.agent} was removed from room ${s.room}; returning needs a fresh join by the operator`)
+  const R = roomOf(me, s)
+  if (!R.members[s.agent]) fail(`${s.agent} was removed from room ${s.room}; returning needs a fresh join by the operator`)
   renewSession(me, s)
-  return {s, H, R: R!, me: s.agent}
+  return {s, H: R.hub, R, me: s.agent}
 }
 
-const checkRoomIdentity = (me: Me, s: Session, H: Hub, R: Room | null): void => {
-  if (!R || R.genesis !== s.genesis) {
-    // The room's branch is gone (deleted, or deleted and made anew): the session leaves it on its own. A hub that
-    // cannot be reached fails above and leaves nothing.
-    locked('sessions', () => {if (readSession(me.handle)?.genesis === s.genesis) dropSession(me.handle)})
-    fail(R ? `room ${s.room} was deleted and created again; this session left the old room. The operator joins it anew`
-      : `room ${s.room} is gone from hub ${s.hub}; this session left it`)
-  }
+// The room the seat belongs to, as this machine registered it. A room deleted, or deleted and made anew at its
+// address, is another room: the session leaves the old one. A room that cannot be reached fails and leaves nothing.
+const roomOf = (me: Me, s: Session): RoomV2 => {
+  const r = roomCatalogue(hubPorts().state).get(s.id)
+  const alive = r?.phase === 'active' && !r.endpoint.disposal && sameRoom(s, {context: registrationContext(r)})
+  const R = alive ? roomNamed(r.address) : null
+  if (R && sameRoom(s, R)) return R
+  locked('sessions', () => {if (readSession(me.handle)?.id === s.id) dropSession(me.handle)})
+  return fail(r?.phase === 'active' && !r.endpoint.disposal ? `room ${s.room} was deleted and created again; this session left the old room. The operator joins it anew`
+    : `room ${s.room} is gone from this machine; this session left it`)
 }
 
 const renewSession = (me: Me, s: Session): void => {
   locked('sessions', () => {
     const cur = readSession(me.handle) ?? fail('this session lost its seat')
-    if (cur.state !== 'active' || cur.genesis !== s.genesis || cur.agent !== s.agent) fail('this session was stopped or its seat changed')
+    if (cur.state !== 'active' || !sameRoom(cur, s) || cur.agent !== s.agent) fail('this session was stopped or its seat changed')
     saveSession({...cur, lastSeen: stamp(), pid: me.pid ?? cur.pid})
   })
 }

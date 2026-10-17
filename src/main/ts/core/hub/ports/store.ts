@@ -8,6 +8,7 @@
 // trust rules on that (core/hub/history).
 
 import type {Entry} from '../protocol/files.ts'
+import type {RoomDisposal, RoomLocation, RoomReceipt} from './location.ts'
 
 export type Rev = string
 export type Member = {role?: string, since?: string}
@@ -97,6 +98,18 @@ export interface Signed {
 // A store: the log with its attachments, signals, evidence and verification; signing where it has it.
 export interface Store extends Log, Attachments, Signals, Evidence, Verification, Partial<Signed> {}
 
+// E8 seams only: active Store implementations and their wire gates keep their current contract until integration.
+export interface Retirements {
+  // Actor -> its first accepted removal control, verified under the store's declared trust model. This is not
+  // a reader's semantic signal frontier, nor a statement about hosting accounts or medium access.
+  retirements(room: StoredRoom): Record<string, Rev>
+}
+export interface SignedV4 extends Signed {
+  // `by` is the pinned root; `actor` is the member being removed. The signing context stays injected.
+  remove(room: StoredRoom, by: string, actor: string): Rev
+}
+export type StoreV4 = Store & Retirements & Partial<SignedV4>
+
 // A hub's descriptor: what this machine knows about a hub before reading anything from its store.
 export type Descriptor = {
   schema: 'ringi-hub/3'
@@ -127,6 +140,28 @@ export type RoomEndpoint = {
   principals?: Record<string, string>
 }
 
+// Future endpoint/2, deliberately separate from active endpoint/1 constructors and validators.
+export type RoomEndpointV2 = {
+  schema: 'ringi-room/2'
+  address: string
+  name: string
+  hubGenesis: Rev
+  genesis: Rev
+  trust: 'asserted' | 'signed'
+  root?: string
+  location: RoomLocation
+  // Still relative to the resolved repository location, never an absolute path hidden in store.path.
+  store: {path: string, remote?: string}
+  // This machine's selected actor identity. Composition resolves it for both signing and SSH; never fetched.
+  keyRef?: string
+  authRef?: string
+  hostKeys?: string[]
+  // Opaque local identity references by invitation id; no private key bytes or invitation-supplied paths.
+  pendingRefs?: Record<string, string>
+  receipt?: RoomReceipt
+  disposal?: RoomDisposal
+}
+
 // signals/2: a fact in its actor's append-only stream, causally bound to a verified chat control and message.
 export type SignalEvent = {
   id: Rev
@@ -144,19 +179,29 @@ export type Genesis = (d: Descriptor) => {files: Record<string, string>, text: s
 
 // A store type, as it makes, opens and replicates hubs on this machine; `at` is a hub's directory, its descriptor beside
 // its store. composition/ registers one per type (hub.json names it); a type that is planned refuses with a reason.
-export interface Transport {
+export interface Transport<Endpoint = RoomEndpoint, Implementation extends Store = Store> {
   // Explicit wire layout; there is no inferred layout or historical fallback.
   readonly layout: string
   // A signed transport's local public identity, made explicitly before a private room can be fetched. No Store,
   // admission or transport permission is implied; the operator still admits it and grants access separately.
-  identity?(d: Descriptor, who: string): {publicKey: string, fingerprint: string}
+  identity?(d: Descriptor, who: string, endpoint?: Endpoint): {publicKey: string, fingerprint: string}
   // A selected room's store, or the operator's explicit contract source.
-  open(at: string, d: Descriptor, endpoint?: RoomEndpoint): Store
+  open(at: string, d: Descriptor, endpoint?: Endpoint): Implementation
   // A new hub's store. A signed one makes its root key first and pins it in `d` (root, then genesis); `custody` says where
   // the new root key is kept, to tell the operator.
-  create(at: string, d: Descriptor, genesis: Genesis): {store: Store, custody: string | null}
+  create(at: string, d: Descriptor, genesis: Genesis): {store: Implementation, custody: string | null}
   // Copy only the source contract into a fresh room repository, without copying other rooms or refs.
-  fork(at: string, d: Descriptor, source: Store, endpoint: RoomEndpoint): Store
+  fork(at: string, d: Descriptor, source: Store, endpoint: Endpoint): Implementation
   // A fresh local replica at the explicit endpoint; verification precedes installation.
-  attachRoom(at: string, d: Descriptor, endpoint: RoomEndpoint): Store
+  attachRoom(at: string, d: Descriptor, endpoint: Endpoint): Implementation
 }
+// Separate explicit factory until composition switches its home, contract, endpoint and capability gates together.
+export type TransportV4 = Transport<RoomEndpointV2, StoreV4> & {
+  readonly layout: 'git/4'
+  // Recheck before reusing a cached handle and after synchronization; directory pins alone do not pin child paths.
+  checkLocation(at: string, d: Descriptor, endpoint: RoomEndpointV2): void
+  // Read a witnessed interrupted creation without initializing, choosing another path or inventing a genesis.
+  recoverPrepared(at: string, d: Descriptor, pending: RoomEndpointV2): StoreV4
+}
+// A registry can hold either explicit endpoint contract. Callers narrow before passing an endpoint.
+export type RoomTransport = Transport | TransportV4

@@ -26,9 +26,19 @@ export const signerLine = (who: string, key: Key): string => `${who} namespaces=
 
 export const signingContext = (H: Pick<Handle, 'name' | 'signing'>) => H.signing ?? C.fail(`hub ${H.name}: signed writes require an injected Signer`)
 
-export const identityKey = (H: Pick<Handle, 'name' | 'signing'>, who: string, create = false): Key => {
+export const localSigningKey = (H: Pick<Handle, 'name' | 'signing' | 'endpoint' | 'layout'>, who: string, create = false) => {
   const context = signingContext(H)
-  return parseKey(context.signer.publicIdentity(context.resolve(id(H.name), id(who), create)).key)
+  id(who)
+  if (H.layout === 'git/4' && who !== ROOT) {
+    const ref = H.endpoint?.schema === 'ringi-room/2' && H.endpoint.keyRef
+    if (!ref || !context.resolveRef) return C.fail('git/4 actor signing requires an explicit local keyRef and injected resolveRef; no fallback')
+    return context.resolveRef(ref, create)
+  }
+  return context.resolve(id(H.name), who, create)
+}
+export const identityKey = (H: Pick<Handle, 'name' | 'signing' | 'endpoint' | 'layout'>, who: string, create = false): Key => {
+  const context = signingContext(H)
+  return parseKey(context.signer.publicIdentity(localSigningKey(H, who, create)).key)
 }
 
 export const setupSigned = (H: Handle, url?: string): {root: string, allowedSigners: string} => {

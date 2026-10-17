@@ -1,73 +1,82 @@
-// rooms: the rooms on this machine, each named uniquely whatever hub keeps it: list, create, switch, admit a member,
-// delete, and accept a new baseline for a log after reviewing an alarm.
+// rooms: the rooms this machine knows, each by its address (docs/spec/hub-2.md, Room addresses): list, switch, delete,
+// and accept a new baseline for a log after reviewing an alarm; making one is room-create.ts. A bare name selects the
+// one known room of it.
 
-import crypto from 'node:crypto'
-import {DEFAULT_PROFILE, parseProfile} from '../work/index.ts'
 import {hubPorts} from '../ports/index.ts'
-import {OPERATOR, RESERVED_ROOMS, ROOM_MD, config, createRoom, deleteRoom, hubNames, openContract, openHub, profileText, room as roomOf, roomNames, setConfig} from '../rooms/index.ts'
-import type {Hub, Room} from '../rooms/index.ts'
+import type {RoomFiles} from '../ports/location.ts'
+import type {TransportV4} from '../ports/store.ts'
+import {config, deleteRoomRegistration, hubNames, isRegisteredRoom, openHub, openRegisteredRoom, setConfig} from '../rooms/index.ts'
+import type {DeletedRegistration, Hub, Room, RoomV2} from '../rooms/index.ts'
+import {canonical, parseAddress} from '../rooms/address.ts'
+import {registeredTransportOf} from '../rooms/store-address.ts'
+import {registrationContext, roomCatalogue} from '../rooms/room-catalogue.ts'
+import type {RoomRegistration} from '../rooms/room-catalogue.ts'
 import {Fail, fail, note} from '../../../lib/index.ts'
-import {invite} from './invite.ts'
-import {overSsh, roomAddress} from './access.ts'
-import {ID_RE, compose} from '../protocol/index.ts'
 
-export {admit, forgetLog} from './roster.ts'
+export {forgetLog} from './roster.ts'
 
-// A room by its name, unique on this machine whatever hub keeps it; without one, the terminal's current room.
-export const roomNamed = (name?: string | null): Room => {
-  hubPorts().state.ensure()
-  const n = name ?? config().room ?? fail('no current room: ringi room create <id> | ringi room switch <id>')
-  const hub = hubNames().find(h => roomNames(openHub(h)).includes(n)) ?? fail(`no room ${n} on this machine`)
-  return roomOf(openHub(hub), n)
+const files = (): RoomFiles => hubPorts().roomFiles ?? fail('this ringi has no room locations wired')
+export const catalogue = (): ReturnType<typeof roomCatalogue> => roomCatalogue(hubPorts().state)
+export const transportOfHub = (H: Hub): TransportV4 => registeredTransportOf(H.name, H.d.store.type)
+export const active = (r: RoomRegistration): r is RoomRegistration & {phase: 'active'} => r.phase === 'active' && !r.endpoint.disposal
+// The registration an address or a bare name selects: the one this machine knows, else none.
+const registration = (selector: string): RoomRegistration & {phase: 'active'} => {
+  const r = catalogue().select(parseAddress(selector, 'lookup'), files())
+  return active(r) ? r : fail(`room ${r.address} is not ready: its creation or deletion did not finish`)
 }
-// A room the store offers but that does not open (a history under another name) is an alarm, not a row.
-const opens = (H: Hub, n: string): Room | null => {
-  try { return roomOf(H, n) } catch (e) {
+// The full context of the room an address or name selects, read from this machine's catalogue alone.
+export const contextOf = (selector: string): readonly string[] => registrationContext(registration(selector))
+// How a room is named to people: its address; a room of the older layout, which has none, by its name.
+export const addressOf = (R: Room): string => isRegisteredRoom(R) ? R.endpoint.address : R.name
+// A room by its address or name; without one, the terminal's current room.
+export const roomNamed = (selector?: string | null): RoomV2 => {
+  hubPorts().state.ensure()
+  const r = registration(selector ?? config().room ?? fail('no current room: ringi room create [<address>] | ringi room switch <address>'))
+  const H = openHub(r.owner.name)
+  return openRegisteredRoom(H, r.address, transportOfHub(H))
+}
+// A room the catalogue knows but that does not open is told, not listed; an alarm stays one.
+const opens = (r: RoomRegistration & {phase: 'active'}): RoomV2 | null => {
+  try { return roomNamed(r.address) } catch (e) {
     if (!(e instanceof Fail)) throw e
-    note(`ALARM ${e.message}`)
+    note(e.message.startsWith('ALARM') ? e.message : `room ${r.address}: ${e.message}`)
     return null
   }
 }
-export type RoomView = {name: string, hub: string, current: boolean, members: number, profile: string, genesis: string}
+export type RoomView = {address: string, name: string, context: readonly string[], current: boolean, members: number, profile: string, genesis: string, signed: boolean}
 export const rooms = (): RoomView[] => {
   hubPorts().state.ensure()
   const cur = config().room
-  const view = (H: Hub, n: string, R: Room): RoomView => ({name: n, hub: H.name, current: n === cur, members: Object.keys(R.members).length, profile: R.profile.name, genesis: R.genesis})
-  return hubNames().map(h => openHub(h)).flatMap(H => roomNames(H).flatMap(n => { const R = opens(H, n); return R ? [view(H, n, R)] : [] }))
+  return catalogue().all().filter(active).flatMap(r => {
+    const R = opens(r)
+    return R ? [{address: r.address, name: R.name, context: R.context, current: r.address === cur, members: Object.keys(R.members).length, profile: R.profile.name, genesis: R.genesis, signed: R.hub.signed}] : []
+  })
 }
-// A room carries its profile from the start: later changes to the hub's profiles do not reach it.
-// `quorum`: the room's work starts by itself once it has that many agents; until then a join waits.
-// `url`: a signed hub publishes the room's repository there; on a hub whose rooms a forge keeps, the forge makes it.
-// The result says how an agent elsewhere joins it.
-export const create = async (H: Hub, name: string, {profile, quorum, url}: {profile?: string, quorum?: number, url?: string} = {}): Promise<{profile: string, join: string | null}> => {
-  if (!ID_RE.test(name) || RESERVED_ROOMS.has(name)) fail(`usage: ringi room create <id> [--profile <name>] [--quorum <agents>] (an id like fix-badge; not ${[...RESERVED_ROOMS].join(', ')})`)
-  if (quorum !== undefined && !(Number.isSafeInteger(quorum) && quorum >= 1 && quorum <= 99)) fail('--quorum takes a number of agents, 1 to 99')
-  const contract = openContract(H)
-  const p = profile ?? contract.contract.profile ?? DEFAULT_PROFILE
-  const text = profileText(H, p) ?? fail(`hub ${H.name} carries no profile ${p}; add it with ringi hub amend -m "<why>" --attach <file>:profiles/${p}.json`)
-  parseProfile(text, `profile ${p}`)
-  const files: Record<string, string> = {'ROOM.md': ROOM_MD(name), 'members.json': JSON.stringify({[OPERATOR]: {role: 'root'}}, null, 2) + '\n', 'profile.json': text}
-  // A signed room's roster: who may sign its logs, starting with the root.
-  if (H.signed) files.allowed_signers = contract.store.rootRoster?.() ?? fail(`hub ${H.name}: its store cannot start a signed roster`)
-  // The genesis names the room; a random id makes it unique, so a room deleted and created again is a different room.
-  const genesis = compose(`room ${name}`, [['To', '*'], ['Kind', 'room'], ['Room-Id', crypto.randomBytes(16).toString('hex')],
-    ...(quorum ? [['Quorum', String(quorum)] as [string, string]] : [])])
-  const remote = await roomAddress(H, name, url)
-  // Over SSH the root's own key reaches it, the forge's host keys pinned.
-  const R = createRoom(H, name, {who: OPERATOR, text: genesis, files, remote, ...(overSsh(remote) ? {authRef: `ringi-key:${H.name}/${OPERATOR}`, hostKeys: H.d.access?.hostKeys} : {})})
-  setConfig({room: name})
-  const line = invite(R)
-  return {profile: p, join: line ? `ringi join ${line} --as <agent>` : null}
-}
-export const use = (name: string): Room => {
-  const R = roomNamed(name)
-  setConfig({room: R.name})
+
+export const use = (selector: string): RoomV2 => {
+  const R = roomNamed(selector)
+  setConfig({room: R.endpoint.address})
   return R
 }
-// The room's store on this machine and everything kept for it: its endpoint and its readers' state. Sessions bound to
-// it, here or elsewhere, leave it on their own when they find it gone (core/agents/sessions); a forge's copy is the
-// access adapter's to delete.
-export const erase = (R: Room): void => {
-  deleteRoom(R)
-  if (config().room === R.name) setConfig({room: null})
+// The room a delete names, by address or name, also one whose deletion stopped half way and no longer opens.
+export type Doomed = RoomRegistration & {phase: 'active'}
+export const doomed = (selector?: string | null): Doomed => {
+  hubPorts().state.ensure()
+  const sel = selector ?? config().room ?? fail('no current room: ringi room delete <address> --yes')
+  const parsed = parseAddress(sel, 'lookup'), all = catalogue().all().filter((r): r is Doomed => r.phase === 'active')
+  const found = parsed.kind === 'name' ? all.filter(r => r.name === parsed.room) : all.filter(r => r.address === canonical(parsed) || r.aliases.includes(canonical(parsed)))
+  if (found.length > 1) fail(`ambiguous room; use one full address: ${found.map(r => r.address).join(', ')}`)
+  return found[0] ?? fail(`no room ${sel} on this machine`)
 }
+// A room's repository on this machine moved aside and its records archived, for good: one in the home's directories is
+// ringi's to move; one at a path of the operator's (local:///…) is only forgotten, its files left where they are.
+// Nothing is erased. Sessions bound to it, here or elsewhere, leave it on their own (core/agents/sessions).
+export const erase = (r: Doomed): DeletedRegistration => {
+  const mode = parseAddress(r.address, 'lookup').kind === 'path' ? 'unregister' : 'managed'
+  const done = deleteRoomRegistration(r, {confirmed: true, mode})
+  if (config().room === r.address) setConfig({room: null})
+  return done
+}
+// The hubs this machine keeps rooms of: `local`, and one per space.
+export const hubOfRoom = (selector?: string | null): Hub => selector || config().room ? roomNamed(selector).hub
+  : hubNames().includes('local') ? openHub('local') : fail('no current room: ringi hub amend --room <address>')

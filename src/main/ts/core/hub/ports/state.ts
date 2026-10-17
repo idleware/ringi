@@ -4,6 +4,7 @@
 
 // Each segment is a name: not empty, not `.` or `..`, without a path separator (an adapter refuses anything else).
 export type Key = readonly string[]
+export type StateArchive = {key: Key, record: Key, value: unknown, token: string}
 
 export interface LocalState {
   // Where the state lives, as the operator would look for it; the turns ringi starts get it too.
@@ -21,4 +22,6 @@ export interface LocalState {
   list(key: Key): string[]
   // A directory for an adapter's own files under the key (a hub's store), made on first use.
   place(key: Key): string
+  // Move the entire namespace atomically after comparing its record. Retain its contents and retry evidence.
+  archive?(request: StateArchive): string
 }

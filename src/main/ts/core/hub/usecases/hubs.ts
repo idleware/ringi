@@ -1,42 +1,27 @@
-// hubs: the operator's hubs on this machine: list, create, amend the shared contract.
+// hubs: the hubs this machine keeps rooms of, and the shared contract each carries: `local` for local rooms, and one
+// per space, made with its first room (access.ts). Rooms name no hub: an address says where a room is.
 
 import {DEFAULT_PROFILE, PROFILES_CAPABILITY, parseProfile} from '../work/index.ts'
-import {OPERATOR, amendContract, createHub, hubNames, openContract, openHub, roomNames} from '../rooms/index.ts'
+import {OPERATOR, amendContract, hubNames, openContract, openHub} from '../rooms/index.ts'
 import {hubPorts} from '../ports/index.ts'
-import {accessOf, spaceFor} from './access.ts'
+import {roomCatalogue} from '../rooms/room-catalogue.ts'
 import type {Store} from '../ports/store.ts'
 import type {Hub} from '../rooms/index.ts'
-import {fail, strictJson, withoutCredentials, words} from '../../../lib/index.ts'
-import {ID_RE, compose} from '../protocol/index.ts'
-
-// A remote as shown and handed to other machines: never with a password or token in it; each machine has its own.
-const shown = (url: string | undefined): string | null => url ? withoutCredentials(url) : null
-// The named hub, or `local`.
-export const hubOf = (name?: string): Hub => openHub(name ?? 'local')
+import {fail, strictJson, words} from '../../../lib/index.ts'
+import {compose} from '../protocol/index.ts'
 
 // `contract`: the version of the contract this machine holds the source of; an agent's machine holds only rooms.
-export type HubView = {name: string, store: string, trust: string, contract: string | null, rooms: number, remote: string | null, dir: string}
+// `space`: where its rooms are made, for a space's hub.
+export type HubView = {name: string, trust: string, contract: string | null, rooms: number, space: string | null, dir: string}
 export const hubs = (): HubView[] => {
   hubPorts().state.ensure()
   if (!hubNames().length) openHub('local')
+  const registered = roomCatalogue(hubPorts().state).all().filter(r => r.phase === 'active')
   return hubNames().map(n => {
     const H = openHub(n)
-    return {name: H.name, store: H.d.store.type, trust: H.d.trust, contract: H.d.contract ? openContract(H).contract.version : null,
-      rooms: roomNames(H).length, remote: shown(H.d.contract?.remote), dir: H.dir}
+    return {name: H.name, trust: H.d.trust, contract: H.d.contract ? openContract(H).contract.version : null,
+      rooms: registered.filter(r => r.owner.name === H.name).length, space: H.d.access?.address ?? null, dir: H.dir}
   })
-}
-export type HubInput = {signed?: boolean, url?: string, forge?: string, authFile?: string, hostKeyFile?: string}
-// A new hub; a signed one makes its root key here. Agents elsewhere never attach the hub: each joins its room. With
-// `forge`, its rooms are made in that space, checked before the hub is.
-export const create = async (name: string, {signed = false, url, forge, authFile, hostKeyFile}: HubInput = {}) => {
-  if (!ID_RE.test(name)) fail('usage: ringi hub create <name> [--signed [--url <address>] [--forge <space> --auth-file <file> --host-key-file <file>]]')
-  const made = await spaceFor({signed, url, forge, authFile, hostKeyFile})
-  const {custody} = createHub(name, {signed, url})
-  if (made) hubPorts().state.write(['hub', name, 'hub'], {...openHub(name).d, access: made.access})
-  const H = openHub(name)
-  // The root pushes to the forge as the operator's account: its key goes there now, and again before each room if missing.
-  if (made) await accessOf(H)!.ownKey(H.d.root!).catch((e: Error) => fail(`hub ${name} is made here, its root key not yet on the forge: ${e.message}`))
-  return {H, rootKey: custody, remote: shown(H.d.contract?.remote), space: made && {address: shown(made.access.address), principal: made.principal, version: made.version}}
 }
 export type AmendInput = {text: string, set?: string[], files?: Array<{path: string, content: Buffer}>}
 type Contract = Record<string, unknown>

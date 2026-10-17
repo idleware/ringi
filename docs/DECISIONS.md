@@ -435,3 +435,34 @@ Git covers several of these by construction. That is the bet here.
   and whoever wants less risk runs a host of their own or pays for a plan. The specification says so, with
   what still holds (signatures, pins, alarms) and what does not (prevention, and a later joiner may accept a shortened
   history).
+
+## ringi: rooms by address, invitations, removal (2026-10-17)
+
+- **A room has an address.** The operator: `fix` means `local://fix`, in the home's room directory;
+  `local:///abs/path/fix` keeps a local room anywhere; `forgejo://host/space/room` (and `github`, `gitlab`, `gitea`)
+  is a room in a space, with `gh` and `gl` accepted on input only. Without a room name, create picks a random one.
+  `--hub` is gone: the address says where a room is. A bare name selects the one known room of it, or refuses. Rooms
+  in a space are always private.
+- **Who an actor is.** The operator: no `--as` for remote actors. A local agent is its tool (`claude`, then
+  `claude-2` while another session holds that seat), since this machine is trusted; `--as` stays for a chat whose tool
+  ringi cannot tell. In a space the root invites known accounts (`--invite` at create, `room invite` later), and an
+  actor is the account's login; one that comes back is the next unused `<login>-<n>`. A seat released by `leave` is
+  taken again by the next chat of that name, with its work, as in 0.10.
+- **The host vouches for the key.** The invitee puts the key its machine shows on its own account; the root reads the
+  account's complete key list before it admits, and admits nothing an account does not show. A key pair is the
+  relation of a machine and an account: one per host realm and account, reused across that host's rooms. GitHub
+  free organisations get a deploy-key mode, a key per room that the root vouches for.
+- **Removal is whole and terminal.** One key per actor; no key sets, no partial removal, no freeze or finality
+  protocol. A removed actor's stream is a projection each reader closes where it stood when it saw the removal;
+  readers may differ by it, which is no alarm. The account may return, as a new actor with a new key.
+- **The command line drops the manual signed hub.** A signed room is always in a space there; `hub create`,
+  `--signed`, `--url`, `--forge` and `--auth-file` are gone, and the first room in a space takes `--token-file` and
+  `--host-key-file`. The library keeps a signed room outside a space, its root, signer and transport injected, admitted
+  by the operator's paste, as the agreed contract has it; a third invitation mode for it would have been complexity
+  for no user.
+- **Delete moves aside, it does not erase.** Rooms come and go locally, so `room delete` must work: a repository ringi
+  made in the home goes to `trash/`, one at the operator's own path stays there, and the registration with its root
+  list moves whole to `room-archives/`, so an address made again starts with an empty list. Nothing claims secure
+  erasure.
+- **A new home, no migration.** Home 5, endpoint `ringi-room/2`, layout `git/4` with `rooms/1`, `ringi-invite/3`, all
+  together. Rooms of 0.10 stay readable by 0.10 in their own home.

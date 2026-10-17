@@ -5,11 +5,14 @@ import {fail} from '../../../lib/index.ts'
 import {ID_RE} from '../protocol/index.ts'
 import type {RoomEndpoint, Store} from '../ports/store.ts'
 import {hubNames} from './hubs.ts'
-import {storeOf, transportOf} from './address.ts'
+import {storeOf} from './address.ts'
+import {legacyTransportOf} from './store-address.ts'
 import type {Hub} from './index.ts'
+export * from './room-registration.ts'
+export {roomCatalogue} from './catalogue-v2.ts'
 export const endpointKey = (H: Hub, name: string) => ['hub', H.name, 'rooms', name, 'endpoint']
 export const roomDir = (H: Hub, name: string): string => path.join(H.dir, 'rooms', name)
-export const transportFor = (H: Hub, e: RoomEndpoint) => transportOf(H.name, e.store.remote ? storeOf(e.store.remote).type : H.d.store.type)
+export const transportFor = (H: Hub, e: RoomEndpoint) => legacyTransportOf(H.name, e.store.remote ? storeOf(e.store.remote).type : H.d.store.type)
 export const roomLock = (H: Hub, name: string): string => ID_RE.test(name) ? `room-${H.d.genesis}-${name}` : fail(`bad room name ${name}`)
 export const uniqueName = (H: Hub, name: string): void => {
   for (const hub of hubNames()) if (hub !== H.name && hubPorts().state.list(['hub', hub, 'rooms']).includes(name)) fail(`room name ${name} already belongs to hub ${hub}; nothing is replaced`)

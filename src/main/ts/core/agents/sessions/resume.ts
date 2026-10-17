@@ -3,7 +3,8 @@
 import {hubPorts, locked} from '../../hub/ports/index.ts'
 import {fail, note, stamp} from '../../../lib/index.ts'
 import type {Me, Session} from './index.ts'
-import {allSessions, dropSession, liveness, ownSession, parseSelector, saveSession, whoAmI} from './index.ts'
+import {allSessions, dropSession, liveness, ownSession, parseSelector, sameRoom, saveSession, whoAmI} from './index.ts'
+import {contextOf} from '../../hub/usecases/rooms.ts'
 
 export const resume = (selector?: string): Session => {
   const me = whoAmI()
@@ -21,8 +22,8 @@ const selectTarget = (me: Me, selector?: string): Session => {
   if (!selector) {
     return ownTarget(me)
   } else {
-    const sel = parseSelector(selector)
-    return allSessions().find(s => s.room === sel.room && s.agent === sel.agent) ?? fail(`no session holds ${selector}; the operator joins this chat with ringi join`)
+    const sel = parseSelector(selector), context = contextOf(sel.room)
+    return allSessions().find(s => sameRoom(s, {context}) && s.agent === sel.agent) ?? fail(`no session holds ${selector}; the operator joins this chat with ringi join`)
   }
 }
 
@@ -30,7 +31,7 @@ const ownTarget = (me: Me): Session => {
   const mine = ownSession(me.handle)
   if (!mine) {
     const cands = allSessions().filter(s => liveness(s) !== 'active').sort((a, b) => Number(b.product === me.product) - Number(a.product === me.product))
-    if (!cands.length) fail('nothing to continue: this chat was never joined, and no paused or gone session waits. The operator says "join <room> as <id>"')
+    if (!cands.length) fail('nothing to continue: this chat was never joined, and no paused or gone session waits. The operator says "join <room>"')
     fail(`this chat has no binding of its own. Say which one to take over:\n${cands.map(s => `  ringi continue ${s.room}/${s.agent}   (${liveness(s)}, ${s.product ?? '?'}, ${s.handle}${s.scope ? `, scope: ${s.scope}` : ''})`).join('\n')}`)
   }
   return mine!

@@ -26,7 +26,10 @@ export const checkSignature = (H: Handle, sha: string, who: string, key: Key, ki
   if (verified.has(cache)) return
   const file = signerFile(H, signerLine(who, key))
   const r = git(H, ['-c', `gpg.ssh.allowedSignersFile=${file}`, '-c', 'gpg.ssh.revocationFile=' + os.devNull, `verify-${kind}`, sha], {ok: true})
-  if (r.status !== 0) C.fail(`bad or missing signature at ${sha.slice(0, 12)}: not signed by the admitted key of ${who}`)
+  const interrupted = r.error || r.signal || r.status === null
+  const unavailable = (r.status ?? 128) > 1 || /cannot run|could not (?:open|read)|permission denied|no such file|not found|fatal:/i.test(r.stderr)
+  if (interrupted || unavailable) C.fail('signature verification could not run: ' + String(r.error?.message ?? r.stderr ?? r.signal))
+  if (r.status !== 0) throw Object.assign(new C.Fail(`bad or missing signature at ${sha.slice(0, 12)}: not signed by the admitted key of ${who}`), {invalidSignature: true})
   const raw = git(H, ['cat-file', kind, sha], {raw: true})
   const split = raw.indexOf(Buffer.from('\n\n'))
   if (split < 0) C.fail(`malformed ${kind}`)

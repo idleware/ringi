@@ -16,7 +16,7 @@ export const branchData = (H: Handle, name: string, tip: string, expectedGenesis
 
 // The room's branch verified up to `tip`; a quarantined room is not read.
 export const branch = (H: Handle, R: Pick<Room, 'name' | 'ref' | 'genesis'>, tip: string): Branch => {
-  if (!isRemote(H)) C.fail('room verification requires a signed hub')
+  if (!isRemote(H) && H.layout !== 'git/4') C.fail('room verification requires signed trust or explicit git/4')
   if (H.remoteAlarms?.[R.ref]) C.fail(`ALARM ${H.remoteAlarms[R.ref]}; room is quarantined`)
   return branchData(H, R.name, tip, R.genesis)
 }
@@ -26,7 +26,7 @@ export const verifyRoom = (H: Handle, R: Room): VerifiedRoom => branch(H, R, R.h
 
 // Why `head` is not a valid message of `who`, or null.
 export const verify = (H: Handle, R: Room, who: string, head: string): string | null => {
-  if (!isRemote(H)) return null
+  if (!isRemote(H) && H.layout !== 'git/4') return null
   try {
     const b = branch(H, R, head)
     return b.authors.get(head) === who ? null : b.skipped.get(head) ?? `${head.slice(0, 12)} is not a message of ${who}`

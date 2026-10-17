@@ -3,10 +3,12 @@
 import * as C from '../../../lib/index.ts'
 import * as P from '../../../core/hub/protocol/index.ts'
 import type {Member} from '../../../core/hub/ports/store.ts'
-import {git} from './git.ts'
+import {git, isRemote} from './git.ts'
 import {parseKey, rootKey} from './keys.ts'
 import type {Handle, Signer} from './types.ts'
 import {ROOT} from './types.ts'
+import {checkRetiredKeys, membershipFile} from './membership.ts'
+import type {RetiredMember} from './membership.ts'
 
 export const blobText = (H: Handle, sha: string, name: string): string => {
   const entry = git(H, ['ls-tree', sha, '--', name]).trim()
@@ -17,15 +19,27 @@ export const blobText = (H: Handle, sha: string, name: string): string => {
   return d.text!
 }
 
-export const rosterAt = (H: Handle, sha: string): {entries: Signer[], members: Record<string, Member>} => {
+export const rosterAt = (H: Handle, sha: string): {entries: Signer[], members: Record<string, Member>, retired?: Record<string, RetiredMember>} => {
+  if (!isRemote(H)) return assertedRoster(H, sha)
   const entries = blobText(H, sha, 'allowed_signers').split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#')).map(line => {
     const m = /^(\S+) namespaces="git" (.+)$/.exec(line) ?? C.fail('malformed allowed_signers; only literal principals and git namespace are supported')
     if (!P.ID_RE.test(m[1])) C.fail('malformed allowed_signers; only literal principals and git namespace are supported')
     return {principal: m[1], key: parseKey(m[2])}
   })
   const principals = uniqueRoster(entries)
-  const members = checkedMembers(H, sha, entries, principals)
-  return {entries, members}
+  const state = membershipFile(blobText(H, sha, 'members.json'), H.layout ?? 'git/3', true)
+  const members = checkedMembers(H, state.members, entries, principals)
+  checkRetiredKeys(state, entries)
+  return H.layout === 'git/4' ? {entries, members, retired: state.retired} : {entries, members}
+}
+
+// Asserted authority is the explicit operator name/control model. It never manufactures a cryptographic signer.
+const assertedRoster = (H: Handle, sha: string) => {
+  if (H.layout !== 'git/4') return C.fail('asserted roster validation requires explicit git/4')
+  const signers = git(H, ['ls-tree', sha, '--', 'allowed_signers']).trim()
+  if (signers && blobText(H, sha, 'allowed_signers').trim()) C.fail('asserted control cannot declare cryptographic signers')
+  const state = membershipFile(blobText(H, sha, 'members.json'), 'git/4', false)
+  return {entries: [], ...state}
 }
 
 const uniqueRoster = (entries: Signer[]): Set<string> => {
@@ -37,10 +51,9 @@ const uniqueRoster = (entries: Signer[]): Set<string> => {
   return principals
 }
 
-const checkedMembers = (H: Handle, sha: string, entries: Signer[], principals: Set<string>): Record<string, Member> => {
-  const members = C.strictJson<Record<string, Member>>(blobText(H, sha, 'members.json'), 'members.json')
+const checkedMembers = (H: Handle, members: Record<string, Member>, entries: Signer[], principals: Set<string>): Record<string, Member> => {
   if (!members || typeof members !== 'object' || Array.isArray(members)) C.fail('members.json must be an object')
   if (entries.find(e => e.principal === ROOT)?.key.line !== rootKey(H).line || members[ROOT]?.role !== 'root') C.fail('room roster must retain the pinned operator as root')
-  if (Object.keys(members).some(who => !P.ID_RE.test(who) || !principals.has(who) || (who !== ROOT && members[who]?.role === 'root')) || entries.some(e => !members[e.principal])) C.fail('members.json and allowed_signers disagree')
+  if (Object.keys(members).some(who => !P.ID_RE.test(who) || !principals.has(who) || (who !== ROOT && members[who]?.role === 'root')) || entries.some(e => !Object.hasOwn(members, e.principal))) C.fail('members.json and allowed_signers disagree')
   return members
 }

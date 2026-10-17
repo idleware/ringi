@@ -63,9 +63,8 @@ signed hub's keys.
 ## Evolution
 
 Every format that can change has a gate: a version, checked in one place, that refuses what this build cannot read
-and says what to do. ringi migrates nothing. A hub it cannot read stays as it is; the operator makes a new hub beside
-it (`ringi hub create local2`) or a new space on a forge. A home it cannot read stays too; a new `RINGI_HOME`
-starts fresh. A migration, if one is ever worth it, is a tool beside ringi that reads the old format and writes the
+and says what to do. ringi migrates nothing. A room it cannot read stays as it is; the operator makes a new room
+beside it, or one in a new space on a forge. A home it cannot read stays too; a new `RINGI_HOME` starts fresh. A migration, if one is ever worth it, is a tool beside ringi that reads the old format and writes the
 new; ringi never imports it.
 
 | What | Version | Declared in | Gate |
@@ -73,10 +72,12 @@ new; ringi never imports it.
 | protocol core | `1` | contract `protocol` | `core/hub/rooms/compat.ts`: another major is refused |
 | capability | `<name>/<major>` | contract `capabilities` | `compat.ts`: an id this build does not register is refused (see below) |
 | hub contract | `2.x` | `contract.json` `version` | `compat.ts`: another major is refused; a minor only adds optional data without authority |
-| store layout | `git/3` | contract `store` | `compat.ts`, when a hub or a room's store opens, against `Transport.layout` |
+| store layout | `git/4` | contract `store` | `compat.ts` and `rooms/contracts.ts`, when a hub or a room's store opens, against `Transport.layout` |
+| room endpoint | `ringi-room/2` | the registration's `endpoint.schema` | `rooms/endpoint-v2.ts`: another schema is refused |
+| invitation | `ringi-invite/3` | the line's `schema` | `usecases/invite.ts`: another schema is refused by name |
 | hub descriptor | `ringi-hub/3` | `hub.json` `schema` | `compat.ts`: another schema is refused |
 | profile | `ringi-profile/1` | the profile's `schema` | a room keeps the profile it was made with |
-| home | `4` | `home.json` | `adapters/state-fs`: another version is refused; a change to any durable record (config, readers, sessions, descriptors) is a new version |
+| home | `5` | `home.json` | `adapters/state-fs`: another version is refused; a change to any durable record (config, catalogue, readers, sessions, descriptors) is a new version |
 | package | semver | `package.json` | `ringi --version` names the majors it reads |
 
 - **Capabilities.** A contract lists the capabilities its rooms need, at most one major of each name. The registry

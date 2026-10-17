@@ -3,12 +3,14 @@
 
 import * as Signals from '../signals/index.ts'
 import {hubPorts, locked} from '../ports/index.ts'
-import {toMessage} from '../rooms/index.ts'
+import {isRegisteredRoom, registeredRoomLock, roomContextKey, toMessage} from '../rooms/index.ts'
 import type {Room} from '../rooms/index.ts'
 import {fail, note, short} from '../../../lib/index.ts'
 import {link} from '../protocol/index.ts'
 import type {All, Logs} from '../protocol/index.ts'
-import type {Rev} from '../ports/store.ts'
+import type {Rev, StoreV4} from '../ports/store.ts'
+import {closeFrontiers, eligible} from './retire.ts'
+import type {Frontier} from './retire.ts'
 
 // One reader's record of one room has three owners, kept as one record.
 // What the reader accepted of the room's history (history): its control head, each log's head, the stored objects of
@@ -17,6 +19,8 @@ export type Accepted = {
   control?: Rev
   heads?: Record<string, Rev>
   signals?: Record<string, string>
+  // The streams of removed actors, closed where this reader stood when it learned of the removal (retire.ts).
+  retired?: Frontier
   alarms?: string[]
 }
 // What was delivered to it: the last message of each log it has seen.
@@ -24,9 +28,12 @@ export type Delivered = {
   seen?: Record<string, string>
 }
 export type ReaderState = Accepted & Delivered
-// What one reader accepted of one room: a record of the machine's state.
-const readerKey = (R: Room, reader: string) => ['readers', R.hub.d.genesis, R.genesis, reader]
-export const readerLock = <T>(R: Room, reader: string, fn: () => T): T => locked(`reader-${R.hub.d.genesis}-${R.genesis}-${reader}`, fn)
+// What one reader accepted of one room: a record of the machine's state, under the room's full context (its
+// address, history and the repository it was read from), so a copy or a room made anew starts its own.
+export const readersKey = (R: Room) => isRegisteredRoom(R) ? roomContextKey(R, 'readers') : ['readers', R.hub.d.genesis, R.genesis]
+const readerKey = (R: Room, reader: string) => isRegisteredRoom(R) ? roomContextKey(R, 'readers', reader) : [...readersKey(R), reader]
+export const readerLock = <T>(R: Room, reader: string, fn: () => T): T =>
+  locked(isRegisteredRoom(R) ? `${registeredRoomLock(R)}-reader-${reader}` : `reader-${R.hub.d.genesis}-${R.genesis}-${reader}`, fn)
 export const loadState = (R: Room, reader: string): ReaderState => hubPorts().state.read<ReaderState>(readerKey(R, reader), {})
 export const saveState = (R: Room, reader: string, st: ReaderState): void => hubPorts().state.write(readerKey(R, reader), st)
 // The control history must extend what this reader accepted; a rewritten one delivers nothing.
@@ -59,8 +66,13 @@ const acceptLogs = (R: Room, reader: string, st: ReaderState, alarms: string[]):
   return logs
 }
 // The signals that agree with their messages are pinned; the rest become alarms.
+// This reader's signal records: a removed actor's only as far as its frontier, closed now if it is new.
+export const readerSignals = (R: Room, st: ReaderState) => {
+  st.retired = closeFrontiers((R.store as StoreV4).retirements?.(R.s) ?? {}, st.signals, st.retired)
+  return eligible(R.store.signals(R.s), st.retired)
+}
 const acceptSignals = (R: Room, logs: Logs, st: ReaderState, alarms: string[], reader: string): void => {
-  const records = R.store.signals(R.s)
+  const records = readerSignals(R, st)
   const checked = Signals.check(R, link(logs), records)
   const signalPins = Signals.pins(records, checked, st.signals)
   const heads = new Map(R.store.signalHeads(R.s).map(x => [x.actor, x.head]))

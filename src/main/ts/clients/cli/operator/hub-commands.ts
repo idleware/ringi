@@ -1,27 +1,19 @@
-// hub-commands: `ringi hub list | create | amend`.
+// hub-commands: `ringi hub list | amend`.
 
 import fs from 'node:fs'
 import * as Hubs from '../../../core/hub/usecases/hubs.ts'
+import * as Rooms from '../../../core/hub/usecases/rooms.ts'
 import type {Opts} from '../args.ts'
-import {attachments, flag, list, opt, out, textOf} from '../args.ts'
+import {attachments, list, opt, out, textOf} from '../args.ts'
 
 export const listHub = (_: Opts) => {
-  for (const h of Hubs.hubs()) out(`${h.name.padEnd(12)} ${h.store}, ${h.trust}, ${h.contract ? `contract ${h.contract}` : 'contract only in its rooms'}, ${h.rooms} room(s)${h.remote ? `  remote ${h.remote}` : ''}  ${h.dir}`)
-  return
+  for (const h of Hubs.hubs()) out(`${h.name.padEnd(22)} ${h.trust}, ${h.contract ? `contract ${h.contract}` : 'contract only in its rooms'}, ${h.rooms} room(s)${h.space ? `  space ${h.space}` : ''}  ${h.dir}`)
 }
 
-export const createHub = async (o: Opts) => {
-  const [, arg] = o._
-  const r = await Hubs.create(arg ?? '', {signed: flag(o, 'signed'), url: opt(o, 'url'), forge: opt(o, 'forge'), authFile: opt(o, 'auth-file'), hostKeyFile: opt(o, 'host-key-file')})
-  if (!r.H.signed) return out(`created hub ${arg} (${r.H.dir})`)
-  out(`created signed hub ${arg}${r.remote ? `, its contract published to ${r.remote}` : ''}. Its root key stays on this machine (${r.rootKey}).`)
-  if (r.space) return out(`Its rooms are made in ${r.space.address}, as ${r.space.principal} (Forgejo ${r.space.version}); each prints the invitation its agents join by.`)
-  return out('A room made with --url prints the invitation its agents join by, elsewhere.')
-}
-
+// The hub of the named room, else of the current one, else `local`.
 export const amendHub = (o: Opts) => {
-  const H = Hubs.hubOf(opt(o, 'hub'))
+  const H = Rooms.hubOfRoom(opt(o, 'room'))
   const files = list(o, 'attach').flatMap(attachments).map(e => ({path: e.path, content: fs.readFileSync(e.file!)}))
   const r = Hubs.amend(H, {text: textOf(o), set: list(o, 'set'), files})
-  return out(`amended hub ${H.name}: contract ${r.version}; rooms made from now on follow it, existing ones keep the contract they were made with`)
+  return out(`amended hub ${H.name}${H.d.access ? ` of ${H.d.access.address}` : ''}: contract ${r.version}; rooms made from now on follow it, existing ones keep the contract they were made with`)
 }

@@ -43,7 +43,7 @@ export class Branches extends Repo {
   // On a signed hub the branch's verification says which commits are control records, and why the others that are no
   // valid message are skipped; a commit off the branch's first parents is never a message (remote.ts).
   protected judged(room: Named, tip: string, entries: Entry_[]): Entry_[] {
-    if (this.trust !== 'signed') return entries
+    if (this.trust !== 'signed' && this.h.layout !== 'git/4') return entries
     const b = Remote.branch(this.h, {name: room.name, ref: this.ref(room.name), genesis: room.genesis}, tip)
     const control = new Set(b.control)
     return entries.map(e => ({...e, control: control.has(e.sha),
@@ -120,6 +120,7 @@ export class Branches extends Repo {
     const ref = this.ref(room.name)
     for (let i = 0; i < 8; i++) {
       const tip = this.rev(ref) ?? fail(`room ${room.name} is gone`)
+      Remote.requireActive(this.h, this.remote(room), who)
       if (drop.length && this.room(room.name)?.head !== room.head) fail('room control moved while writing; retry the operation')
       const tree = entries.length || drop.length ? this.tree(`${tip}^{tree}`, entries, drop) : this.git(['rev-parse', `${tip}^{tree}`]).trim()
       const sha = this.commit(who, text, tree, [tip])

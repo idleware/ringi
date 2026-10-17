@@ -5,7 +5,14 @@
 
 // Who may write what in a room's repository: `main` and `chat` by principal, each actor's signals by its principal.
 export type Grants = {main: string[], chat: string[], signals: Record<string, string>}
-export type AccessAbility = {actorBranches: boolean, privateRepos: boolean, deleteServer: boolean}
+export type AccessAbility = {actorBranches: boolean, privateRepos: boolean, deleteServer: boolean,
+  // E8 (not yet wired): whether the medium refuses a force push, lists an account's keys, keeps per-room deploy keys, and
+  // serves its SSH host keys over its TLS-authenticated API.
+  refuseForcePush?: boolean, accountKeys?: boolean, deployKeys?: boolean, hostKeysByApi?: boolean}
+// E8 (not yet wired): an account on the medium, by its stable id where the medium has one; a deploy key by the record
+// the medium keeps for it, so a removal never mistakes a foreign key of the same title for the room's.
+export type Account = {id: string | null, login: string}
+export type DeployKey = {record: string, key: string, title: string}
 
 export interface Access {
   // The medium's version, the principal its credentials act as (the root's), and what this adapter can enforce there.
@@ -22,6 +29,17 @@ export interface Access {
   effective(room: string): Promise<Grants>
   // The served repository gone; a machine's own copy is not the medium's.
   deleteServer(room: string): Promise<void>
+  // E8 (not yet wired). The canonical account of a login, none if it has none; its public keys, complete or a failure,
+  // never a partial list.
+  account?(login: string): Promise<Account | null>
+  accountKeys?(account: Account): Promise<string[]>
+  // A room's deploy keys: one put with write access under a label, its record kept; one dropped by that record only;
+  // and all of them, for readback.
+  deployKey?(room: string, label: string, key: string): Promise<DeployKey>
+  dropDeployKey?(room: string, record: string): Promise<void>
+  deployKeys?(room: string): Promise<DeployKey[]>
+  // The medium's SSH host keys as known_hosts lines, where its API serves them over TLS.
+  hostKeys?(): Promise<string[]>
 }
 // An access type by name (an access address's scheme names it): made from the space's locator and the operator's
 // local credential reference, never a credential itself.

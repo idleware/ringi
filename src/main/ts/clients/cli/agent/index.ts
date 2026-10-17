@@ -2,6 +2,7 @@
 // take); joining and leaving a room are session.ts.
 import * as Agent from '../../../core/agents/sessions/agent.ts'
 import {asJson, render} from '../../../core/hub/usecases/view.ts'
+import {addressOf} from '../../../core/hub/usecases/rooms.ts'
 import {fail, short} from '../../../lib/index.ts'
 import {dump, flag, opt, out} from '../args.ts'
 import type {Opts} from '../args.ts'
@@ -12,13 +13,13 @@ const options = (o: Opts) => ({peek: flag(o, 'peek'), limit: opt(o, 'limit') ? N
 export const showInbox = ({R, me, s}: Ctx, res: Agent.Inbox, o: Opts) => {
   if (flag(o, 'json')) return dump(res.msgs.map(asJson))
   if (!res.msgs.length) return out('inbox: nothing new')
-  out(`inbox: ${res.msgs.length} new for ${me} in ${R.hub.name}/${R.name} (senders ${R.hub.signed ? 'verified by signature' : 'asserted, not verified'})${s?.scope ? `\nyour scope: ${s.scope}` : ''}`)
+  out(`inbox: ${res.msgs.length} new for ${me} in ${addressOf(R)} (senders ${R.hub.signed ? 'verified by signature' : 'asserted, not verified'})${s?.scope ? `\nyour scope: ${s.scope}` : ''}`)
   for (const m of res.msgs) out(`\n${render(res.all, m, {max: 4000})}`)
   if (res.rest) out(`\n(${res.rest} more: run ringi agent inbox again)`)
 }
 export const inbox = (a: Ctx, o: Opts) => {
   const st = Agent.started(a)
-  if (!st.started) return out(waiting(a.R.name, st))
+  if (!st.started) return out(waiting(addressOf(a.R), st))
   showInbox(a, Agent.inbox(a, options(o)), o)
 }
 export const take = (a: Ctx, o: Opts) => {

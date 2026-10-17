@@ -9,7 +9,8 @@ import {mkdirIn} from '../fs/index.ts'
 import * as Remote from './remote.ts'
 import {ZERO, ident, runGit, runGitOk} from './run.ts'
 import type {GitOpt} from './run.ts'
-import type {Descriptor, RoomEndpoint} from '../../core/hub/ports/store.ts'
+import type {Descriptor, RoomEndpoint, RoomEndpointV2} from '../../core/hub/ports/store.ts'
+import type {GitLayout} from './remote/types.ts'
 import type {Entry} from '../../core/hub/protocol/files.ts'
 import type {SigningContext} from '../../core/signing/index.ts'
 import {signCommit} from './signing.ts'
@@ -17,9 +18,10 @@ import {checkUrl, signingContext} from './remote/keys.ts'
 import {origin} from './remote/git.ts'
 import {verifyMain} from './remote/main.ts'
 import {chain, linear} from './remote/signature.ts'
+import {validateRef} from './remote/push-validate.ts'
 import type {TransportAuth} from './auth.ts'
 
-export type Connection = {signing?: SigningContext, auth?: TransportAuth}
+export type Connection = {signing?: SigningContext, auth?: TransportAuth, layout?: GitLayout}
 
 // The store is a repository whose work tree holds the contract (`main`) as it is now, so Git clients (SourceTree, IDEs)
 // open `store/` without errors, on the contract, with every room's branch beside it; `git status` stays clean.
@@ -32,13 +34,17 @@ export class Repo {
   readonly home: string
   // The handle remote.ts works on: the repository and what it learned on the last sync.
   readonly h: Remote.Handle
-  constructor(hubDir: string, d: Descriptor, home: string, connection?: SigningContext | Connection, endpoint?: RoomEndpoint) {
-    const {signing, auth} = connection && 'signer' in connection ? {signing: connection, auth: undefined} : connection ?? {}
+  constructor(hubDir: string, d: Descriptor, home: string, connection?: SigningContext | Connection, endpoint?: RoomEndpoint | RoomEndpointV2) {
+    const {signing, auth, layout} = connection && 'signer' in connection ? {signing: connection, auth: undefined, layout: undefined} : connection ?? {}
+    if (layout !== undefined && layout !== 'git/3' && layout !== 'git/4') fail('unsupported explicit Git layout')
+    if (layout === 'git/4' && d.trust === 'asserted' && d.root) fail('asserted git/4 cannot declare a signing root')
+    if (endpoint && (endpoint.schema === 'ringi-room/2') !== (layout === 'git/4')) fail('endpoint wire and explicit Git layout disagree; no layout is inferred')
+    if (endpoint?.schema === 'ringi-room/2' && endpoint.authRef && endpoint.authRef !== endpoint.keyRef) fail('signing and SSH must use the same selected keyRef')
     this.d = d
     this.home = home
     this.trust = d.trust
     this.dir = path.join(hubDir, endpoint?.store.path ?? d.contract?.path ?? fail(`hub ${d.name}: no explicit contract source`), '.git')
-    this.h = {name: d.name, dir: this.dir, d, endpoint, auth, ...(d.trust === 'signed' && signing ? {signing} : {})}
+    this.h = {name: d.name, dir: this.dir, d, endpoint, auth, layout, ...(d.trust === 'signed' && signing ? {signing} : {})}
     if (this.trust === 'signed') signingContext(this.h)
     const locator = origin(this.h)
     if (locator) checkUrl(locator)
@@ -47,6 +53,11 @@ export class Repo {
   }
   // A store made bare before, or a replica fetched bare, gets its work tree once (and loses the `_ringi` branch of an unreleased build).
   protected openable(): void {
+    if (this.h.layout === 'git/4') {
+      if (/^\s*bare\s*=\s*true\s*$/m.test(fs.readFileSync(path.join(this.dir, 'config'), 'utf8'))) fail('git/4 requires a prepared non-bare repository; conversion is unsupported')
+      if (fs.readFileSync(path.join(this.dir, 'HEAD'), 'utf8') !== 'ref: refs/heads/main\n') fail('git/4 repository HEAD must name its frozen main; no repair is performed')
+      return
+    }
     let changed = false
     if (/^\s*bare\s*=\s*true\s*$/m.test(fs.readFileSync(path.join(this.dir, 'config'), 'utf8'))) { this.git(['config', 'core.bare', 'false']); changed = true }
     if (fs.readFileSync(path.join(this.dir, 'HEAD'), 'utf8') !== 'ref: refs/heads/main\n') { this.git(['symbolic-ref', 'HEAD', 'refs/heads/main']); changed = true }
@@ -90,6 +101,7 @@ export class Repo {
     return signCommit(this.h, who, sha)
   }
   protected advance(ref: string, sha: string, old: string | null): boolean {
+    if (this.h.layout === 'git/4') validateRef(this.h, ref, sha)
     if (this.gitOk(['update-ref', ref, sha, old ?? ZERO]).status !== 0) return false
     // A signed hub publishes at once; a rejected push keeps the commit here and alarms (remote.ts).
     return Remote.push(this.h, ref, {behind: !!old && ref !== 'refs/heads/main'})
@@ -115,7 +127,7 @@ export class Repo {
       const commits = chain(this.h, head)
       if (commits[0]?.sha !== this.d.genesis) fail('contract source changed hub genesis')
       linear(commits, null, () => {})
-      if (this.trust === 'signed') verifyMain(this.h, head)
+      if (this.trust === 'signed' || this.h.layout === 'git/4') verifyMain(this.h, head)
       const old = this.rev('refs/heads/main')
       if (old && !this.extends(old, head)) fail('contract source does not extend the room main; nothing is replaced')
       if (old !== head && !this.advance('refs/heads/main', head, old)) fail('main moved while copying; retry')

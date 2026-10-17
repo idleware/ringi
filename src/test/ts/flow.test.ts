@@ -49,9 +49,9 @@ describe('local flow: operator and two chat agents', () => {
     fs.writeFileSync(patch, change)
 
     // The operator follows the README literally; each command starts a fresh process.
-    assert.match(ok(['room', 'create', 'fix-badge']), /created room fix-badge/)
+    assert.match(ok(['room', 'create', 'fix-badge']), /created room local:\/\/fix-badge/)
     for (const [session, who, scope] of [[codex, 'codex', implement], [claude, 'claude', review]]) {
-      assert.match(ok(['join', 'fix-badge', '--as', who, '--scope', scope], session), /joined fix-badge/)
+      assert.match(ok(['join', 'fix-badge', '--as', who, '--scope', scope], session), /joined local:\/\/fix-badge/)
       assert.ok(agent(session, 'whoami').includes(scope))
     }
     ok(['send', '--task', '--assign', 'codex', '-m', 'Fix the badge', '-m', 'acceptance: renders on main'])
@@ -121,7 +121,7 @@ describe('local flow: operator and two chat agents', () => {
       no(['agent', 'whoami'], /not in a room/, session)
     }
     assert.match(ok(['where']), /sessions: none joined/)
-    assert.match(ok(['room', 'delete', 'fix-badge', '--yes']), /deleted room fix-badge/)
+    assert.match(ok(['room', 'delete', 'fix-badge', '--yes']), /deleted room local:\/\/fix-badge/)
     assert.match(ok(['room', 'list']), /no rooms on this machine/)
   })
 })

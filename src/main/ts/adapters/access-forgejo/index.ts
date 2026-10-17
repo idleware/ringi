@@ -1,4 +1,4 @@
-// access-forgejo: a Forgejo organisation as a hub's space (`forgejo+https://forge.example/<org>`), one private
+// access-forgejo: a Forgejo organisation as a space (`forgejo://forge.example/<org>`), one private
 // repository per room, and who may push which branch, through Forgejo's API. Principals are Forgejo accounts: a
 // writable deploy key can be allowed on a protected branch only together with every other one, so it cannot keep one
 // actor to its signals. main, chat and the operator's signals take the root's account (chat also each admitted
@@ -11,11 +11,11 @@ import type {Access, AccessType} from '../../core/hub/ports/access.ts'
 import type {Call} from './api.ts'
 import {caller, space, typed} from './api.ts'
 import {rulesOf, signalsOf} from './rules.ts'
+import {account, accountKeys, keyLine} from './accounts.ts'
 
 // The root's own actor, whose signals the root's account writes.
 const OPERATOR = 'operator'
 
-const keyLine = (key: string) => key.trim().split(/\s+/).slice(0, 2).join(' ')
 // An account keeps each key under a title of its own: ringi's is the key's fingerprint, shortened, so another key titled
 // alike, or the same operator's root key of another hub, never collides with it.
 const titleOf = (line: string) => `ringi SHA256:${crypto.createHash('sha256').update(Buffer.from(line.split(' ')[1] ?? '', 'base64')).digest('base64').slice(0, 16)}`
@@ -105,9 +105,11 @@ const forgejo = (locator: string, authRef: string): Access => {
   const S = spaceOf(locator, authRef)
   return {
     inspect: async () => ({version: (await S.call<{version: string}>('GET', '/version'))?.version ?? '?', principal: await S.self(),
-      can: {actorBranches: true, privateRepos: true, deleteServer: true}}),
+      can: {actorBranches: true, privateRepos: true, deleteServer: true, refuseForcePush: true, accountKeys: true, deployKeys: false, hostKeysByApi: false}}),
     ownKey: async key => keyOn(S.call, {read: '/user/keys', write: '/user/keys', who: await S.self(), then: 'create the room again'}, key),
     ensureRoom: room => ensureRoom(S, room),
+    account: login => account(S.call, login),
+    accountKeys: a => accountKeys(S.call, a),
     grant: (room, actor, principal, key) => grant(S, room, actor, principal, key),
     revoke: (room, actor, principal) => revoke(S, room, actor, principal),
     effective: room => S.rules(room).effective(room),

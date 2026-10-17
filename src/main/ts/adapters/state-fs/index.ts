@@ -6,9 +6,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {errno, fail, strictJson} from '../../lib/index.ts'
 import {guardWrite, locked as lockFile, mkdirIn, writeJsonAtomic} from '../fs/index.ts'
+import {archiveState} from './archive.ts'
 import type {Build, Key, LocalState} from '../../core/hub/ports/index.ts'
 
 const HOME_VERSION = 4
+// Future E8 composition; declaring it does not change the active home gate.
+export const E8_HOME_VERSION = 5
 
 // State fails closed: unreadable JSON is an error, never a silent fresh start.
 const readJson = <T>(f: string, dflt: T): T => {
@@ -26,24 +29,27 @@ const readJson = <T>(f: string, dflt: T): T => {
 const segment = (s: string): string =>
   !s || s === '.' || s === '..' || /[/\\\0]/.test(s) ? fail(`bad state key segment ${JSON.stringify(s)}`) : s
 
-export const stateFs = ({root, build}: {root: string, build: Build}): LocalState => {
+type StateOptions = {root: string, build: Build}
+const ensureHome = (state: LocalState, build: Build, version: number): void => {
+  const root = state.root, marker = path.join(root, 'home.json')
+  if (fs.existsSync(marker)) {
+    const v = readJson<{version?: number}>(marker, {}).version
+    if (v !== version) fail(`${root} is a ringi home of version ${v}; this ringi ${build.version} needs version ${version}. Move it away (the ringi that made it still reads it with RINGI_HOME pointing there) or set RINGI_HOME to a new directory; ringi does not migrate`)
+    return
+  }
+  if (fs.existsSync(root) && fs.readdirSync(root).length) fail(`${root} exists and is not a ringi home (no home.json); move it away or set RINGI_HOME`)
+  mkdirIn(root, root)
+  state.write(['home'], {version})
+}
+const makeState = ({root, build}: StateOptions, version: number): LocalState => {
   const guard = <T>(fn: () => T): T => guardWrite(root, fn)
   const dir = (key: Key) => path.join(root, ...key.map(segment))
   const file = (key: Key) => `${dir(key)}.json`
-  const marker = path.join(root, 'home.json')
   const state: LocalState = {
     root,
-    ensure: () => {
-      if (fs.existsSync(marker)) {
-        const v = readJson<{version?: number}>(marker, {}).version
-        if (v !== HOME_VERSION) fail(`${root} is a ringi home of version ${v}; this ringi ${build.version} needs version ${HOME_VERSION}. Move it away (the ringi that made it still reads it with RINGI_HOME pointing there) or set RINGI_HOME to a new directory; ringi does not migrate`)
-        return
-      }
-      if (fs.existsSync(root) && fs.readdirSync(root).length) fail(`${root} exists and is not a ringi home (no home.json); move it away or set RINGI_HOME`)
-      mkdirIn(root, root)
-      state.write(['home'], {version: HOME_VERSION})
-    },
+    ensure: () => ensureHome(state, build, version),
     locked: (name, fn) => {
+      if (version === E8_HOME_VERSION) segment(name)
       state.ensure()
       return guard(() => lockFile(path.join(state.place(['locks']), `${name}.lock`), fn))
     },
@@ -58,7 +64,9 @@ export const stateFs = ({root, build}: {root: string, build: Build}): LocalState
     }),
     list: key => {
       let names: string[] = []
-      try { names = fs.readdirSync(dir(key)) } catch {}
+      try { names = fs.readdirSync(dir(key)) } catch (e) {
+        if (version === E8_HOME_VERSION && errno(e) !== 'ENOENT') throw e
+      }
       return [...new Set(names.map(n => n.replace(/\.json$/, '')))].sort()
     },
     place: key => {
@@ -66,5 +74,9 @@ export const stateFs = ({root, build}: {root: string, build: Build}): LocalState
       return dir(key)
     },
   }
+  if (version === E8_HOME_VERSION) state.archive = request => { state.ensure(); return archiveState(root, request) }
   return state
 }
+// Separate factories: current composition still calls stateFs and needs home/4. No reinterpretation or migration.
+export const stateFs = (options: StateOptions): LocalState => makeState(options, HOME_VERSION)
+export const stateFsV5 = (options: StateOptions): LocalState => makeState(options, E8_HOME_VERSION)

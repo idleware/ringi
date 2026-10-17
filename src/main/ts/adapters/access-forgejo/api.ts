@@ -13,15 +13,15 @@ const token = (authRef: string): string => {
   return fs.readFileSync(authRef, 'utf8').trim() || fail(`${authRef} holds no token`)
 }
 const loopback = (host: string) => host === 'localhost' || host === '127.0.0.1'
-// A space is https (plain http only on this machine's loopback) and names no credentials, query or fragment: the token
-// is the auth file's alone.
-export const space = (locator: string): {api: string, org: string} => {
-  const u = new URL(locator)
+// A space by its canonical address (`forgejo://forge.example/org`): its API is reached over https, plain http only on
+// this machine's loopback; the address names no credentials, query or fragment: the token is the token file's alone.
+export const space = (address: string): {api: string, org: string} => {
+  const u = new URL(address)
+  if (u.protocol !== 'forgejo:') fail(`${address} is not a Forgejo space`)
   const org = u.pathname.replace(/^\/+|\/+$/g, '')
-  if (!(u.protocol === 'https:' || (u.protocol === 'http:' && loopback(u.hostname)))) fail('a Forgejo space is reached over https')
-  if (u.username || u.password || u.search || u.hash) fail('a Forgejo space names no credentials, query or fragment; the token is in the auth file')
-  if (!/^[A-Za-z0-9_.-]+$/.test(org)) fail(`a Forgejo space is one organisation: ${locator}`)
-  return {api: `${u.origin}/api/v1`, org}
+  if (u.username || u.password || u.search || u.hash) fail('a Forgejo space names no credentials, query or fragment; the token is in the token file')
+  if (!/^[A-Za-z0-9_.-]+$/.test(org)) fail(`a Forgejo space is one organisation: ${address}`)
+  return {api: `${loopback(u.hostname) ? 'http' : 'https'}://${u.host}/api/v1`, org}
 }
 // A missing thing read is none; any other failure is the forge's words.
 export const caller = (api: string, authRef: string): Call => async <T>(method: string, path: string, body?: unknown): Promise<T | null> => {

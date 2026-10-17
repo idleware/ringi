@@ -7,7 +7,7 @@ import type {Checked, RoomModel, SignalEvent} from './model.ts'
 
 const meaning = (R: RoomModel, all: All, x: SignalEvent, m: Message): string | undefined => {
   if (x.roomGenesis !== R.genesis) return 'names another room genesis'
-  if (MARKS.includes(x.signal)) return markWhy(R, x.actor, m, x.signal)
+  if (MARKS.includes(x.signal)) return markWhy(R, x.actor, m, x.signal, R.membersAt?.(x.control))
   if (m.from !== x.actor) return `points at a message of ${m.from}`
   return effective(R, all, m).includes(x.signal) ? undefined : `its message did not make ${x.signal}`
 }

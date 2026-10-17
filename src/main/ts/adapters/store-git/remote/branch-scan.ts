@@ -8,13 +8,16 @@ import {git} from './git.ts'
 import {verifyHub} from './main.ts'
 import type {Branch, Handle} from './types.ts'
 import {CONTROL_FILES} from './types.ts'
+import {blobText} from './roster.ts'
 
 export const scanBranch = (H: Handle, name: string, tip: string): Branch => {
-  const main = verifyHub(H) ?? C.fail('room verification requires a signed hub')
+  const main = verifyHub(H) ?? C.fail('room verification requires signed trust or explicit git/4')
   const shas = git(H, ['rev-list', '--first-parent', '--reverse', tip, `^${main.head}`]).trim().split('\n').filter(Boolean)
   if (!shas.length) C.fail(`room ${name} has no genesis`)
   const list = readCommits(H, shas), genesis = list[0]
   if (genesis.parents.length !== 1 || !main.commits.includes(genesis.parents[0])) C.fail('room does not descend from the verified hub contract')
+  if (H.layout === 'git/4' && H.endpoint && genesis.parents[0] !== main.head) C.fail('room main changed its frozen contract')
+  if (H.layout === 'git/4' && C.strictJson<{store?: string}>(blobText(H, genesis.parents[0], 'contract.json')).store !== 'git/4') C.fail('git/4 room must descend from an explicit git/4 frozen contract')
   const touching = new Set(git(H, ['log', '--first-parent', '--format=%H', tip, `^${main.head}`, '--', ...CONTROL_FILES]).trim().split('\n').filter(Boolean))
   const scan: Scan = {
     H, genesis, touching, parent: genesis.parents[0], roster: {entries: [], members: {}},

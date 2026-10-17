@@ -1,10 +1,12 @@
 // types: what the signed transport's modules share: the hub handle, a room, keys, signers, a verified branch.
 
-import type {Descriptor, Member, RoomEndpoint} from '../../../core/hub/ports/store.ts'
+import type {Descriptor, Member, RoomEndpoint, RoomEndpointV2} from '../../../core/hub/ports/store.ts'
+import type {RetiredMember} from './membership.ts'
 import type {SigningContext} from '../../../core/signing/index.ts'
 import type {TransportAuth} from '../auth.ts'
 
-export type Handle = {name: string, dir: string, d: Descriptor, endpoint?: RoomEndpoint, signing?: SigningContext, auth?: TransportAuth, main?: string, remoteAlarms?: Record<string, string>, bootstrap?: boolean}
+export type GitLayout = 'git/3' | 'git/4'
+export type Handle = {name: string, dir: string, d: Descriptor, endpoint?: RoomEndpoint | RoomEndpointV2, layout?: GitLayout, signing?: SigningContext, auth?: TransportAuth, main?: string, remoteAlarms?: Record<string, string>, bootstrap?: boolean}
 
 // A room: its one branch (`ref`), its latest control record (`head`) and its genesis.
 export type Room = {name: string, ref: string, head: string, genesis: string, members?: Record<string, Member>}
@@ -13,7 +15,7 @@ export type Key = {line: string, fp: string}
 
 export type Signer = {principal: string, key: Key}
 
-export type VerifiedRoom = {genesis: string, entries: Signer[], members: Record<string, Member>}
+export type VerifiedRoom = {genesis: string, entries: Signer[], members: Record<string, Member>, retired?: Record<string, RetiredMember>, retirements?: Record<string, string>}
 
 // A room's branch as verified up to a tip: its control records in order, the admitted author of each valid message,
 // and why each other commit is skipped.

@@ -1,81 +1,49 @@
-// join: a chat takes a seat in a room as an agent, one room per chat; on a signed hub its key must be admitted first.
+// join: a chat takes a seat in a room as an agent, one room per chat. A local room is joined by its name, as the tool
+// the chat runs in; a room in a space by the invitation the root made for one account, as the actor it names, once
+// the root admitted the key this machine shows (invitation.ts).
 
 import {locked} from '../../hub/ports/index.ts'
-import type {Hub, Room} from '../../hub/rooms/index.ts'
-import {OPERATOR, attachRoom, adoptHub, controlChange, storeOf, transportOf} from '../../hub/rooms/index.ts'
+import type {RoomV2} from '../../hub/rooms/index.ts'
+import {registeredRoomLock} from '../../hub/rooms/index.ts'
 import {roomNamed} from '../../hub/usecases/rooms.ts'
 import {readInvite} from '../../hub/usecases/invite.ts'
-import {fail, note, stamp} from '../../../lib/index.ts'
+import type {InviteV3} from '../../hub/usecases/invite.ts'
+import {fail} from '../../../lib/index.ts'
 import {agentId} from '../../hub/usecases/roster.ts'
 import type {Me, Session} from './index.ts'
-import {dropSession, liveness, ownSession, readSession, saveSession, seatHolder, whoAmI} from './index.ts'
-import type {JoinKey} from '../../hub/ports/store.ts'
+import {readSession, whoAmI} from './index.ts'
+import {attached, joinedActor, pendingOf} from './invitation.ts'
+import type {Pending} from './invitation.ts'
+import {claimSession, ensureMember, seatFor} from './seat.ts'
 
-// `room`: a room's name on this machine, or the operator's invitation to one elsewhere; an agent never names a hub.
-export type JoinInput = {room: string, agent?: string, scope?: string}
+// `room`: a room's address or name on this machine, or the operator's invitation to one in a space. `agent`: the
+// chat's own name where ringi cannot tell its tool; in a space the invitation names it. `identity`: a key file of the
+// operator's to sign and reach a space with, instead of one ringi makes.
+export type JoinInput = {room: string, agent?: string, scope?: string, identity?: string}
+export type {Pending} from './invitation.ts'
+export type JoinResult = {agent: string, room: string} & ({session: Session, pending: null} | {session: null, pending: Pending})
 
-export type JoinResult = {agent: string, hub: string, room: string} & ({session: Session, key: null} | {session: null, key: JoinKey})
-
-type Pending = {hub: string, room: string, key: JoinKey}
-// The room an invitation names, attached on first use, reached with this machine's key of the agent; or the one room of
-// that name on this machine. A room the medium does not let this agent read yet is pending: its key, made here, is
-// what the root admits.
-const roomFor = (target: string, agent: string): Room | Pending => {
-  const x = readInvite(target)
-  if (!x) return roomNamed(target)
-  const H = adoptHub({trust: x.trust, root: x.root, genesis: x.hubGenesis})
-  // Over SSH the agent's own key, made here before the first fetch, reaches the room; another transport (a local file)
-  // needs none.
-  const {type, locator} = storeOf(x.address)
-  const id = locator.startsWith('ssh://') ? transportOf(H.name, type).identity?.(H.d, agent) ?? fail(`a ${type} store cannot show ${agent}'s key`) : null
-  try {
-    return attachRoom(H, x.room, {schema: 'ringi-room/1', name: x.room, hubGenesis: x.hubGenesis, genesis: x.genesis,
-      store: {path: 'store', remote: x.address}, ...(id ? {authRef: `ringi-key:${H.name}/${agent}`} : {}), ...(x.hostKeys ? {hostKeys: x.hostKeys} : {})})
-  } catch (e) {
-    if (!id || (e as {code?: string}).code !== 'denied') throw e
-    return {hub: H.name, room: x.room, key: {...id, admitted: false}}
-  }
+const NO_AS = 'in a space the invitation names the actor: join without --as'
+const seated = (me: Me, R: RoomV2, agent: string): JoinResult => ({agent, room: R.endpoint.address, session: readSession(me.handle)!, pending: null})
+// In a space: the actor the invitation named, once its key is in the room's roster.
+const joinSigned = (me: Me, R: RoomV2, x: InviteV3 | null, scope?: string): JoinResult => {
+  const agent = agentId(x?.actor ?? joinedActor(R))
+  const key = R.store.joinKey?.(R.s, agent) ?? fail(`room ${R.endpoint.address}: its store cannot make keys`)
+  if (!key.admitted) return {agent, room: R.endpoint.address, session: null, pending: pendingOf(x, key)}
+  locked('sessions', () => claimSession({me, R, agent, scope}))
+  return seated(me, R, agent)
 }
-export const join = ({room: target, agent: id, scope}: JoinInput): JoinResult => {
-  const me = whoAmI()
-  const agent = id ?? me.product ?? fail('--as <id> is required: this session\'s product is unknown')
-  agentId(agent)
-  const found = roomFor(target, agent)
-  if ('key' in found) return {agent, hub: found.hub, room: found.room, session: null, key: found.key}
-  const R = found, H = R.hub, room = R.name
-  if (H.signed) {
-    if (!R.store.joinKey) fail(`hub ${H.name}: its store cannot make keys`)
-    const key = R.store.joinKey!(R.s, agent)
-    if (!key.admitted) return {agent, hub: H.name, room: R.name, session: null, key}
-  }
-  locked('sessions', () => claimSession({me, H, R, agent, room, scope}))
-  return {agent, hub: H.name, room: R.name, session: readSession(me.handle)!, key: null}
-}
-
-type JoinContext = {me: Me, H: Hub, R: Room, agent: string, room: string, scope?: string}
-const claimSession = (c: JoinContext): void => {
-  const {me, H, R, agent, scope} = c
-  const mine = previousSession(c)
-  const same = !!mine && mine.hub === H.name && mine.genesis === R.genesis && mine.agent === agent
-  ensureMember(c)
-  if (mine && !same) note(`left ${mine.room} as ${mine.agent}: one room per session`)
-  saveSession({
-    handle: me.handle, product: me.product, hub: H.name, room: R.name, genesis: R.genesis, agent,
-    scope: scope ?? (same ? mine!.scope : null), state: 'active', since: same ? mine!.since : stamp(), lastSeen: stamp(), pid: me.pid
-  })
-}
-
-const previousSession = ({me, H, R, agent, room}: JoinContext): Session | null => {
-  const holder = seatHolder(H.name, R.genesis, agent, me.handle)
-  if (holder) fail(`${room}/${agent} is held by another session (${holder.handle}, ${liveness(holder)}). A seat ends only with leave, or the operator's takeover: "continue ${room}/${agent}" in this chat`)
-  const mine = ownSession(me.handle)
-  if (mine && mine.handle !== me.handle) dropSession(mine.handle)
-  return mine
-}
-
-const ensureMember = ({H, R, agent, room}: JoinContext): void => {
-  if (!R.members[agent]) {
-    if (H.signed) fail(`${agent} is not in the roster of ${room}; the root admits its key first`)
-    controlChange(R, OPERATOR, `join ${agent}`, m => {m[agent] = {role: 'member', since: stamp()}})
-  }
+// In a local room: the chat's own name, or its tool's, its seat claimed and its membership recorded together.
+const joinLocal = (me: Me, R: RoomV2, asked?: string, scope?: string): JoinResult => seated(me, R, locked(`${registeredRoomLock(R)}-seats`, () => {
+  const name = agentId(asked ?? seatFor(me, R))
+  locked('sessions', () => claimSession({me, R: ensureMember(R, name), agent: name, scope}))
+  return name
+}))
+export const join = ({room: target, agent: asked, scope, identity}: JoinInput): JoinResult => {
+  const me = whoAmI(), x = readInvite(target)
+  if (x && asked) fail(NO_AS)
+  const found = x ? attached(x, identity) : roomNamed(target)
+  if ('key' in found) return {agent: x!.actor, room: x!.address, session: null, pending: found}
+  if (found.hub.signed && asked) fail(NO_AS)
+  return found.hub.signed ? joinSigned(me, found, x, scope) : joinLocal(me, found, asked, scope)
 }

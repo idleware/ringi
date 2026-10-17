@@ -5,6 +5,8 @@ import {fail} from '../../lib/index.ts'
 import {streamName, streamRef, scanStream, signalEvents} from './remote/streams.ts'
 import type {Stream} from './remote/streams.ts'
 import {push} from './remote/push.ts'
+import {requireActive} from './remote/active.ts'
+import {streamEvidence} from './remote/stream-evidence.ts'
 
 export class Marks extends Branches {
   private streamAlarms = new Map<string, string>()
@@ -19,17 +21,20 @@ export class Marks extends Branches {
     const ref = streamRef(actor)
     const chat = this.tip(room.name) ?? fail('room chat is missing')
     const cached = this.scannedStreams.get(ref)
-    if (cached?.seen === head && cached.chat === chat) return cached.stream
     const prefix = cached && this.extends(cached.chat, chat) && this.extends(cached.stream.head, head) ? cached.stream : undefined
     const s = scanStream({H: this.h, R: this.remote(room), actor, head, prefix})
     this.scannedStreams.set(ref, {seen: head, chat, stream: s})
-    if (s.why) this.streamAlarms.set(ref, `signal stream ${actor}: ${s.why}; stopped at ${s.head.slice(0, 12)}`)
+    if (s.why) this.streamAlarms.set(ref, s.why.startsWith(`signal stream ${actor} `) ? s.why : `signal stream ${actor}: ${s.why}; stopped at ${s.head.slice(0, 12)}`)
     else this.streamAlarms.delete(ref)
     return s
   }
   signalHeads(_room: StoredRoom): SignalHead[] { return this.streams() }
   signals(room: StoredRoom): SignalEvent[] {
-    return this.streams().flatMap(({actor, head}) => signalEvents(this.remote(room), actor, this.readStream(room, actor, head)))
+    const streams = this.streams(), present = new Set(streams.map(x => x.actor))
+    for (const actor of streamEvidence(this.h, this.remote(room)).keys()) {
+      if (!present.has(actor)) this.streamAlarms.set(streamRef(actor), `signal stream ${actor} was removed after it was accepted`)
+    }
+    return streams.flatMap(({actor, head}) => signalEvents(this.remote(room), actor, this.readStream(room, actor, head)))
   }
   pinSignals(room: StoredRoom, reader: string, actor: string, head: string): void {
     streamRef(actor)
@@ -51,6 +56,7 @@ export class Marks extends Branches {
           return old
         }
       }
+      requireActive(this.h, this.remote(current), who)
       const parent = old ?? room.genesis
       const tree = this.git(['rev-parse', `${parent}^{tree}`]).trim()
       const sha = this.commit(who, `Room: ${room.genesis}\nControl: ${current.head}\nTarget: ${target}\nSignal: ${signal}\n`, tree, [parent])
