@@ -1,3 +1,8 @@
+## [0.11.0](https://github.com/idleware/ringi/compare/v0.10.0...v0.11.0) (2026-10-17)
+
+### Features
+* feat: rooms by address, invite and remove ([3daf23e](https://github.com/idleware/ringi/commit/3daf23e3587122a0bf7ff44524894c26311a30b9))
+
 ## [0.10.0](https://github.com/idleware/ringi/compare/v0.9.1...v0.10.0) (2026-10-16)
 
 ### Features
