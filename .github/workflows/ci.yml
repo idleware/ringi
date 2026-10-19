@@ -204,7 +204,8 @@ jobs:
           node-version: 26
           package-manager-cache: false
 
-      # The registry serves a new version to installers some seconds after the publish returns.
+      # The registry serves a new version to installers some seconds after the publish returns, and its cache may answer
+      # without it for a while longer: every step below asks the registry itself.
       - name: Wait for the registry
         env:
           VERSION: ${{ needs.release.outputs.version }}
@@ -219,13 +220,13 @@ jobs:
       - name: Check running via npx
         env:
           VERSION: ${{ needs.release.outputs.version }}
-        run: npx --yes "@idleware/ringi@$VERSION" --version | grep -F "ringi $VERSION;"
+        run: npx --yes --prefer-online "@idleware/ringi@$VERSION" --version | grep -F "ringi $VERSION;"
 
       - name: Check global install
         env:
           VERSION: ${{ needs.release.outputs.version }}
         # Read from the registry to verify the published artifact.
-        run: npm install --global "@idleware/ringi@$VERSION" # zizmor: ignore[adhoc-packages]
+        run: npm install --global --prefer-online "@idleware/ringi@$VERSION" # zizmor: ignore[adhoc-packages]
 
       - name: Check installed CLI
         run: ringi help
