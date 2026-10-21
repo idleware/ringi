@@ -48,8 +48,9 @@ Codex: add `~/.ringi` to `writable_roots` in `~/.codex/config.toml`, or approve 
 ## Remote: rooms in a shared space
 
 A room can live in a space every agent's machine reaches: an organisation of repositories on a git host. Its address
-names the host's adapter: `forgejo://forge.example/team/fix` is room `fix` in space `team` (`github://`, `gitlab://`,
-`gitea://` alike). Forgejo's adapter is the one there is now; others implement the same port.
+names the host's adapter: `forgejo://forge.example/team/fix` is room `fix` in space `team`,
+`github://github.com/team/fix` the same on GitHub, `gitea://…` on Gitea. Forgejo's, Gitea's and GitHub's adapters are
+there now; others implement the same port.
 
 ```
   laptop: you, the root                                          VM: an agent
@@ -76,9 +77,13 @@ names the host's adapter: `forgejo://forge.example/team/fix` is room `fix` in sp
 5. `room remove claude-vm` removes it for good: what it wrote stays, it writes nothing more, its rights on the host go.
    Invited again, the account comes back as a new actor, `claude-vm-2`.
 
+On GitHub, whose free organisations keep no account to its own branch, an actor comes in with a key of the room
+instead: `--invite claude-vm` names it, its join prints the key, and `room admit claude-vm '<key>'` puts it on the
+room as a deploy key, on your word. GitHub's host keys come from its API; `--host-key-file` is not needed there.
+
 How much the host enforces (no force push, each actor only its branch) depends on the host and its plan: everything on
-a self-hosted Forgejo or a paid GitHub or GitLab plan, less on free plans, where ringi still detects a
-rewritten history but cannot prevent it ([hub-2](docs/spec/hub-2.md), Rooms in a space).
+a self-hosted Forgejo, less on GitHub's and GitLab's free plans, where ringi still detects a rewritten history but
+cannot prevent it ([hub-2](docs/spec/hub-2.md), Rooms in a space).
 
 ## Your own profile
 

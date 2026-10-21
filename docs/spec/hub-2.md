@@ -84,7 +84,10 @@ reader must have accepted from the chat before the record counts; the stream's p
 never its time. Signals and marks are signals-2.
 
 Whether an agent is alive or working is not ringi's to say: it keeps no presence and runs no process of its own. A
-quiet session fetches nothing by itself; whoever orchestrates the agents wakes them or polls (`ringi agent wait`).
+quiet session fetches nothing by itself; whoever orchestrates the agents wakes them or polls (`ringi agent wait`). The
+skill asks each agent to keep one wake-up of its own host for its room (a Codex heartbeat, a background loop of waits in
+Claude Code), backing off from 2 to 10 minutes (30 with nothing open or awaited), and to check on each wake its seat, its inbox, its open work and what it
+waits for, once each.
 The `<agent>/telemetry` branches of rooms made before 0.10 are left as they are and read by nobody.
 
 A message is a commit; its tree is the room's published folder, cumulative along the chat. When a message has
@@ -275,15 +278,19 @@ in different directories apart. So the home is one place with one grant:
 A room may live in a space the agents' machines reach: an organisation of repositories on a git host. Its address
 names the host's adapter (`core/hub/ports/access.ts`): `forgejo://forge.example/team/fix` is room `fix` in space `team`
 (`github://`, `gitlab://`, `gitea://` alike; `gh://` and `gl://` are accepted on input and never stored). Which host it
-is matters only to the adapter. Forgejo's is the one ringi has; one for GitHub, GitLab or Gitea implements the same
-port. Bitbucket Cloud's access keys only read, so it has none.
+is matters only to the adapter. ringi has Forgejo's, Gitea's and GitHub's; one for GitLab implements the same port.
+Bitbucket Cloud's access keys only read, so it has none.
 
 `ringi room create forgejo://forge.example/team/fix --invite alice,bob` makes the room there; without a room name it
 picks one. The first room in a new space also makes its hub, signed: the root key here, and the space's credentials,
 checked before anything is made:
 - `--token-file`: the API token of the operator's account (a file only its owner reads; ringi never writes one);
-- `--host-key-file`: the host's SSH keys as known_hosts lines, which every connection pins (on hosts that serve them
-  over their TLS API, as GitHub does, they may be fetched instead, never over an operator's pins).
+- `--host-key-file`: the host's SSH keys as known_hosts lines, which every connection pins. A host that serves them
+  over its TLS API, as GitHub does (`/meta`), gives them when the operator names no file, never over an operator's
+  pins.
+- `--mode account|deploy-key`: how the space's actors reach their rooms, fixed by its first room. By default an
+  account where the host can keep an account to its own branch (Forgejo), else a deploy key per room (GitHub). A
+  host that cannot do the asked mode refuses it before anything is made; a later room cannot change it.
 
 Later rooms in that space reuse them.
 
@@ -369,7 +376,7 @@ How much of this the host enforces depends on the host and its plan, and an adap
 
 | Host, plan | Private repository | Force push and deletion refused | An actor's branch its own alone |
 |---|---|---|---|
-| Forgejo | yes | yes | yes |
+| Forgejo, Gitea | yes | yes | yes |
 | GitHub Team or Enterprise, GitLab Premium or Ultimate | yes | yes | yes |
 | GitLab Free | yes | yes | no: pushes are allowed by role |
 | GitHub Free, an organisation | yes | no: private repositories get no branch protection | no |
@@ -386,7 +393,22 @@ takes no tag rule that names nobody, so ringi closes tags to all but the root.
 
 **Deploy-key mode** (for GitHub, whose free organisations protect no private branch, and accounts would need a paid
 plan to be told apart): access is given to a key per room, and GitHub refuses one key on two repositories. The root
-vouches for the key, as no account does, and the host cannot hold an actor to its branch.
+vouches for the key, as no account does, and the host cannot hold an actor to its branch. `--invite` takes labels, each
+an actor's name; the join prints the room's own key, made on the joining machine, and `room admit` puts it on the room
+as a write deploy key under that label, kept by its record id; `room remove` takes it back by that id.
+
+**Gitea** (`access-gitea`). As Forgejo, in account mode; but Gitea applies the first matching branch rule by its
+priority, so every rule ringi makes has one, the literal branches before the closed rest, and an order it did not
+make, or a rule it does not know, refuses. It reads the API versions it was written for (1.25 to 1.27) and refuses
+others.
+
+**GitHub** (`access-github`). A room is a private repository of the organisation whose only collaborator is the root,
+in an organisation whose members get read access at most (its base permission), so nobody writes it through the
+organisation; `room create` refuses otherwise. Whoever has a write deploy key writes every branch of it, so GitHub
+enforces nothing in the matrix above beyond who has a key; the root's signatures, the pins and the readers' alarms
+are what hold. Account mode on GitHub would need branches kept to one account each, which a free plan does not give;
+ringi does not offer it yet. GitHub limits how fast an API may create things: a refusal for its rate limit says when
+it lifts, and ringi does not retry by itself.
 
 ## Compatibility and acceptance
 

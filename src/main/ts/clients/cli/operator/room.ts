@@ -13,6 +13,7 @@ import type {Opts} from '../args.ts'
 import {flag, opt, out} from '../args.ts'
 
 type Sub = (arg: string | undefined, o: Opts) => void | Promise<void>
+const modeArg = (m?: string) => m === undefined || m === 'account' || m === 'deploy-key' ? m : fail('--mode takes account or deploy-key')
 const list: Sub = () => {
   const rs = roomsActive()
   for (const r of rs) out(`${r.current ? '*' : ' '} ${r.address}  ${r.members} member(s), ${r.active} active session(s), profile ${r.profile}, ${r.signed ? 'signed' : 'asserted'}  genesis ${short(r.genesis)}`)
@@ -20,13 +21,13 @@ const list: Sub = () => {
 }
 // What the operator says in an invitee's chat on its machine: the account's line, and where the key goes first.
 const inviteLines = (invites: Invited[]) => {
-  for (const i of invites) out(`${i.login} joins as ${i.actor}: in its chat on its machine, the operator says "join <invitation>", which runs:\n  ringi join ${i.line}`)
+  for (const i of invites) out(`${i.login ?? 'a deploy key'} joins as ${i.actor}: in its chat on its machine, the operator says "join <invitation>", which runs:\n  ringi join ${i.line}`)
 }
 // A bare name or `local://…` is a room here; `<forge>://host/space[/room]` one in that space, on the forge.
 const create: Sub = async (arg, o) => {
   const quorum = opt(o, 'quorum')
   const r = await Create.create(arg, {profile: opt(o, 'profile'), quorum: quorum === undefined ? undefined : Number(quorum), invite: words(opt(o, 'invite') ?? ''),
-    tokenFile: opt(o, 'token-file'), hostKeyFile: opt(o, 'host-key-file')})
+    tokenFile: opt(o, 'token-file'), hostKeyFile: opt(o, 'host-key-file'), mode: modeArg(opt(o, 'mode'))})
   const address = r.R.endpoint.address, start = quorum === undefined ? '' : ` Its work starts by itself at a quorum of ${quorum} agent(s).`
   out(`created room ${address} with profile ${r.profile}; it is the current room.${start}`)
   if (!r.R.hub.signed) return out(`In each chat on this machine that should take part, say "join ${r.R.name}"`)
@@ -39,7 +40,7 @@ const use: Sub = arg => {
 }
 const invite: Sub = async (arg, o) => {
   const R = Rooms.roomNamed(opt(o, 'room'))
-  inviteLines([await Create.invite(R, arg ?? fail('usage: ringi room invite <account> [--room <address>]'))])
+  inviteLines([await Create.invite(R, arg ?? fail('usage: ringi room invite <account|label> [--room <address>]'))])
 }
 // The key the invitee's join printed; the host proves it is on the invited account before anything is written.
 const admit: Sub = async (arg, o) => {
@@ -47,7 +48,7 @@ const admit: Sub = async (arg, o) => {
   const R = Rooms.roomNamed(opt(o, 'room')), actor = arg ?? fail(usage), key = o._[2] ?? fail(usage)
   if (!R.hub.signed) fail(`${R.endpoint.address} is a local room: agents on this machine join it by name`)
   const e = await Membership.admitInSpace(R, actor, fs.existsSync(key) ? fs.readFileSync(key, 'utf8') : key)
-  out(`admitted ${actor} to ${R.endpoint.address}${'login' in e.principal ? ` as ${e.principal.login} on the forge` : ''}: its signed messages are accepted from now on; it can join`)
+  out(`admitted ${actor} to ${R.endpoint.address}${'login' in e.principal ? ` as ${e.principal.login} on the forge` : ' with a write deploy key on the host'}: its signed messages are accepted from now on; it can join`)
 }
 // For good: the actor's records stay, it writes nothing more, and its name is never given again in this room.
 const remove: Sub = async (arg, o) => {

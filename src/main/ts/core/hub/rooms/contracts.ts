@@ -38,7 +38,7 @@ export const checkedContract = (H: Hub, store: Store): {main: Rev, contract: Con
   if (contract.trust !== H.d.trust || (H.signed && contract.root !== H.d.root)) fail(`hub ${H.name}: contract changes its pinned trust or root`)
   return {main, contract}
 }
-// An E8 hub's contract (not yet wired): its exact layout, the rooms/1 it requires, and the trust and root it pinned.
+// A git/4 hub's contract: its exact layout, the rooms/1 it requires, and the trust and root it pinned.
 export const checkedContractV4 = (H: Hub, store: Store, layout = 'git/4'): {main: Rev, contract: Contract} => {
   const main = store.contractHead()
   if (!store.extends(H.d.genesis, main)) fail(`hub ${H.name}: main does not descend from its pinned genesis`)

@@ -11,7 +11,7 @@ import {canonical, parseAddress} from '../rooms/address.ts'
 import type {RemoteSpace, RoomAddress} from '../rooms/address.ts'
 import type {RoomRegistration} from '../rooms/room-catalogue.ts'
 import {fail} from '../../../lib/index.ts'
-import {accessOf, ownKey, realmOf, spaceHub, spaceOf} from './access.ts'
+import {accessOf, modeOf, ownKey, realmOf, spaceHub, spaceOf} from './access.ts'
 import type {SpaceInput} from './access.ts'
 import {allInvited, inviteInto, invitePlanned, planInvites} from './membership.ts'
 import type {Planned} from './membership.ts'
@@ -19,7 +19,8 @@ import {inviteLine} from './invite.ts'
 import {active, catalogue, transportOfHub} from './rooms.ts'
 
 export type CreateInput = SpaceInput & {profile?: string, quorum?: number, invite?: string[]}
-export type Invited = {actor: string, login: string, line: string}
+// `login`: the account the invitee joins through, none for a deploy key's label.
+export type Invited = {actor: string, login: string | null, line: string}
 export type Created = {R: RoomV2, profile: string, invites: Invited[]}
 const randomName = () => `room-${crypto.randomBytes(3).toString('hex')}`
 // The files a room starts with: its profile, fixed from now on whatever the hub's profiles become; its roster, the root
@@ -77,7 +78,7 @@ const createInSpace = async (a: Extract<RoomAddress, {kind: 'remote'}> | RemoteS
   const space = spaceOf(a), H = await spaceHub(space, x), access = accessOf(H)!
   const name = a.kind === 'remote' ? a.room : randomName()
   const address = canonical({kind: 'remote', provider: a.provider, host: a.host, port: a.port, space: a.space, room: name})
-  const invitees = await planInvites(access, realmOf(space), address, x.invite ?? [])
+  const invitees = await planInvites(access, modeOf(H), realmOf(space), address, x.invite ?? [])
   const start = startFiles(H, name, x.profile)
   // Over SSH the root's own key reaches it, the host's keys pinned; another transport (a local file) needs neither.
   const root = `ringi-key:${H.name}/${OPERATOR}`, reach = {keyRef: root, authRef: root, hostKeys: H.d.access!.hostKeys}
@@ -88,7 +89,7 @@ const createInSpace = async (a: Extract<RoomAddress, {kind: 'remote'}> | RemoteS
   // Whatever fails from here on is finished by running the same create again: the error says with which address.
   const finish = async (): Promise<Created> => {
     const R = await provisioned(p, r, access)
-    const invites = invitePlanned(R, realmOf(space), invitees).map(e => ({actor: e.actor, login: 'login' in e.principal ? e.principal.login : e.actor, line: inviteLine(R, e)}))
+    const invites = invitePlanned(R, realmOf(space), invitees).map(e => ({actor: e.actor, login: 'login' in e.principal ? e.principal.login : null, line: inviteLine(R, e)}))
     return {R, profile: start.profile, invites}
   }
   return finish().catch(again(address))
@@ -99,9 +100,10 @@ export const create = async (input: string | undefined, x: CreateInput = {}): Pr
   const a = parseAddress(input ?? randomName(), 'create')
   return a.kind === 'local' || a.kind === 'path' ? createLocal(a, x) : createInSpace(a, x)
 }
-// An account invited into a room in a space: the root's list gives it the next actor id, and the line says the rest.
-export const invite = async (R: RoomV2, login: string): Promise<Invited> => {
+// One more invitee of a room in a space, an account or a deploy key's label as the space takes them: the root's list
+// gives it the next actor id, and the line says the rest.
+export const invite = async (R: RoomV2, who: string): Promise<Invited> => {
   const space = R.hub.d.access?.address ?? fail(`room ${R.endpoint.address} is not in a space; agents on this machine join it by name`)
-  const e = await inviteInto(R, {mode: 'account', realm: realmOf(space), who: login, invitation: crypto.randomBytes(8).toString('hex')})
-  return {actor: e.actor, login, line: inviteLine(R, e)}
+  const e = await inviteInto(R, {mode: modeOf(R.hub), realm: realmOf(space), who, invitation: crypto.randomBytes(8).toString('hex')})
+  return {actor: e.actor, login: 'login' in e.principal ? e.principal.login : null, line: inviteLine(R, e)}
 }

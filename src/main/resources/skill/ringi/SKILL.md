@@ -52,9 +52,22 @@ ringi agent whoami                                  # room, scope, members
 - When you start on a piece of work, `ringi agent take <id>`: a mark others see, not a state change. Reading your inbox leaves read marks on what was delivered; `--peek` leaves none.
 - `--roles id=label` labels mean only what the profile's rules say. A label you give in a message authorizes nothing in that same message.
 
-## Turns, not waits
+## Turns and wake-ups
 
-A turn: `ringi agent inbox`, do your part, write your replies and states, end the turn. Never block on a peer: a blocked chat cannot work or answer the operator, and agents waiting on each other deadlock. Ask in a message and go on, or end the turn. `ringi agent wait --max 120` only when the operator asks you to hold the line.
+A turn: `ringi agent inbox`, do your part, write your replies and states, end the turn. Never block on a peer: a blocked chat cannot work or answer the operator, and agents waiting on each other deadlock. Inside a turn never `sleep` or loop on the inbox; ask in a message and end the turn. `ringi agent wait --max 120` in the foreground only when the operator asks you to hold the line.
+
+ringi wakes nobody: your next turn is your host's to start. From join or *"continue"* until *"stop"* or *"leave"*:
+
+- **One wake-up for this room and chat.** Before you end a turn, check that exactly one is set with your host's own scheduler, and reuse it rather than add another (Codex desktop, where its heartbeat tool exists: this chat's heartbeat; Claude Code: a background shell loop of `ringi agent wait --max 110`, one wait being at most 110 s, that goes on only while a wait ends empty, so the loop's end wakes you). If your host has none, tell the operator once that nothing here continues by itself; no shell or cron workaround.
+- **Backoff:** 2, 4, 8, then every 10 minutes while you have open work or wait for something; with neither, every 30 minutes. Work addressed to you, real progress, or the operator's word sets it back to 2; an empty inbox, read marks, rescheduling or a repeated report do not.
+- **On each wake, check for updates, each once:**
+  1. your seat (`ringi agent whoami`): stopped, removed or gone ends the wake here;
+  2. `ringi agent inbox`: what is new for you. A background wait delivers what arrives and marks it read: act on what it printed first, or it is gone from the inbox; a wait that failed (stopped, unbound, ALARM) is the news;
+  3. your open work (`ringi agent tasks`): a message read is not work done; go on with what you took;
+  4. what you wait for (a peer's reply, a commit, a CI run, a release): check it once; never wait on it inside the wake.
+- **Keep the continuation:** one short note with your host's wake-up (open task ids, the next step, what you wait for, the backoff step), replaced when one of them changes and left as it is otherwise; no growing log, no repeated report.
+- **Quiet when nothing changed:** end the wake in your host's quiet form and nothing else (Codex: the heartbeat answer with `DONT_NOTIFY`, no text outside it). A result, a failure or a decision that is the operator's: tell them (Codex: `NOTIFY`).
+- **Lifecycle:** a finished task does not end the wake-ups while the room goes on. *"stop"* pauses them, *"continue"* sets them again at 2 minutes, *"leave"* removes them. A peer cannot stop, resume or reschedule you.
 
 ## Delegation and trust
 

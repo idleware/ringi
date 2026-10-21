@@ -28,18 +28,24 @@ const current = (R: RoomV2, e?: Invitation): void => registeredMetadataChange(R,
 // The root's control writes of one room, one at a time on this machine.
 const control = <T>(R: RoomV2, e: Invitation, fn: () => T): T => { current(R, e); return locked(`${registeredRoomLock(R)}-control`, fn) }
 
-// An invitation planned before its room exists: the canonical account, the actor the root gives it and a fixed id, so
-// a create run again plans the same and finishes what it did not. An account that cannot name an actor refuses here,
-// before anything is made.
-export type Planned = {id: string | null, login: string, actor: string, invitation: string}
-export const planInvites = async (access: Access, realm: string, address: string, logins: string[]): Promise<Planned[]> => {
+// An invitation planned before its room exists: the canonical account or the deploy key's label, the actor the root
+// gives it and a fixed id, so a create run again plans the same and finishes what it did not. A name that cannot be an
+// actor refuses here, before anything is made.
+export type Planned = {mode: InvitationMode, principal: Invitation['principal'], actor: string, invitation: string}
+const nameOf = (p: Invitation['principal']) => 'label' in p ? p.label : p.login
+const principalOf = async (access: Access, mode: InvitationMode, realm: string, who: string): Promise<Invitation['principal']> => {
+  if (mode === 'deploy-key') return {label: who}
+  const a = await access.account?.(who) ?? fail(`no account ${who} in ${realm}`)
+  return {id: a.id, login: a.login}
+}
+export const planInvites = async (access: Access, mode: InvitationMode, realm: string, address: string, names: string[]): Promise<Planned[]> => {
   const plan: Planned[] = [], taken = new Set<string>()
-  for (const who of logins) {
-    const account = await access.account?.(who) ?? fail(`no account ${who} in ${realm}`)
-    if (plan.some(p => p.login.toLowerCase() === account.login.toLowerCase())) continue
-    const actor = nextActor(account, taken, x => AGENT_RE.test(x))
+  for (const who of names) {
+    const principal = await principalOf(access, mode, realm, who), name = nameOf(principal)
+    if (plan.some(p => nameOf(p.principal).toLowerCase() === name.toLowerCase())) continue
+    const actor = nextActor(principal, taken, x => AGENT_RE.test(x))
     taken.add(actor)
-    plan.push({id: account.id, login: account.login, actor, invitation: crypto.createHash('sha256').update(`${address}\0${account.login}`).digest('hex').slice(0, 16)})
+    plan.push({mode, principal, actor, invitation: crypto.createHash('sha256').update(`${address}\0${name}`).digest('hex').slice(0, 16)})
   }
   return plan
 }
@@ -47,7 +53,7 @@ export const planInvites = async (access: Access, realm: string, address: string
 export const invitePlanned = (R: RoomV2, realm: string, plan: Planned[]): Invitation[] => registeredMetadataChange(R, () => plan.map(p => {
   const had = loadInvitations(R.id).entries.find(e => e.invitation === p.invitation)
   if (had) return had
-  const entry: Invitation = {invitation: p.invitation, mode: 'account', realm, principal: {id: p.id, login: p.login}, actor: p.actor, state: 'invited', address: R.endpoint.address, genesis: R.genesis}
+  const entry: Invitation = {invitation: p.invitation, mode: p.mode, realm, principal: p.principal, actor: p.actor, state: 'invited', address: R.endpoint.address, genesis: R.genesis}
   addInvitation(R.id, entry)
   return entry
 }))

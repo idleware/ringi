@@ -20,6 +20,8 @@ import {git4Transport} from '../adapters/store-git/transport-v4.ts'
 import type {TransportAuth} from '../adapters/store-git/transport.ts'
 import {roomFiles} from '../adapters/location-fs/index.ts'
 import {forgejoAccess} from '../adapters/access-forgejo/index.ts'
+import {githubAccess} from '../adapters/access-github/index.ts'
+import {giteaAccess} from '../adapters/access-gitea/index.ts'
 
 // The package this file belongs to, run from its source (src/main/ts) or its build (target/esm).
 const packageOf = (dir: string): string => fs.existsSync(path.join(dir, 'package.json')) ? dir : packageOf(path.dirname(dir))
@@ -43,7 +45,7 @@ const auth: TransportAuth = {resolve: ref => {
 // The git store signs with keys kept as files under the home, made only for a signed hub. Rooms are registered by
 // address in a home of version 5 and laid out as git/4 (docs/spec/hub-2.md); an older home is not read.
 const transports = {git: git4Transport(root, {signer: () => keysFile(root), auth})}
-wireHub({build, state: stateFsV5({root, build}), transports, store: 'git', roomFiles, access: {forgejo: forgejoAccess}})
+wireHub({build, state: stateFsV5({root, build}), transports, store: 'git', roomFiles, access: {forgejo: forgejoAccess, github: githubAccess, gitea: giteaAccess}})
 // In the order a session is recognised by.
 wireAgents({tools: [claude, codex, cursor], host: hostPosix()})
 notesTo(line => { process.stderr.write(line) })

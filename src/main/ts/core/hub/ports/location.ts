@@ -1,4 +1,4 @@
-// E8 location seam, not yet wired: repository files are separate from the machine's LocalState.
+// Repository files are separate from the machine's LocalState.
 import type {Rev} from './store.ts'
 
 // A canonical directory and an opaque filesystem object identity; equal paths alone prove no continuity.

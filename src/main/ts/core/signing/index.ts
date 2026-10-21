@@ -17,7 +17,7 @@ export type SigningContext = {
   signer: Signer
   resolve(hub: string, principal: string, create?: boolean): KeyRef
   custody?(hub: string, principal: string): string | null
-  // E8 (not yet wired): the key a room's endpoint names (`keyRef`), the same one for signing and for SSH; where it lives.
+  // The key a room's endpoint names (`keyRef`), the same one for signing and for SSH; where it lives.
   resolveRef?(keyRef: string, create?: boolean): KeyRef
   custodyRef?(keyRef: string): string
 }

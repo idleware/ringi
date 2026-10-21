@@ -123,7 +123,8 @@ export type Descriptor = {
   contract?: {path: string, remote?: string}
   // The space the hub's rooms are made in on a medium (`forgejo+https://forge/org`) and the operator's local
   // credential reference for it; on the operator's machine only.
-  access?: {address: string, authRef: string, hostKeys?: string[]}
+  // A space's: where it is, the operator's token file, the host's pinned keys, and how its actors reach their rooms.
+  access?: {address: string, authRef: string, hostKeys?: string[], mode?: 'account' | 'deploy-key'}
 }
 
 export type RoomEndpoint = {

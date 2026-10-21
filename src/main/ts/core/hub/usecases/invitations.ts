@@ -1,4 +1,4 @@
-// invitations (E8, not yet wired): the root's own list of whom it invited into a room in a space, kept on its machine
+// invitations: the root's own list of whom it invited into a room in a space, kept on its machine
 // beside the room's endpoint and never published. It routes and guards the root's invite, admit and remove; who is
 // retired is the verified controls' to say, and where the two disagree, the controls win and the command refuses.
 
