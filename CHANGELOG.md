@@ -1,3 +1,8 @@
+## [0.12.0](https://github.com/idleware/ringi/compare/v0.11.0...v0.12.0) (2026-10-21)
+
+### Features
+* feat: rooms on GitHub and Gitea, agents keep their wake-ups ([9f954f4](https://github.com/idleware/ringi/commit/9f954f40945ccf5da76b1d7d493f7f79727175ea))
+
 ## [0.11.0](https://github.com/idleware/ringi/compare/v0.10.0...v0.11.0) (2026-10-17)
 
 ### Features
