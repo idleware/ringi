@@ -30,7 +30,7 @@ export class Rules {
     const body = branchBody(name, users, name === '**' ? last + 1 : 1), had = rows.some(r => r.rule_name === name)
     await this.api.call(had ? 'PATCH' : 'POST', `${this.repo}/branch_protections${had ? '/' + encodeURIComponent(name) : ''}`, body)
     const now = (await this.all()).find(r => r.rule_name === name)
-    if (!now || now.priority !== body.priority || pushers(now).join('\0') !== users.join('\0')) fail(`Gitea ${name} policy did not take effect`)
+    if (!now || now.priority !== body.priority || [...pushers(now)].sort().join('\0') !== [...users].sort().join('\0')) fail(`Gitea ${name} policy did not take effect`)
   }
   async closeTags(root: string) {
     if (!(await this.tags()).length) await this.api.call('POST', `${this.repo}/tag_protections`, {name_pattern: '*', whitelist_usernames: [root], whitelist_teams: []})

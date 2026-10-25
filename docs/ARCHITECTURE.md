@@ -107,6 +107,9 @@ ringi will likely be rewritten in Go or Rust, so as not to need Node. It stays s
 - Tests that go through the command line (`flow`, `ringi`, `model`) are a conformance suite for any implementation:
   `RINGI_BIN=<executable> npm run test:conformance` runs them against it (`src/test/ts/cli.ts`). `node.test.ts`, `remote.test.ts`, `host.test.ts`, `signer.test.ts`, `compat.test.ts`, `store.test.ts` and
   `layers.test.ts` test this implementation.
+- `npm run test:it` runs a room end to end against real Forgejo and Gitea servers in docker (`src/test/it/`): their APIs,
+  SSH with pinned host keys, and the branch rules as each server enforces them on a member's pushes. It needs docker,
+  takes about two minutes, and is not part of `npm test` or CI.
 - What a port would still have to read from the code is listed in [DECISIONS.md](DECISIONS.md) (Porting gaps).
 
 ## Documentation

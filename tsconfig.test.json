@@ -5,5 +5,5 @@
     "rootDir": ".",
     "allowImportingTsExtensions": true
   },
-  "include": ["src/main/ts", "src/test/ts"]
+  "include": ["src/main/ts", "src/test/ts", "src/test/it"]
 }

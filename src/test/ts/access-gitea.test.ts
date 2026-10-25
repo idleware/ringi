@@ -18,7 +18,7 @@ const fake = (t: TestContext) => {
   const repos = new Map<string, Repo>(), calls: string[] = [], writes: string[] = []
   const users = new Map([['root', {id: 1, keys: [] as string[]}], ['alice', {id: 2, keys: [] as string[]}], ['bob', {id: 3, keys: [] as string[]}]])
   const mode = {version: '1.25.0', fail: '', status: 503, total: '', permission: '',
-    ignorePriority: false, badKeys: false, hostileLink: false, keepDeleted: false}
+    readbackPushers: '', ignorePriority: false, badKeys: false, hostileLink: false, keepDeleted: false}
   const previous = globalThis.fetch
   t.after(() => { globalThis.fetch = previous; fs.rmSync(base, {recursive: true, force: true}) })
   const response = (value?: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -63,7 +63,14 @@ const fake = (t: TestContext) => {
       if (!rule.enable_push) rule.enable_push_whitelist = false
       r.rules.push(rule); return response(rule, 201)
     }
-    if (rest === '/branch_protections') return response(r.rules)
+    if (rest === '/branch_protections') return response(r.rules.map(row => {
+      if (!mode.readbackPushers || row.rule_name !== 'chat') return row
+      const names = [...(row.push_whitelist_usernames ?? [])].sort()
+      if (mode.readbackPushers === 'missing' && names.length > 1) names.pop()
+      if (mode.readbackPushers === 'extra' && names.length > 1) names.push('mallory')
+      if (mode.readbackPushers === 'duplicate' && names.length > 1) names.push(names[0])
+      return {...row, push_whitelist_usernames: names}
+    }))
     const rule = /^\/branch_protections\/(.+)$/.exec(rest)
     if (rule) {
       const had = r.rules.find(x => x.rule_name === rule[1])
@@ -93,6 +100,26 @@ const fake = (t: TestContext) => {
 }
 
 describe('access: gitea', {concurrency: false}, () => {
+  it('accepts Gitea sorted pushers through grant/revoke but refuses missing, extra and duplicated readback members', async t => {
+    await t.test('canonical order survives grant, repeat and revoke', async t => {
+      const f = fake(t)
+      f.mode.readbackPushers = 'sorted'
+      await f.access.ensureRoom('room')
+      await f.access.grant('room', 'alice', 'alice')
+      await f.access.grant('room', 'bob', 'bob')
+      await f.access.grant('room', 'alice', 'alice')
+      assert.deepEqual((await f.access.effective('room')).chat, ['alice', 'bob', 'root'])
+      await f.access.revoke('room', 'alice', 'alice')
+      assert.deepEqual((await f.access.effective('room')).chat, ['bob', 'root'])
+    })
+    for (const mode of ['missing', 'extra', 'duplicate']) await t.test(mode, async t => {
+      const f = fake(t)
+      await f.access.ensureRoom('room')
+      f.mode.readbackPushers = mode
+      await assert.rejects(f.access.grant('room', 'alice', 'alice'), /policy did not take effect/)
+    })
+  })
+
   it('reads the supported API and rejects unknown versions before making anything', async t => {
     const f = fake(t)
     assert.equal((await f.access.inspect()).version, '1.25.0')
