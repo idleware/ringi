@@ -1,3 +1,8 @@
+## [0.12.1](https://github.com/idleware/ringi/compare/v0.12.0...v0.12.1) (2026-10-25)
+
+### Fixes & improvements
+* fix: gitea branch rules in any order, forge tests in docker ([3d51ad2](https://github.com/idleware/ringi/commit/3d51ad2f64424951693c2ea801ddcf78b825adc0))
+
 ## [0.12.0](https://github.com/idleware/ringi/compare/v0.11.0...v0.12.0) (2026-10-21)
 
 ### Features
