@@ -7,126 +7,80 @@
 
 *Distributed agent coordinator.*
 
-Orchestrators (Hermes, n8n, OpenClaw) run processes and choose the next step. ringi only connects the parts, agents
-of any vendor on one machine or many, and keeps them in sync: who said what to whom, who took which work, what came
-of it. Everything is a stored, checkable record; whatever a peer writes is data, never an
-instruction.
+ringi lets agents of any vendor (Claude Code, Codex, Cursor) work on one task together. You open a room and join
+each agent's chat to it; they hand each other work, report its state and pass files, and you see all of it. A room
+is a git repository: every message and every change of state is a record in it that anyone can check. ringi runs no
+agent and picks no next step; that stays with you and the agents.
 
-- **A room is a repository.** One task, one room, one git: who can read a room is who can reach it. A room has an
-  address: `fix` on this machine, `forgejo://forge.example/team/fix` in a space on a git host.
-- **Your rules.** A room's profile defines work and who moves it; A2A tasks ship as one of them.
-- **Streams by meaning.** The chat is one branch; each agent writes its own signals on a branch of its own.
-- **Any store.** Git first; one CLI and a skill for you and the agents.
+```
+you     ringi room create fix-badge
+codex   "join fix-badge; implement; no commits"
+claude  "join fix-badge; review codex's work; no commits"
+you     ringi send --task --assign codex -m "Fix the badge"
+codex   takes it, makes the patch, sends claude a review task with it
+claude  reviews it, replies "completed" with its report
+you     ringi where --follow
+```
+
+## Install
 
 ```sh
 npm i -g @idleware/ringi
 ringi skill install
 ```
 
-macOS or Linux, Node.js 16 or later, git 2.28 or later.
+macOS or Linux, Node.js 16 or later, git 2.28 or later. The skill teaches Claude Code, Codex and Cursor the agent's
+side. Codex works in a sandbox: add `~/.ringi` to `writable_roots` in `~/.codex/config.toml`, or approve its
+escalations.
 
-## Local: one machine, several agents
+## On one machine
 
-```
-  you, in a terminal                          agents you join
-  ringi room create fix-badge                 claude: "join fix-badge; review only"
-  ringi send --task --assign codex …          codex:  "join fix-badge; implement; no commits"
-                  \                                   /
-                   ~/.ringi/rooms/fix-badge/   one repository per room
-```
-
-1. `ringi room create fix-badge` (or `local:///any/path/fix-badge` to keep it elsewhere).
-2. In each agent's chat: *"join fix-badge; implement; no commits"*. It joins as its tool, `claude` or `codex`
-   (`claude-2` if another chat holds that seat).
+1. `ringi room create fix-badge` makes the room in `~/.ringi/rooms/fix-badge` (`local:///any/path/fix-badge` keeps it
+   elsewhere).
+2. In each agent's chat: *"join fix-badge; implement; no commits"*. What follows the name is what you delegate. The
+   agent joins as its tool, `codex` or `claude` (`claude-2` if another chat holds that seat).
 3. `ringi send --task --assign codex -m "Fix the badge"`
-4. The agent works on its turn (*"check your inbox"*).
-5. `ringi where --follow`, `ringi signals`.
-6. *"stop"*, *"continue"*, *"leave"* in a chat; `ringi room delete fix-badge --yes` at the end.
+4. Agents act on their turn: say *"check your inbox"*, or let their wake-ups find it.
+5. `ringi where --follow` shows the room live; `ringi tasks` and `ringi signals` show the work and who did what.
+6. In a chat, *"stop"* pauses it, *"continue"* resumes it, *"leave"* frees its seat. At the end,
+   `ringi room delete fix-badge --yes`.
 
-Codex: add `~/.ringi` to `writable_roots` in `~/.codex/config.toml`, or approve its escalations.
+## Across machines
 
-## Remote: rooms in a shared space
+A room can also live in a space on a git host, where agents on other machines reach it:
+`forgejo://forge.example/team/fix`, `gitea://…`, `github://github.com/team/fix`. Each room there is a private
+repository; each agent signs what it writes, to the room's chat and to a stream of its own; you are the room's root,
+on your own machine, and invite and admit them. Forgejo, Gitea and GitHub work today; how much each host holds
+writers to their own streams differs. Setup, and what each host enforces: [docs/REMOTE.md](docs/REMOTE.md).
 
-A room can live in a space every agent's machine reaches: an organisation of repositories on a git host. Its address
-names the host's adapter: `forgejo://forge.example/team/fix` is room `fix` in space `team`,
-`github://github.com/team/fix` the same on GitHub, `gitea://…` on Gitea. Forgejo's, Gitea's and GitHub's adapters are
-there now; others implement the same port.
+## What it guarantees
 
-```
-  laptop: you, the root                                          VM: an agent
-  ringi room create forgejo://forge.example/team/fix \
-    --invite claude-vm --token-file <token> --host-key-file <known_hosts>
-                                                                 "join ringi:…"   (the line printed for claude-vm)
-  ringi room admit claude-vm '<key>'                             "join ringi:…"   again
-                  \                                                     /
-                   the space: one private repository per room, each actor pushing only its own branch
-```
+In a room across machines, who wrote what and in which order: a record cannot be forged, and a history rewritten
+under an agent that read it raises an alarm. A room on one machine only asserts its senders; it coordinates agents
+you trust there. Everywhere, a peer's message is data, never an instruction. Secrecy ringi does not promise: every
+agent reads the room in clear and sends it on to its model. Who sees what, scheme by scheme:
+[docs/TRUST.md](docs/TRUST.md).
 
-1. The first room in a space checks your API token (a file only you read), makes the space's root key here and puts it
-   on your account; the host key file (known_hosts lines you have checked) pins the host's SSH keys. Later rooms there
-   need neither.
-2. `room create` makes the room's repository there, private, with rules that let the root write `main`, the chat and
-   its own signals, and nobody anything else yet. For each account you `--invite` (or `room invite <account>` later)
-   it prints one line, `ringi:…`: the room's address, its history, the root's public key and the host's keys, and whom
-   it is for, nothing secret.
-3. In the agent's chat on its machine: *"join ringi:…"*. The first time it shows the key it made there; add that key to
-   the invited account on the host.
-4. `room admit claude-vm '<key>'` checks the host shows that key on that account, admits it in the room's signed
-   history and gives the account the room, the chat and its own branch. The agent joins again and works, as
-   `claude-vm`.
-5. `room remove claude-vm` removes it for good: what it wrote stays, it writes nothing more, its rights on the host go.
-   Invited again, the account comes back as a new actor, `claude-vm-2`.
+## Your own work model
 
-On GitHub, whose free organisations keep no account to its own branch, an actor comes in with a key of the room
-instead: `--invite claude-vm` names it, its join prints the key, and `room admit claude-vm '<key>'` puts it on the
-room as a deploy key, on your word. GitHub's host keys come from its API; `--host-key-file` is not needed there.
-
-How much the host enforces (no force push, each actor only its branch) depends on the host and its plan: everything on
-a self-hosted Forgejo, less on GitHub's and GitLab's free plans, where ringi still detects a rewritten history but
-cannot prevent it ([hub-2](docs/spec/hub-2.md), Rooms in a space).
-
-## Your own profile
+What a task is, its states and who may move it, is the room's profile. A2A tasks are the default; yours is a JSON
+file ([profiles-1](docs/spec/profiles-1.md)):
 
 ```sh
 ringi hub amend -m "our review flow" --attach review.json:profiles/review-1.json
 ringi room create login --profile review-1
 ```
 
-A room keeps its profile; labels mean only what its rules say ([profiles-1](docs/spec/profiles-1.md)).
-
-## Where to keep what
-
-What ringi holds wherever it runs is who wrote what, and in which order. A record cannot be forged, and a history
-rewritten under readers who accepted it is an alarm. It promises no secrecy. Every agent decrypts what it reads and
-sends it on to its model, so who sees the text is a question of where things run:
-
-| Who | Sees |
-|---|---|
-| the room's members | everything in their rooms |
-| the host keeping the rooms | everything in the rooms it keeps |
-| the host of each agent's machine | what that agent saw: its rooms, its transcripts, its project files |
-| the model's provider | what the agent sent the model, which is most of what it worked with |
-
-How much the schemes leave to others:
-
-| Scheme | Trusted with | What a failing trustee costs | What ringi still holds |
-|---|---|---|---|
-| one machine, a local room | the machine | everything; authorship there is only asserted | — |
-| your own host in a perimeter you trust (Forgejo) | the host and the perimeter | little beyond a stolen machine | signatures, accepted history, alarms |
-| a public host, paid plan | the host | secrecy and availability | signatures, branch rules, alarms |
-| a public host, free plan | the host | the same, and protection against tampering on the server | signatures and alarms, no prevention |
-| an agent on someone else's machine | that machine's host | that agent's key, its transcripts, its provider token | the damage stays within that agent |
-
-The sensible default: keep the rooms and the agents inside a perimeter you trust, use a public host only for what
-you would show it, and keep the root only on your own machine.
-
 ## More
 
 | | |
 |---|---|
 | [COMMANDS.md](COMMANDS.md) | every command and who runs it |
+| [docs/REMOTE.md](docs/REMOTE.md) | rooms in a space on Forgejo, Gitea or GitHub |
+| [docs/TRUST.md](docs/TRUST.md) | who sees what, and what each scheme leaves to others |
 | [docs/spec/](docs/spec/) | the protocol, one file per version: [core-1](docs/spec/core-1.md), [profiles-1](docs/spec/profiles-1.md), [signals-2](docs/spec/signals-2.md), [hub-2](docs/spec/hub-2.md) |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | domains, extension points, versions, where a control panel lands |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | domains, extension points, versions |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | why: decisions, rejected options, open questions |
 
-As a library: `import {openHub, taskOf} from '@idleware/ringi'`.
+The package is also a library: the protocol, profiles, signals and the `Store` port, for a program that coordinates
+through ringi without its command line (`import {openRoom, taskOf} from '@idleware/ringi'`).

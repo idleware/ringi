@@ -22,7 +22,7 @@ puts them together when a program starts; nothing else imports an adapter. Core 
 | hub | `core/hub/` | the coordination ([hub-2](spec/hub-2.md)): `protocol` (messages, threads, order, delivery; [core-1](spec/core-1.md)), `rooms` (descriptor, contract, members, quorum, the write path), `work` ([profiles-1](spec/profiles-1.md)), `signals` ([signals-2](spec/signals-2.md)), `history` (what each reader accepted: heads, pins, alarms), `usecases` (one function per operation, typed input and output, no printing), `ports` (`Store` and `Transport`, `LocalState`) | lib |
 | agents | `core/agents/` | agents on this machine: `sessions` (bindings and seats), `ports` (`AgentTool`, `ProcessHost`) | hub, lib |
 | signing | `core/signing/` | `Signer`: a key's public identity and a signature over exact bytes, apart from where the key is kept | lib |
-| adapters | `adapters/<type>-<name>/`, the type being what it is to ringi | `store-git` (local and signed), `access-forgejo`, `agent-claude`, `agent-codex`, `agent-cursor`, `keys-file`, `host-posix` (macOS, Linux), `state-fs` (`$RINGI_HOME`); shared: `fs` (files, locks) | core, the shared adapters, lib |
+| adapters | `adapters/<type>-<name>/`, the type being what it is to ringi | `store-git` (local and signed), `access-forgejo`, `access-gitea`, `access-github`, `agent-claude`, `agent-codex`, `agent-cursor`, `keys-file`, `host-posix` (macOS, Linux), `state-fs` (`$RINGI_HOME`), `location-fs` (a room's files); shared: `fs` (files, locks) | core, the shared adapters, lib |
 | clients | `clients/cli/` (the entry is `cli.ts`), `clients/panel/` (planned) | parse, call core's use cases, render. The command line is one for both: `operator/` (as the operator), `agent/` (`ringi agent …`, as the agent a session is bound to), `shared/` (under both), `skill/` (installs the skill: the agents' manual for this same command line, `src/main/resources/skill/`, where each agent tool reads skills) | hub, agents, lib |
 | composition | `composition/` | this build and which adapters | everything |
 
@@ -42,7 +42,7 @@ agents rather than protect against a writer.
 | a store type (Kafka topics, a Telegram group, …) | implement `Store` and its `Transport` in `adapters/store-<name>/`, register it in composition, and run `storeContract` (`src/test/ts/store-contract.ts`) over it | hubs name it in `hub.json`; what a store must guarantee is in [hub-2](spec/hub-2.md) |
 | an agent tool | implement `AgentTool` in `adapters/agent-<name>/` (recognise a session, where it reads skills, its sandbox), list it in composition | sessions and the skill installer ask the tools |
 | an operating system | implement `ProcessHost` in `adapters/host-<name>/`, choose it in composition | sessions ask the host |
-| a space a hub's rooms are made in (Forgejo now; GitHub, GitLab, Bitbucket alike) | implement `Access` in `adapters/access-<name>/`, register it in composition | hubs name it by the scheme of their `--forge` address |
+| a host a space's rooms are kept on (Forgejo, Gitea, GitHub now; GitLab, Bitbucket alike) | implement `Access` in `adapters/access-<name>/`, register it in composition | a room's address names it by its scheme (`gitlab://…`) |
 | a place for keys (an SSH agent, 1Password, a hardware key) | implement `Signer` in `adapters/keys-<name>/`, give it to the signed transport in composition | asserted hubs never ask |
 | a work model | write a profile (`ringi-profile/1`), attach it to the hub | no code |
 | a capability, or a new major of one | a module in `core/hub/` exporting its id (`profiles/2`), registered in `CAPABILITIES`; for a second major, also the dispatch to it | the old major stays beside it |
@@ -116,8 +116,10 @@ ringi will likely be rewritten in Go or Rust, so as not to need Node. It stays s
 
 | File | Reader | Holds |
 |---|---|---|
-| `README.md` | users | what ringi is, install, the local and the remote flow |
+| `README.md` | users | what ringi is, install, the local flow; links to the rest |
 | `COMMANDS.md` | users, agents | every command and who runs it, generated from the command table |
+| `docs/REMOTE.md` | users | rooms in a space on a git host: setup, invite, admit, remove, what each host enforces |
+| `docs/TRUST.md` | users | who sees what, and what each scheme leaves to others |
 | `docs/ARCHITECTURE.md` | contributors | this page |
 | `docs/spec/core-1.md`, `profiles-1.md`, `signals-2.md`, `hub-2.md` | implementers | the normative specs |
 | `docs/DECISIONS.md` | everyone | why: dated decisions, rejected options, open questions |
