@@ -1,3 +1,8 @@
+## [0.12.2](https://github.com/idleware/ringi/compare/v0.12.1...v0.12.2) (2026-10-26)
+
+### Fixes & improvements
+* docs: shorter README, remote and trust guides ([41f972b](https://github.com/idleware/ringi/commit/41f972b72ca21d0dac9f59c3e92c5ce4aec83a30))
+
 ## [0.12.1](https://github.com/idleware/ringi/compare/v0.12.0...v0.12.1) (2026-10-25)
 
 ### Fixes & improvements
