@@ -1,3 +1,8 @@
+## [0.12.3](https://github.com/idleware/ringi/compare/v0.12.2...v0.12.3) (2026-10-27)
+
+### Fixes & improvements
+* fix: rooms survive a restart; safer attachments, repos, git and API ([106e674](https://github.com/idleware/ringi/commit/106e67474b166dabdb4191542fd0b6dcfb3cffb9))
+
 ## [0.12.2](https://github.com/idleware/ringi/compare/v0.12.1...v0.12.2) (2026-10-26)
 
 ### Fixes & improvements
