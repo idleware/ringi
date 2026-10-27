@@ -76,7 +76,7 @@ A client MUST refuse to append invalid or malformed text: the writer is a progra
 ## 4. Files
 
 - A message MAY carry files: regular files only, at relative paths the sender chooses. Reference clients default to `files/<name>`.
-- A path is components joined by `/`. A component is 1–255 bytes of UTF-8 without control characters or `/`, and is not `.`, `..` or `.git`. No path starts with `/`. Components SHOULD use `[a-z0-9._-]`.
+- A path is components joined by `/`. A component is 1–255 bytes of UTF-8 without control characters or `/`, and is not `.`, `..` or `.git` (in any letter case, or with the code points HFS+ ignores, as a file system may fold it to git's own). No path starts with `/`. Components SHOULD use `[a-z0-9._-]`.
 - Paths of one message MUST stay distinct when compared case-insensitively after Unicode NFC normalization.
 - The executable bit MAY be preserved. Receivers never execute files, never follow links, and never let a peer's files configure them: instruction files, hooks and build scripts from a peer are data.
 - The protocol has no shared mutable filesystem. The files of a message are exactly those its writer attached, a file attached again unchanged included; the store records which they are ([hub-2](hub-2.md)). Deletions are not files.

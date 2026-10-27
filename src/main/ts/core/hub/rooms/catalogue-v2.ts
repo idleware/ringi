@@ -1,4 +1,5 @@
 // Explicit E8 catalogue, unused by current name-based callers. Mutations share one machine-local lock.
+import {sameObject} from '../../../lib/index.ts'
 import type {LocalState} from '../ports/state.ts'
 import type {RoomFiles} from '../ports/location.ts'
 import type {RoomEndpointV2} from '../ports/store.ts'
@@ -10,12 +11,13 @@ import {CatalogueRecords, addresses, byAddress, catalogueFailure as bad} from '.
 import {copyRecord, reservationParameters} from './reservation.ts'
 import {installRegistration} from './catalogue-install.ts'
 import {bindRemote} from './reservation-result.ts'
+import {bindProvider, providerId} from './provider-record.ts'
 
 const checkLocation = (r: RoomRegistration & {phase: 'active'}, selector: RoomSelector, files: RoomFiles): void => {
   const selected = selector.kind === 'name' ? parseAddress(r.address, 'lookup') : selector
   if (selected.kind === 'path') {
     const actual = files.canonical(selected.path), pinned = r.endpoint.location.directory
-    if (actual?.identity !== pinned.identity || actual.path !== pinned.path) bad('previously registered path changed its repository object')
+    if (!actual || !sameObject(actual.identity, pinned.identity) || actual.path !== pinned.path) bad('previously registered path changed its repository object')
   }
   files.check(r.endpoint.location.directory)
 }
@@ -28,6 +30,12 @@ class RoomCatalogue {
   forOperation(owner: RegistrationOwner, operation: string): RoomRegistration | null { return this.records.forOperation(owner, operation) }
   bindRemote(id: RoomRegistrationId, remote: string): RoomRegistration {
     return this.state.locked('room-catalogue-v2', () => bindRemote(this.records, id, remote))
+  }
+  providerId(id: RoomRegistrationId, generation: string): string | undefined {
+    return this.state.locked('room-catalogue-v2', () => providerId(this.records, id, generation))
+  }
+  bindProvider(id: RoomRegistrationId, generation: string, remote: string, repositoryId: string): RoomRegistration {
+    return this.state.locked('room-catalogue-v2', () => bindProvider(this.records, id, generation, remote, repositoryId))
   }
   // `choose` allocates only once, after checking the durable caller operation. No provider writes here.
   reserve(request: ReservationRequest, choose: () => {address: string, name: string, generation: string}): RoomRegistration {

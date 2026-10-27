@@ -14,6 +14,8 @@ export type InviteV3 = {schema: 'ringi-invite/3', mode: 'account' | 'deploy-key'
   genesis: string, hubGenesis: string, trust: 'signed', root: string, hostKeys?: string[],
   principal: {realm: string, id: string | null, login: string} | {label: string}, actor: string, invitation: string}
 const PREFIX = 'ringi:'
+// Far above a real line (a root key, a few host keys, an address): what is longer is not one ringi made.
+const MAX_LINE = 16384
 const OID = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/
 
 const str = (v: unknown): v is string => typeof v === 'string' && v.length > 0
@@ -34,6 +36,7 @@ export const inviteV3 = (x: Omit<InviteV3, 'schema'>): string => {
 // An invitation, if `s` is one; anything else is a room's address or name. An older invitation is refused by name.
 export const readInvite = (s: string): InviteV3 | null => {
   if (!s.startsWith(PREFIX)) return null
+  if (s.length > MAX_LINE) fail(`this invitation is longer than any ringi makes (${MAX_LINE} characters); ask the operator for a new one`)
   const x = strictJson<unknown>(Buffer.from(s.slice(PREFIX.length), 'base64url').toString('utf8'), 'the invitation')
   const schema = typeof x === 'object' && x !== null ? (x as {schema?: unknown}).schema : undefined
   if (schema === 'ringi-invite/3') return validV3(x as Partial<InviteV3>) ? x as InviteV3 : fail('this ringi-invite/3 is malformed; ask the operator for a new one')
@@ -52,6 +55,10 @@ export const keyRefFor = (x: InviteV3, identity?: string): string => {
   return x.actor === x.principal.login.toLowerCase() ? `ringi-key:realm/${opaque(x.principal.realm)}/${x.principal.login.toLowerCase()}` : room
 }
 // The line for one invitee of the root's list: the room as this machine pinned it, and the entry it routes to.
+// A public key's fingerprint as OpenSSH prints it, for the operator to compare on both machines: a key carried through
+// a channel someone else holds may not be the one sent.
+export const fingerprintOf = (line: string): string =>
+  'SHA256:' + crypto.createHash('sha256').update(Buffer.from(line.trim().split(/\s+/)[1] ?? '', 'base64')).digest('base64').replace(/=+$/, '')
 export const inviteLine = (R: RoomV2, e: Invitation): string => inviteV3({mode: e.mode, room: R.name, address: R.endpoint.address,
   locator: withoutCredentials(R.endpoint.store.remote ?? fail(`room ${R.endpoint.address} is published nowhere`)), genesis: R.genesis,
   hubGenesis: R.hub.d.genesis, trust: 'signed', root: R.hub.d.root ?? fail(`room ${R.endpoint.address} has no signed root`),

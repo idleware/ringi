@@ -22,9 +22,10 @@ export const join = (o: Opts) => {
   if (!room) fail('usage: ringi join <room or its invitation> [--as <id>] [--scope "<what the operator delegates>"] [--identity <key file>]')
   const r = Session.join({room, agent: opt(o, 'as'), scope: opt(o, 'scope'), identity: opt(o, 'identity')})
   if (r.pending) {
-    const {key, login, realm} = r.pending
+    const {key, login, realm, root} = r.pending
     const first = login ? `add this key to ${login}'s SSH keys on ${realm}; then ` : ''
     out(`${r.agent}'s key on this machine (${key.fingerprint}):\n  ${key.publicKey}\n${first}the root runs:\n  ringi room admit ${r.agent} '${key.publicKey}' --room ${r.room}\nthen join again`)
+    if (root) out(`the room's root, as this machine pinned it: ${root}; the operator compares it with what room create printed, and the key's fingerprint with what admit prints`)
     process.exitCode = 3
     return
   }

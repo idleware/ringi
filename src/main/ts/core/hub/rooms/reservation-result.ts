@@ -20,14 +20,18 @@ export const resolvedRepository = (r: RoomReservation): Record<string, Reservati
 export const resolvedIntent = (r: RoomReservation): string => r.provision
   ? reservationParameters({parameters: JSON.parse(r.parameters), provision: r.provision}) : r.parameters
 
-export const bindRemote = (records: CatalogueRecords, id: RoomRegistrationId, value: string): RoomRegistration => {
-  const remote = provisionRemote(value), r = records.get(id)
+export const withRemote = (r: RoomRegistration | null, value: string): RoomRegistration => {
+  const remote = provisionRemote(value), provision = {remote}
   if (!r?.reservation) return bad('no reservation for a provider result')
   const old = r.reservation.provision
   if (old) return old.remote === remote ? r : bad('provider result changed; reserved remote is retained')
   if (r.phase !== 'reserved' || r.reservation.preparation) return bad('provider result must be fixed before repository allocation')
   if (r.owner.trust !== 'signed' || parseAddress(r.address, 'lookup').kind !== 'remote') return bad('late provisioning requires a signed room in a space')
   // Validate that the caller reserved an unresolved repository intent, before making this one-time addition.
-  resolvedRepository({...r.reservation, provision: {remote}})
-  return records.save({...r, reservation: {...r.reservation, provision: {remote}}})
+  resolvedRepository({...r.reservation, provision})
+  return {...r, reservation: {...r.reservation, provision}}
+}
+export const bindRemote = (records: CatalogueRecords, id: RoomRegistrationId, value: string): RoomRegistration => {
+  const r = records.get(id), next = withRemote(r, value)
+  return next === r ? next : records.save(next)
 }

@@ -17,6 +17,7 @@ import {allInvited, inviteInto, invitePlanned, planInvites} from './membership.t
 import type {Planned} from './membership.ts'
 import {inviteLine} from './invite.ts'
 import {active, catalogue, transportOfHub} from './rooms.ts'
+import {checkProvisionedChat} from '../rooms/provision-chat.ts'
 
 export type CreateInput = SpaceInput & {profile?: string, quorum?: number, invite?: string[]}
 // `login`: the account the invitee joins through, none for a deploy key's label.
@@ -55,8 +56,14 @@ const again = (address: string) => (e: Error): never => fail(`${e.message}; run 
 // The root key on its account, the private repository there, its locator bound to the reservation, then the room.
 const provisioned = async (p: Plan, r: RoomRegistration, access: NonNullable<ReturnType<typeof accessOf>>): Promise<RoomV2> => {
   await ownKey(p.H)
-  const {address: remote} = await access.ensureRoom(p.name)
-  catalogue().bindRemote(r.id, remote)
+  const {address: remote} = await access.ensureRoom(p.name, {
+    repositoryId: catalogue().providerId(r.id, r.reservation!.generation),
+    bind: result => {catalogue().bindProvider(r.id, r.reservation!.generation, result.address, result.repositoryId)},
+    checkChat: () => {
+      const remote = catalogue().get(r.id)?.reservation?.provision?.remote ?? fail('existing chat has no saved provider result')
+      checkProvisionedChat(p.H, r.id, provisionedRepository(p.spec, remote), transportOfHub(p.H))
+    },
+  })
   return build(p, r, provisionedRepository(p.spec, remote))
 }
 const quorumOk = (q?: number): void => {

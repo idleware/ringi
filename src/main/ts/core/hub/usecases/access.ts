@@ -11,6 +11,8 @@ import {canonical, parseAddress} from '../rooms/address.ts'
 import type {RemoteSpace} from '../rooms/address.ts'
 import {createHub, hubNames, openHub} from '../rooms/index.ts'
 import type {Hub, RoomV2} from '../rooms/index.ts'
+import type {RoomRegistration} from '../rooms/room-registration.ts'
+import {roomCatalogue} from '../rooms/catalogue-v2.ts'
 
 const make = (space: string, authRef: string): Access => {
   const a = parseAddress(space, 'create')
@@ -84,7 +86,10 @@ export const grantInSpace = async (R: RoomV2, access: Access, actor: string, acc
   if (now.signals[actor] !== account || !now.chat.includes(account)) fail(`${R.name} on the forge does not let ${account} write ${actor}'s signals and the chat; admit again`)
 }
 // The room's repository on its medium gone; this machine's copy is deleted apart (rooms.erase).
-export const deleteServerRoom = async (r: {address: string, name: string, owner: {name: string}}): Promise<void> => {
+export const deleteServerRoom = async (r: RoomRegistration): Promise<void> => {
   const access = accessOf(openHub(r.owner.name)) ?? fail(`room ${r.address} is in no space; delete its repository where it is served`)
-  await access.deleteServer(r.name)
+  const generation = r.reservation?.generation
+  const id = (generation === undefined ? undefined : roomCatalogue(hubPorts().state).providerId(r.id, generation))
+    ?? fail('this registration has no saved provider repository id; server deletion is refused; delete it on the host yourself')
+  await access.deleteServer(r.name, id)
 }

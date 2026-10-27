@@ -174,6 +174,54 @@ const pushAlarmsOf = (H: {dir: string}): Record<string, string> => {
 
 describe('signed remote hubs', () => {
   describe('bootstrap and admission', () => {
+    it('uses one advertisement and one explicit stdin fetch for a populated sync', t => {
+      const w = world(t), task = openTask(w.op, w.opHome, 'operator'), first = signal(w.op, w.opHome, 'operator', task)
+      Remote.push(w.op, first.ref); Remote.sync(w.op)
+      const calls: string[] = [], original = childProcess.spawnSync
+      const mock = t.mock.method(childProcess, 'spawnSync', ((cmd: string, args: string[], options: SpawnSyncOptions) => {
+        const verb = args.includes('ls-remote') ? 'ls-remote' : args.includes('fetch') ? 'fetch' : null
+        if (cmd === 'git' && verb && args.includes(w.url.replace(/^git\+/, ''))) {
+          calls.push(verb)
+          if (verb === 'fetch') {
+            assert.ok(args.includes('--stdin')); assert.ok(args.includes('--no-tags'))
+            assert.equal(typeof options.input, 'string'); assert.ok(!String(options.input).includes('*'))
+            const specs = new Set(String(options.input).trim().split('\n'))
+            assert.deepEqual(specs, new Set(['main', 'chat', 'operator/signals'].map(ref => `+refs/heads/${ref}:refs/remotes/origin/${ref}`)))
+          }
+        }
+        return original(cmd, args, options)
+      }) as typeof childProcess.spawnSync)
+      syncBuiltinESMExports()
+      try {Remote.sync(w.op); assert.deepEqual(calls, ['ls-remote', 'fetch'])}
+      finally {mock.mock.restore(); syncBuiltinESMExports()}
+    })
+    it('fetches a newly admitted actor stream on the next poll without promoting an unfetched head', t => {
+      const w = world(t), reader = w.replica('observer'), bob = w.agent('bob')
+      const task = openTask(bob.H, bob.home, 'bob'), first = signal(bob.H, bob.home, 'bob', task)
+      Remote.push(bob.H, first.ref)
+      Remote.sync(reader.H)
+      assert.ok(Remote.verifyRoom(reader.H, room(reader.H)).members.bob)
+      assert.equal(reader.H.rev(first.ref), null); assert.deepEqual(reader.H.remoteAlarms, {})
+      Remote.sync(reader.H)
+      assert.equal(reader.H.rev(first.ref), first.object)
+      const checked = Remote.scanStream({H: reader.H, R: room(reader.H), actor: 'bob', head: first.object})
+      assert.equal(checked.head, first.object); assert.equal(checked.why, undefined)
+    })
+    it('does not import unrelated heads or unadmitted signal streams before admission', t => {
+      const w = world(t)
+      const blob = w.op.git(['hash-object', '-w', '--stdin'], {input: 'fixture unrelated blob\n'.repeat(2000)}).trim()
+      const junkTree = w.op.git(['mktree'], {input: `100644 blob ${blob}\tfixture.txt\n`}).trim()
+      const junk = commit(w.op, w.opHome, 'operator', 'unrelated unsigned fixture\n', junkTree, [], {unsigned: true})
+      publish(w.op, 'refs/heads/junk', junk)
+      publish(w.op, 'refs/heads/mallory/signals', junk)
+      publish(w.op, 'refs/heads/operator/telemetry', junk)
+      const reader = w.replica('selective-reader').H
+      Remote.sync(reader)
+      assert.equal(reader.git(['cat-file', '-e', blob], {ok: true}).status, 1, 'unrelated object is absent, not merely withheld after importing it')
+      for (const ref of ['junk', 'mallory/signals', 'operator/telemetry']) assert.equal(reader.rev('refs/remotes/origin/' + ref), null)
+      assert.equal(reader.rev('refs/heads/chat'), w.op.rev('refs/heads/chat'))
+      assert.deepEqual(reader.remoteAlarms, {})
+    })
     it('never shows a URL\'s credentials, in a remote or in git\'s diagnostics, keeping an SSH login', () => {
       const clean = 'https://forge.example/ringi/team.git'
       for (const url of ['https://claude:t0k3n@forge.example/ringi/team.git', 'https://t0k3n@forge.example/ringi/team.git',

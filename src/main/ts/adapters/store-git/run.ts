@@ -6,6 +6,7 @@ import type {SpawnSyncReturns} from 'node:child_process'
 import {fail} from '../../lib/index.ts'
 import {cannotWrite, SANDBOX} from '../fs/index.ts'
 import * as Remote from './remote.ts'
+import {BASE} from './remote/process.ts'
 
 export const ZERO = '0'.repeat(40)
 export const ident = (id: string) => ({GIT_AUTHOR_NAME: id, GIT_AUTHOR_EMAIL: `${id}@ringi`, GIT_COMMITTER_NAME: id, GIT_COMMITTER_EMAIL: `${id}@ringi`})
@@ -13,16 +14,16 @@ export const ident = (id: string) => ({GIT_AUTHOR_NAME: id, GIT_AUTHOR_EMAIL: `$
 export type GitOpt = {input?: string | Buffer, env?: Record<string, string>, where?: string}
 
 export const runGit = (args: string[], o: GitOpt = {}): string => {
-  const r = spawnSync('git', args, {input: o.input, encoding: 'utf8', env: Remote.gitEnv(o.env), maxBuffer: 1 << 30, timeout: Remote.gitTimeout()})
+  const r = spawnSync('git', [...BASE, ...args], {input: o.input, encoding: 'utf8', env: Remote.gitEnv(o.env), maxBuffer: 1 << 30, timeout: Remote.gitTimeout()})
   return check(args, r, o.where).stdout
 }
 export const runGitOk = (args: string[], o: GitOpt = {}): SpawnSyncReturns<string> => {
-  const r = spawnSync('git', args, {input: o.input, encoding: 'utf8', env: Remote.gitEnv(o.env), maxBuffer: 1 << 30, timeout: Remote.gitTimeout()})
+  const r = spawnSync('git', [...BASE, ...args], {input: o.input, encoding: 'utf8', env: Remote.gitEnv(o.env), maxBuffer: 1 << 30, timeout: Remote.gitTimeout()})
   Remote.checkGitTimeout(r.error)
   return r
 }
 export const runGitRaw = (args: string[], where?: string, input?: Buffer): Buffer => {
-  const r = spawnSync('git', args, {input, encoding: 'buffer', env: Remote.gitEnv(), maxBuffer: 1 << 30, timeout: Remote.gitTimeout()})
+  const r = spawnSync('git', [...BASE, ...args], {input, encoding: 'buffer', env: Remote.gitEnv(), maxBuffer: 1 << 30, timeout: Remote.gitTimeout()})
   return check(args, r, where).stdout
 }
 function check<T extends string | Buffer>(args: string[], r: SpawnSyncReturns<T>, where = 'the hub store'): SpawnSyncReturns<T> {

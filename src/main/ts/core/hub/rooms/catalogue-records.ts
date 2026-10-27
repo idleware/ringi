@@ -1,5 +1,5 @@
 // Catalogue persistence, separate from selection and installation. No repository is opened or removed here.
-import {fail} from '../../../lib/index.ts'
+import {fail, objectOf} from '../../../lib/index.ts'
 import type {LocalState} from '../ports/state.ts'
 import {registrationKey} from './room-registration.ts'
 import type {RegistrationOwner, RoomRegistration, RoomRegistrationId} from './room-registration.ts'
@@ -22,7 +22,7 @@ const uniqueRecords = (entries: RoomRegistration[]): void => {
       if (names.has(address)) catalogueFailure('duplicate address registrations')
       names.add(address)
     }
-    const object = registeredDirectory(r)?.identity
+    const identity = registeredDirectory(r)?.identity, object = identity && objectOf(identity)
     if (!object) continue
     if (physical.has(object)) catalogueFailure('duplicate repository object registrations')
     physical.add(object)

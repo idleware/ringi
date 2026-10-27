@@ -1,5 +1,5 @@
 // Repository construction/verification is injected. Metadata cannot turn a successful fetch into an admission.
-import {fail} from '../../../lib/index.ts'
+import {fail, sameObject} from '../../../lib/index.ts'
 import type {RoomFiles} from '../ports/location.ts'
 import type {RoomEndpointV2} from '../ports/store.ts'
 import {checkEndpointV2} from './endpoint-v2.ts'
@@ -19,7 +19,7 @@ export const completedEndpoint = (prepared: PreparedRoom, candidate: RoomEndpoin
   const r = prepared.registration, e = copyRecord(checkEndpointV2(candidate, r.owner))
   if (e.address !== r.address || e.name !== r.name || e.location.generation !== r.reservation.generation) bad('created room does not match its reservation')
   const d = prepared.directory
-  if (e.location.directory.path !== d.path || e.location.directory.identity !== d.identity) bad('created room changed its repository object')
+  if (e.location.directory.path !== d.path || !sameObject(e.location.directory.identity, d.identity)) bad('created room changed its repository object')
   if (e.receipt || e.disposal) bad('repository callback supplied an unowned receipt or disposal')
   const target = r.reservation.preparation!.target
   checkPrepared(files, target, d)

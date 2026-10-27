@@ -495,3 +495,33 @@ Git covers several of these by construction. That is the bet here.
   for, once each, keeps one short continuation note, and stays silent unless there is a result, a failure or a
   decision for the operator. Stop pauses the wake-ups, leave ends them, a peer cannot touch them.
 
+
+## ringi: a security review, model and implementation (2026-10-26)
+
+- **How.** Claude reviewed the model (trust boundaries, membership, pins, invitations, the root's machine), Codex the
+  implementation (keys, verification, git, attachments, SSH, tokens, home, output, supply chain); each reviewed the
+  other's part. The core held: a record counts only after its signature is verified at its place, the roster comes
+  from root-signed records, `allowed_signers` takes no options from a key line, SSH pins its host keys and reads no
+  `~/.ssh/config`.
+- **Fixed.** `get` writes a peer's paths only into a directory it makes, never over a file or through a link, and
+  `.git` is refused in any spelling a file system folds to it (core-1 §4). `room create` adopts only the repository
+  its own create made, by the provider's id kept beside the registration, and `--server` deletes only that one; a
+  repository of the same name is refused untouched. Every git command runs under one policy (`GIT_ALLOW_PROTOCOL`,
+  no fsmonitor, no hooks). State files are written through a new owner-only temporary file, a home others can write
+  is refused, JSON deeper than 64 levels and invitations longer than 16 KiB are refused, `cat` shows control
+  characters on a terminal. Create, invite, join and admit print fingerprints for the operator to compare. API calls
+  share one deadline, bounded replies and a redacted token. A reader fetches only main, chat and the streams of
+  members it verified: unrelated heads stay on the host, though a required stream may still be large; this is a
+  selection, no disk quota.
+- **Said, not fixed.** On the root's machine every agent running as the operator's user is the root: ringi's command
+  names are no permission (TRUST.md). A host the operator does not run can show readers different continuations.
+  What to do when a machine is stolen, the root is lost or the chat is rewritten is in REMOTE.md.
+- **Next, each its own decision.** An agent-held root key (an SSH agent that asks before each signature), an
+  invitation that pins the chat head it was printed at, a least-privilege GitHub token checked against every call.
+  Fewer connections per sync of a room in a space (one listing, one fetch).
+- **A restart broke every room.** A directory's identity was its device, inode and birth time; macOS gives an APFS
+  volume its device number when it is mounted, and after a restart it was another, so every room on the machine read
+  as a replaced repository. The device is no longer compared, and the stored format is unchanged: a copy or another
+  directory at the path still has another inode or birth time.
+- **Rejected.** A description marker as proof that a repository is the room's: anyone who can edit the repository can
+  copy it. Witnesses against a forking host, key rotation, our own crypto envelope: more than they are worth now.

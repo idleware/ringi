@@ -12,7 +12,7 @@ export const giteaAccess: AccessType = (locator, authRef) => {
       can: {actorBranches: true, privateRepos: true, deleteServer: true, refuseForcePush: true, accountKeys: true, deployKeys: false, hostKeysByApi: false}}),
     ownKey: async key => { await c.version(); await ownKey(c.api, key) },
     account: login => account(c.api, login), accountKeys: a => accountKeys(c.api, a),
-    effective: room => c.effective(room), ensureRoom: room => ensureRoom(c, room), deleteServer: room => deleteServer(c, room),
+    effective: room => c.effective(room), ensureRoom: (room, intent) => ensureRoom(c, room, intent), deleteServer: (room, id) => deleteServer(c, room, id),
     grant: (room, actor, principal, key) => grant(c, {room, actor, principal, key}),
     revoke: (room, actor, principal) => revoke(c, {room, actor, principal}),
   }

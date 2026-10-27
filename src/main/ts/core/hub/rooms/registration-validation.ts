@@ -1,4 +1,5 @@
 // Fail closed on local records, including stale reservations and address/hash collisions.
+import {sameObject} from '../../../lib/index.ts'
 import {badRegistration as bad, checkOwner, record, roomName, token} from './registration-checks.ts'
 import {addressName, canonicalRoom, registrationId} from './room-registration.ts'
 import type {RoomRegistration, RoomRegistrationId, RoomReservation} from './room-registration.ts'
@@ -16,7 +17,7 @@ const reservationMatches = (e: RoomEndpointV2, pending?: RoomReservation): void 
   if (e.location.generation !== pending.generation) bad('endpoint/reservation mismatch')
   if (e.receipt && e.receipt.reservation !== pending.operation) bad('endpoint/reservation mismatch')
   const directory = pending.preparation?.directory
-  if (directory && (directory.path !== e.location.directory.path || directory.identity !== e.location.directory.identity)) bad('endpoint/prepared-directory mismatch')
+  if (directory && (directory.path !== e.location.directory.path || !sameObject(directory.identity, e.location.directory.identity))) bad('endpoint/prepared-directory mismatch')
 }
 const checkPhase = (v: Record<string, unknown>): void => {
   const pending = v.reservation === undefined ? undefined : checkReservation(v.reservation)

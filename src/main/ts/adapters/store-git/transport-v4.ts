@@ -1,7 +1,7 @@
 // Explicit git/4 transport. Creation consumes the exclusive directory witnessed by the location lifecycle.
 import fs from 'node:fs'
 import path from 'node:path'
-import {fail} from '../../lib/index.ts'
+import {fail, sameObject} from '../../lib/index.ts'
 import type {Descriptor, RoomEndpointV2, Store, TransportV4} from '../../core/hub/ports/store.ts'
 import {checkEndpointV2} from '../../core/hub/rooms/endpoint-v2.ts'
 import {canonical, check} from '../fs/directory.ts'
@@ -17,7 +17,7 @@ const endpointAt = (at: string, d: Descriptor, endpoint: RoomEndpointV2, creatin
   checkEndpointV2(endpoint, d, {creating})
   if (endpoint.disposal) fail('room disposal is in progress; repository is retained')
   const directory = canonical(at), pinned = endpoint.location.directory
-  if (directory?.path !== pinned.path || directory.identity !== pinned.identity) fail('selected repository directory changed its pinned object')
+  if (directory?.path !== pinned.path || !sameObject(directory.identity, pinned.identity)) fail('selected repository directory changed its pinned object')
   if (endpoint.authRef && endpoint.authRef !== endpoint.keyRef) fail('SSH and signing require the same selected identity')
   check(pinned)
 }

@@ -228,32 +228,40 @@ it('classifies only explicit SSH denial; timeout, missing repo, host/config and 
   const mock = t.mock.method(childProcess, 'spawnSync', () => ({status: 128, signal: null, error, pid: 0, stdout: '', stderr, output: []}))
   syncBuiltinESMExports()
   try {
-    assert.throws(() => networkGit(H, ['fetch', 'ssh://git@forge.test:2222/org/r.git']), {code: 'denied'})
+    for (const verb of ['fetch', 'ls-remote']) assert.throws(() => networkGit(H, [verb, 'ssh://git@forge.test:2222/org/r.git']), {code: 'denied'})
     assert.equal(networkGit(H, ['push', 'ssh://git@forge.test:2222/org/r.git'], {ok: true}).status, 128, 'push rejection retains its existing alarm path')
     for (stderr of ['Host key verification failed.', 'Bad configuration option', 'ERROR: Repository not found.', 'fatal: Could not read from remote repository.', 'ALARM accepted main changed', 'Permission denied opening a local file']) {
-      assert.throws(() => networkGit(H, ['fetch', 'ssh://git@forge.test:2222/org/r.git']), (e: unknown) => {
+      for (const verb of ['fetch', 'ls-remote']) assert.throws(() => networkGit(H, [verb, 'ssh://git@forge.test:2222/org/r.git']), (e: unknown) => {
         assert.notEqual((e as NodeJS.ErrnoException).code, 'denied'); return true
       })
     }
     stderr = 'Permission denied (publickey).'; error = Object.assign(new Error('timed out'), {code: 'ETIMEDOUT'})
-    assert.throws(() => networkGit(H, ['fetch', 'ssh://git@forge.test:2222/org/r.git']), {code: 'ETIMEDOUT'})
+    for (const verb of ['fetch', 'ls-remote']) assert.throws(() => networkGit(H, [verb, 'ssh://git@forge.test:2222/org/r.git']), {code: 'ETIMEDOUT'})
   } finally {mock.mock.restore(); syncBuiltinESMExports()}
   assert.deepEqual(leftovers(H), [])
 })
 
-it('a denied fresh attachment removes only its staging repository and installs no endpoint or history', t => {
+for (const deniedAt of ['ls-remote', 'fetch']) it(`a fresh attachment denied at ${deniedAt} removes only its staging repository and installs no endpoint or history`, t => {
   const {home, endpoint, identity, publicKey} = fixture(t), context = keysFile(home), d = descriptor('signed')
   d.root = publicKey; d.genesis = 'a'.repeat(40)
   endpoint.hubGenesis = d.genesis; endpoint.genesis = 'b'.repeat(40)
   const transport = gitTransport(home, {signer: context, auth: {resolve: () => ({type: 'file', path: identity})}})
   const at = path.join(home, 'fresh-room'), original = childProcess.spawnSync
+  const calls: string[] = []
   const mock = t.mock.method(childProcess, 'spawnSync', (cmd: string, args: readonly string[], opt: SpawnSyncOptions) => {
-    if (cmd === 'git' && args.includes('fetch')) return {status: 128, signal: null, error: undefined, pid: 0, stdout: '', stderr: 'Permission denied (publickey).', output: []}
+    if (cmd === 'git' && (args.includes('ls-remote') || args.includes('fetch'))) {
+      const verb = args.includes('ls-remote') ? 'ls-remote' : 'fetch'; calls.push(verb)
+      if (verb === deniedAt) return {status: 128, signal: null, error: undefined, pid: 0, stdout: '', stderr: 'Permission denied (publickey).', output: []}
+      assert.equal(verb, 'ls-remote')
+      return {status: 0, signal: null, error: undefined, pid: 0, stdout: `${d.genesis}\trefs/heads/main\n${endpoint.genesis}\trefs/heads/chat\n`, stderr: '', output: []}
+    }
+    assert.ok(!args.some(a => a.includes('ssh://')), 'all SSH transport commands must stay inside this fixture')
     return original(cmd, args, opt)
   })
   syncBuiltinESMExports()
   try {assert.throws(() => transport.attachRoom(at, d, endpoint), {code: 'denied'})}
   finally {mock.mock.restore(); syncBuiltinESMExports()}
+  assert.deepEqual(calls, deniedAt === 'ls-remote' ? ['ls-remote'] : ['ls-remote', 'fetch'])
   assert.equal(fs.existsSync(at), false)
   assert.equal(fs.readdirSync(home).some(n => n.startsWith('fresh-room.attach.')), false)
   assert.equal(fs.existsSync(path.join(home, 'keys')), false)

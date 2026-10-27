@@ -117,6 +117,7 @@ it('ignores valid, corrupt and deleted legacy telemetry without removing refs, p
   const ref = 'refs/heads/alice/telemetry', pin = 'refs/ringi/remote-accepted/alice/telemetry'
   git(R, ['update-ref', ref, valid])
   git(R, ['update-ref', pin, valid])
+  git(R, ['update-ref', 'refs/remotes/origin/alice/telemetry', valid])
   git(R, ['push', '-q', origin, `${valid}:${ref}`, `${corrupt}:refs/heads/bob/telemetry`])
   const alarmFile = path.join(store.dir, 'ringi', 'push-alarms.json')
   const durable = JSON.stringify({[ref]: 'legacy publication conflict'}) + '\n'
@@ -129,7 +130,8 @@ it('ignores valid, corrupt and deleted legacy telemetry without removing refs, p
   assert.equal(git(R, ['rev-parse', ref]), valid)
   assert.equal(git(R, ['rev-parse', pin]), valid)
   assert.equal(store.rev('refs/heads/bob/telemetry'), null, 'a fetched legacy stream is never promoted')
-  assert.equal(git(R, ['rev-parse', 'refs/remotes/origin/bob/telemetry']), corrupt)
+  assert.equal(store.rev('refs/remotes/origin/bob/telemetry'), null, 'unsupported refs are no longer fetched')
+  assert.equal(git(R, ['rev-parse', 'refs/remotes/origin/alice/telemetry']), valid, 'preexisting staging evidence is retained')
   assert.equal(fs.readFileSync(alarmFile, 'utf8'), durable)
   assert.throws(() => validateRef(store.h, ref, valid), /unknown actor stream/)
   git(R, ['push', '-q', origin, `:${ref}`, ':refs/heads/bob/telemetry'])
@@ -138,6 +140,7 @@ it('ignores valid, corrupt and deleted legacy telemetry without removing refs, p
   assert.deepEqual(loadRoom(reopen(f.H, R), 'bob').st.alarms, [])
   assert.equal(git(R, ['rev-parse', ref]), valid)
   assert.equal(git(R, ['rev-parse', pin]), valid)
+  assert.equal(git(R, ['rev-parse', 'refs/remotes/origin/alice/telemetry']), valid)
   assert.equal(fs.readFileSync(alarmFile, 'utf8'), durable)
   const current = {'refs/heads/alice/signals': 'current signal conflict', 'refs/heads/chat': 'current chat conflict', 'refs/heads/main': 'current main conflict'}
   fs.writeFileSync(alarmFile, JSON.stringify({...current, [ref]: 'legacy conflict', 'refs/heads/main/telemetry': 'unsupported alarm'}))

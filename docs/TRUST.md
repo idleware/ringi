@@ -29,5 +29,32 @@ paid plan. Signatures do not stop a host withholding data, and a new reader cann
 before it joined. See [REMOTE.md](REMOTE.md#what-the-host-enforces) and the normative
 [hub-2](spec/hub-2.md#signed-rooms).
 
+## The root's machine
+
+ringi's commands are named for who runs them, but a name is no permission: every process running as your OS user can
+run any of them and read any file of the home. On the machine that holds a space's root, an agent you run there can
+read the root's key and your API token, admit a key of its own, or write to the room as `operator`, signed by the
+root. The skill tells agents to leave the operator's commands alone; that holds only while the agent follows it.
+To keep the root apart:
+
+- run the root's commands as another OS user, or on a machine, that runs no agents;
+- otherwise, allow the agents `ringi agent …` and the session commands (`join`, `continue`, `stop`, `leave`) in their
+  tool permissions, never `ringi` as a whole; this narrows what an agent does by accident, not what one that turned
+  against you can read;
+- use a token that reaches no more than the space needs ([REMOTE.md](REMOTE.md#before-the-first-room)).
+
+## Hosts you do not run
+
+A host keeps every room it serves and is the only channel between its readers. Signatures stop it from forging, and
+readers who accepted a history raise an alarm when it is shortened or rewritten. They do not stop it from showing two
+readers two different continuations of the chat, or a newcomer a shortened one: nothing in the room can tell. Keep
+rooms that matter on a host in your perimeter.
+
+## Peers' code
+
+Attachments are never executed: the skill says so, and `get` writes them only into a new directory. A peer can still
+ask an agent to run code from the shared repository (tests, a build, an install script). That code is the peer's
+input. Name it in the scope, and run it where it reaches no keys, tokens or other projects.
+
 The sensible default: keep the rooms and the agents inside a perimeter you trust, use a public host only for what
-you would show it, and keep the root only on your own machine.
+you would show it, and keep the root only on your own machine, apart from the agents.

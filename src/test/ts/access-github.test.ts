@@ -10,9 +10,11 @@ import path from 'node:path'
 import {spawn, spawnSync} from 'node:child_process'
 import {githubAccess} from '../../main/ts/adapters/access-github/index.ts'
 import {BASE, BIN} from './cli.ts'
+import {fixtureAccess} from './access-fixture.ts'
+import {identityCases} from './access-identity-cases.ts'
 
 type Key = {id: number, key: string, title: string, read_only: boolean}
-type Repo = {name: string, private: boolean, keys: Key[], collaborators: string[]}
+type Repo = {id: number, name: string, private: boolean, chat?: boolean, keys: Key[], collaborators: string[]}
 const HOST_KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl'
 
 // A GitHub that knows one organisation, one token and the calls the adapter makes; a page holds two entries.
@@ -21,7 +23,7 @@ const fake = async (t: TestContext, served?: string) => {
   const users = new Map<string, {id: number, keys: string[], type: string}>([['root', {id: 1, keys: [], type: 'User'}],
     ['claude-vm', {id: 2, keys: [], type: 'User'}], ['team-bot', {id: 3, keys: [], type: 'Organization'}]])
   const org: {plan: {name: string}, default_repository_permission?: string} = {plan: {name: 'free'}, default_repository_permission: 'read'}
-  let nextKey = 100, limited = false, linkTo: ((page: number) => string) | null = null
+  let nextKey = 100, nextRepo = 1, limited = false, linkTo: ((page: number) => string) | null = null
   const body = (req: http.IncomingMessage): Promise<Record<string, unknown>> => new Promise(done => {
     let s = ''
     req.on('data', c => { s += c })
@@ -54,13 +56,14 @@ const fake = async (t: TestContext, served?: string) => {
     if (user) return send(200, {id: who!.id, login, type: who!.type})
     const sshUrl = (name: string) => served ? `file://${path.join(served, `${name}.git`)}` : `git@github.com:ringi/${name}.git`
     if (p === '/orgs/ringi/repos' && req.method === 'POST') {
-      repos.set(String(b.name), {name: String(b.name), private: !!b.private, keys: [], collaborators: ['root']})
+      repos.set(String(b.name), {id: nextRepo++, name: String(b.name), private: !!b.private, keys: [], collaborators: ['root']})
       if (served) spawnSync('git', ['init', '-q', '--bare', '-b', 'main', path.join(served, `${b.name}.git`)])
-      return send(201, {ssh_url: sshUrl(String(b.name))})
+      return send(201, {id: repos.get(String(b.name))!.id, private: !!b.private, ssh_url: sshUrl(String(b.name))})
     }
     const m = /^\/repos\/ringi\/([^/]+)(\/.*)?$/.exec(p), r = m && repos.get(m[1]), rest = m?.[2] ?? ''
     if (!r) return send(404, {message: 'Not Found'})
-    if (rest === '' && req.method === 'GET') return send(200, {ssh_url: sshUrl(r.name), private: r.private})
+    if (rest === '' && req.method === 'GET') return send(200, {id: r.id, ssh_url: sshUrl(r.name), private: r.private})
+    if (rest === '/branches/chat') return send(r.chat || served && spawnSync('git', ['--git-dir', path.join(served, `${r.name}.git`), 'show-ref', '--verify', '--quiet', 'refs/heads/chat']).status === 0 ? 200 : 404, {})
     if (rest === '' && req.method === 'DELETE') { repos.delete(r.name); return send(204) }
     if (rest === '/collaborators') return list(r.collaborators.map(login => ({login})))
     if (rest === '/keys' && req.method === 'POST') {
@@ -82,10 +85,11 @@ const fake = async (t: TestContext, served?: string) => {
   const auth = path.join(dir, 'token')
   fs.writeFileSync(auth, 's3cret\n', {mode: 0o600})
   const {port} = server.address() as {port: number}, space = `github://127.0.0.1:${port}/ringi`
-  return {repos, writes, users, org, auth, space, port, access: githubAccess(space, auth), limit: () => { limited = true }, link: (to: (page: number) => string) => { linkTo = to }}
+  return {repos, writes, users, org, auth, space, port, access: fixtureAccess(githubAccess(space, auth)), limit: () => { limited = true }, link: (to: (page: number) => string) => { linkTo = to }}
 }
 
 describe('access: github', () => {
+  identityCases(fake)
   it('makes a private room repository the root alone writes, and reports what GitHub enforces', async t => {
     const f = await fake(t)
     assert.deepEqual(await f.access.inspect(), {version: 'GitHub (free)', principal: 'root',

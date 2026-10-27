@@ -30,6 +30,7 @@ import {locationLifecycle} from '../../main/ts/core/hub/rooms/location-life.ts'
 import {roomRepositoryV4, repositoryIntent} from '../../main/ts/core/hub/rooms/repository-v2.ts'
 import {canonical, parseAddress} from '../../main/ts/core/hub/rooms/address.ts'
 import {reservationParameters} from '../../main/ts/core/hub/rooms/reservation.ts'
+import {checkProvisionedChat} from '../../main/ts/core/hub/rooms/provision-chat.ts'
 
 const fixture = (t: TestContext, signed = false, requiredCapability = true, address = 'local://r') => {
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ringi-registered-')))
@@ -148,23 +149,86 @@ describe('git/4 registered room integration', () => {
     for (const bad of ['git+https://user:secret@fixture.invalid/r', 'git+https://fixture.invalid/r?token=secret', 'git+file:///tmp/r#fragment']) {
       assert.throws(() => f.catalogue.bindRemote(f.reserved.id, bad), /credentials, query or fragment/)
     }
-    const bound = f.catalogue.bindRemote(f.reserved.id, remote)
+    const generation = f.reserved.reservation!.generation
+    const bound = f.catalogue.bindProvider(f.reserved.id, generation, remote, '12')
     assert.equal(bound.reservation!.parameters, f.reserved.reservation!.parameters)
-    assert.equal(bound.reservation!.provision!.remote, remote)
+    assert.deepEqual(bound.reservation!.provision, {remote}, 'the registration keeps its original remote-only format')
+    assert.equal(roomCatalogue(f.state).providerId(bound.id, generation), '12', 'auxiliary provider identity survives reopening the catalogue')
+    assert.throws(() => f.catalogue.bindProvider(bound.id, generation, remote, '13'), /provider repository id changed/)
+    assert.throws(() => f.catalogue.bindProvider(bound.id, generation, remote, '0'), /no stable repository id/)
     const retry = f.catalogue.reserve({owner: f.H.d, operation: 'create-1', parameters}, () => {throw Error('must not redraw a target')})
     assert.deepEqual(retry, bound)
     assert.throws(() => f.catalogue.bindRemote(bound.id, remote + '-changed'), /provider result changed/)
     assert.throws(() => createRegisteredRoom(f.H, bound.id, f.target, f.transport, f.spec), /differs from the durable/)
     assert.equal(fs.existsSync(f.target), false)
     const spec = {...f.spec, reach: {remote}}, repository = roomRepositoryV4(f.H, f.transport, f.source, spec), life = locationLifecycle(f.state, roomFiles)
+    assert.throws(() => checkProvisionedChat(f.H, bound.id, spec, f.transport), /no locally witnessed room genesis/)
     assert.throws(() => life.create(bound.id, f.target, {...repository, create(p) {repository.create(p); throw Error('fixture crash after provisioned genesis')}}), /fixture crash/)
+    checkProvisionedChat(f.H, bound.id, spec, f.transport)
     life.create(bound.id, f.target, {...repository, create() {assert.fail('must recover')}})
     const R = openRegisteredRoom(f.H, bound.address, f.transport)
     const commitment = createHash('sha256').update(reservationParameters({parameters, provision: {remote}})).digest('hex')
     assert.ok(R.s.control[0].text.includes('Creation-Intent: ' + commitment))
     assert.equal(R.endpoint.store.remote, remote); assert.equal(R.s.control.length, 1)
-    assert.deepEqual(f.catalogue.bindRemote(bound.id, remote).reservation!.provision, {remote})
+    assert.deepEqual(f.catalogue.bindProvider(bound.id, generation, remote, '12').reservation!.provision, {remote})
     assert.equal(R.s.control[0].text.includes('private-account-not-published'), false)
+    checkProvisionedChat(f.H, bound.id, spec, f.transport)
+    git(f.source.h, ['push', '-q', origin, '+refs/heads/main:refs/heads/chat'])
+    assert.throws(() => checkProvisionedChat(f.H, bound.id, spec, f.transport), /ALARM|genesis/)
+  })
+  it('resumes an interrupted provider binding from the durable ID before resolving its locator', t => {
+    for (const stop of ['provider', 'registration', 'after-registration']) {
+      const f = fixture(t, true, true, 'forgejo://fixture.invalid/team/r'), r = f.reserved
+      const generation = r.reservation!.generation, remote = 'git+ssh://git@fixture.invalid/team/r.git', write = f.state.write
+      f.state.write = (key, value) => {
+        if (key.at(-1) === stop) throw Error('fixture interrupted bind')
+        write(key, value)
+        if (stop === 'after-registration' && key.at(-1) === 'registration') throw Error('fixture interrupted bind')
+      }
+      assert.throws(() => f.catalogue.bindProvider(r.id, generation, remote, '12'), /fixture interrupted bind/)
+      f.state.write = write
+      const reopened = roomCatalogue(f.state), saved = reopened.providerId(r.id, generation)
+      assert.equal(saved, stop === 'provider' ? undefined : '12')
+      assert.deepEqual(reopened.get(r.id)!.reservation!.provision, stop === 'after-registration' ? {remote} : undefined)
+      if (saved) assert.throws(() => reopened.bindProvider(r.id, generation, remote, '13'), /repository id changed/)
+      assert.deepEqual(reopened.bindProvider(r.id, generation, remote, '12').reservation!.provision, {remote})
+      assert.equal(reopened.providerId(r.id, generation), '12')
+    }
+  })
+  it('does not infer legacy provider identities or ignore malformed and stale auxiliary records', t => {
+    const f = fixture(t, true, true, 'forgejo://fixture.invalid/team/r'), r = f.reserved
+    const generation = r.reservation!.generation, remote = 'git+ssh://git@fixture.invalid/team/r.git', key = ['catalogue', 'rooms', r.id, 'provider']
+    assert.throws(() => f.catalogue.bindProvider(r.id, generation, remote + '?secret=fixture', '12'), /credentials, query or fragment/)
+    assert.equal(f.state.read(key, null), null, 'invalid intent cannot leave a provider fact')
+    f.catalogue.bindRemote(r.id, remote)
+    assert.equal(f.catalogue.providerId(r.id, generation), undefined)
+    assert.throws(() => f.catalogue.bindProvider(r.id, generation, remote, '12'), /no legacy identity is inferred/)
+    assert.equal(f.state.read(key, null), null)
+    for (const record of [{repositoryId: '12'}, {repositoryId: 12, generation}, {repositoryId: '12', generation, extra: true}, {repositoryId: '12', generation: 'previous-incarnation'}]) {
+      f.state.write(key, record)
+      assert.throws(() => f.catalogue.providerId(r.id, generation), /invalid provider record|another reservation incarnation/)
+      assert.throws(() => f.catalogue.bindProvider(r.id, generation, remote, '12'), /invalid provider record|another reservation incarnation/)
+      assert.deepEqual(f.state.read(key, null), record, 'refusal retains evidence')
+    }
+  })
+  it('archives the auxiliary provider identity and fences stale requests after address reuse', t => {
+    const f = fixture(t, true, true, 'forgejo://fixture.invalid/team/r'), r = f.reserved, generation = r.reservation!.generation
+    const origin = path.join(f.base, 'provider.git'); git(f.source.h, ['init', '-q', '--bare', '-b', 'main', origin])
+    const remote = 'git+' + pathToFileURL(origin).href, key = ['catalogue', 'rooms', r.id, 'provider']
+    f.catalogue.bindProvider(r.id, generation, remote, '12')
+    const R = createRegisteredRoom(f.H, r.id, f.target, f.transport, {...f.spec, reach: {remote}})
+    const gone = deleteRegisteredRoom(R, {confirmed: true, mode: 'unregister'})
+    const archived = JSON.parse(fs.readFileSync(path.join(gone.archive, 'provider.json'), 'utf8'))
+    assert.deepEqual(archived, {repositoryId: '12', generation})
+    const next = f.catalogue.reserve({owner: f.H.d, operation: 'create-2', parameters: JSON.parse(r.reservation!.parameters)},
+      () => ({address: r.address, name: r.name, generation: 'generation-2'}))
+    assert.equal(next.id, r.id)
+    assert.throws(() => f.catalogue.providerId(r.id, generation), /incarnation changed/)
+    assert.throws(() => f.catalogue.bindProvider(r.id, generation, remote, '13'), /incarnation changed/)
+    assert.equal(f.catalogue.providerId(next.id, 'generation-2'), undefined)
+    f.state.write(key, archived)
+    assert.throws(() => f.catalogue.providerId(next.id, 'generation-2'), /another reservation incarnation/)
+    assert.throws(() => f.catalogue.bindProvider(next.id, 'generation-2', remote, '13'), /another reservation incarnation/)
   })
   it('retries only its own empty denied attachment with unchanged endpoint and identity', t => {
     const f = fixture(t, true), R = createRegisteredRoom(f.H, f.reserved.id, f.target, f.transport, f.spec), store = R.store as GitStore

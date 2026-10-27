@@ -3,6 +3,7 @@
 
 import fs from 'node:fs'
 import {fail} from '../../lib/index.ts'
+import {apiRequest} from '../http/request.ts'
 
 export type Call = <T>(method: string, path: string, body?: unknown) => Promise<T | null>
 
@@ -25,7 +26,8 @@ export const space = (address: string): {api: string, org: string} => {
 }
 // A missing thing read is none; any other failure is the forge's words.
 export const caller = (api: string, authRef: string): Call => async <T>(method: string, path: string, body?: unknown): Promise<T | null> => {
-  const r = await fetch(api + path, {method, redirect: 'error', headers: {Authorization: `token ${token(authRef)}`, 'Content-Type': 'application/json'},
+  const secret = token(authRef)
+  const r = await apiRequest(`Forgejo ${method} ${path}`, secret, api + path, {method, headers: {Authorization: `token ${secret}`, 'Content-Type': 'application/json'},
     ...(body === undefined ? {} : {body: JSON.stringify(body)})})
   if (r.status === 404 && method === 'GET') return null
   if (!r.ok) fail(`Forgejo ${method} ${path}: ${r.status} ${(await r.text()).slice(0, 200)}`)

@@ -7,6 +7,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {spawn, spawnSync} from 'node:child_process'
+import {createHash} from 'node:crypto'
 import {fileURLToPath, pathToFileURL} from 'node:url'
 import {locked} from '../../main/ts/adapters/fs/index.ts'
 import {BASE, quote} from './cli.ts'
@@ -27,6 +28,38 @@ const world = (t: TestContext) => {
   const lastId = (args: string[]): string => /(?:sent|proposed) ([0-9a-f]{12})/.exec(ok(args))?.[1] ?? assert.fail('CLI returned no message id')
   return {home, ok, json, lastId}
 }
+
+describe('Node implementation: directory identity', () => {
+  it('keeps rooms when a restart renumbers the file system, and still refuses another directory at the path', t => {
+    const w = world(t)
+    w.ok(['room', 'create', 'r'])
+    w.ok(['join', 'r', '--as', 'codex'], {as: 'C'})
+    w.ok(['send', '--to', 'codex', '-m', 'before'])
+    // As if the room was made while the volume had another device number (macOS gives one at each mount): every
+    // pinned identity keeps its inode and birth time, and an allocation is filed under the identity it was made with.
+    const renumber = (s: string) => s.replace(/("identity":\s*")(\d+):/g, (_, head: string, dev: string) => `${head}${Number(dev) + 4}:`)
+    for (const f of fs.readdirSync(w.home, {recursive: true}).map(String).filter(f => f.endsWith('.json'))) {
+      const file = path.join(w.home, f), text = fs.readFileSync(file, 'utf8')
+      if (!text.includes('"identity"')) continue
+      fs.writeFileSync(file, renumber(text))
+      if (path.basename(path.dirname(file)) !== 'room-allocations') continue
+      const source = JSON.parse(renumber(text)).source.identity as string
+      fs.renameSync(file, path.join(path.dirname(file), createHash('sha256').update(source).digest('hex') + '.json'))
+    }
+    assert.match(w.ok(['agent', 'inbox'], {as: 'C'}), /before/)
+    w.ok(['send', '--to', 'codex', '-m', 'after'])
+    // A copy at the room's path is another object: refused, whatever its device.
+    const repo = path.join(w.home, 'rooms', 'r'), aside = `${repo}.aside`
+    fs.renameSync(repo, aside)
+    fs.cpSync(aside, repo, {recursive: true})
+    const copy = spawnSync(NODE, [CLI, 'where'], {encoding: 'utf8', env: {...BASE, RINGI_HOME: w.home}})
+    assert.notEqual(copy.status, 0)
+    assert.match(copy.stderr, /changed/)
+    fs.rmSync(repo, {recursive: true, force: true})
+    fs.renameSync(aside, repo)
+    assert.match(w.ok(['room', 'delete', 'r', '--yes']), /deleted room local:\/\/r/)
+  })
+})
 
 describe('Node implementation: main', () => {
   it('handles a closed stdout when called through its public export', t => {

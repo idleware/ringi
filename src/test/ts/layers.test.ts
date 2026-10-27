@@ -9,7 +9,7 @@ import {fileURLToPath} from 'node:url'
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../main/ts')
 // Libraries the adapters share; any adapter may use them, and they use no other adapter.
-const SHARED = ['adapters/fs']
+const SHARED = ['adapters/fs', 'adapters/http']
 const ADAPTER = ['core/hub', 'core/agents', 'core/signing', ...SHARED, 'lib']
 const RULES: Record<string, string[]> = {
   lib: [],
@@ -17,6 +17,7 @@ const RULES: Record<string, string[]> = {
   'core/hub': ['lib'],
   'core/agents': ['core/hub', 'lib'],
   'adapters/fs': ['lib'],
+  'adapters/http': ['lib'],
   adapter: ADAPTER,
   'clients/cli': ['core/hub', 'core/agents', 'lib'],
   // The only domain that knows the adapters.

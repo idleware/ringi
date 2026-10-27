@@ -10,7 +10,7 @@ import type {Access, AccessType} from '../../core/hub/ports/access.ts'
 import {spaceOf} from './space.ts'
 import type {Org} from './space.ts'
 import {account, accountKeys, deployKey, deployKeys, dropDeployKey, hostKeys, ownKey} from './keys.ts'
-import {effective, ensureRoom} from './repos.ts'
+import {deleteServer, effective, ensureRoom} from './repos.ts'
 
 const OPERATOR = 'operator'
 const ACCOUNT_MODE = 'GitHub rooms take deploy keys here: keeping an account to its own branch needs a paid plan, which ringi does not support yet'
@@ -24,7 +24,7 @@ const github = (address: string, authRef: string): Access => {
         can: {actorBranches: false, privateRepos: true, deleteServer: true, refuseForcePush: false, accountKeys: true, deployKeys: true, hostKeysByApi: true}}
     },
     ownKey: key => ownKey(S, key),
-    ensureRoom: room => ensureRoom(S, room),
+    ensureRoom: (room, intent) => ensureRoom(S, room, intent),
     account: login => account(S, login),
     accountKeys: a => accountKeys(S, a),
     grant: async (_room, actor) => fail(actor === OPERATOR ? 'the operator\'s signals are the root\'s' : ACCOUNT_MODE),
@@ -34,10 +34,7 @@ const github = (address: string, authRef: string): Access => {
     dropDeployKey: (room, record) => dropDeployKey(S, room, record),
     deployKeys: room => deployKeys(S, room),
     hostKeys: () => hostKeys(S),
-    deleteServer: async room => {
-      await S.call('DELETE', S.repo(room))
-      if (await S.call('GET', S.repo(room))) fail(`${S.org}/${room} is still on GitHub after deleting it`)
-    },
+    deleteServer: (room, id) => deleteServer(S, room, id),
   }
 }
 export const githubAccess: AccessType = github

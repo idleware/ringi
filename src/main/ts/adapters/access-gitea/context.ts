@@ -5,7 +5,7 @@ import {caller, space} from './api.ts'
 import {rulesOf} from './rules.ts'
 import {same} from './policy.ts'
 import type {Api} from './api.ts'
-export type Repo = {private?: unknown, ssh_url?: unknown}
+export type Repo = {id?: unknown, private?: unknown, ssh_url?: unknown}
 
 export class Context {
   readonly api: Api

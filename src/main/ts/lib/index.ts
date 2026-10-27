@@ -21,7 +21,15 @@ export const when = (t: number): string => `${new Date(t * 1000).toISOString().s
 export const bytes = (n: number): string => n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : `${(n / (1 << 20)).toFixed(1)} MB`
 export const short = (id: string): string => id.slice(0, 12)
 export const stamp = (): string => new Date().toISOString().slice(0, 19) + 'Z'
+// A directory object's identity, `device:inode:birth`, compared without the device: a file system gets its device
+// number when it is mounted, and it may change when the machine restarts (macOS APFS, containers); the object keeps
+// its inode and birth time, and a copy or another object at its path does not.
+export const objectOf = (identity: string): string => identity.slice(identity.indexOf(':') + 1)
+export const sameObject = (a: string, b: string): boolean => objectOf(a) === objectOf(b)
 export const words = (v: unknown): string[] => v ? String(v).split(/[\s,]+/).filter(Boolean) : []
+// Text for a terminal: its control characters shown as \xNN instead of obeyed; newline and tab kept.
+export const shown = (text: string): string =>
+  text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, c => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`)
 
 export * from './fail.ts'
 export * from './json.ts'

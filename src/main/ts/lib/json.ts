@@ -5,10 +5,12 @@
 import {fail} from './fail.ts'
 
 
+const MAX_DEPTH = 64
 const LITERAL = /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/
 // A recursive-descent check of JSON's structure: each kind of value is one small method.
 class Strict {
   at = 0
+  depth = 0
   readonly text: string
   readonly label: string
   constructor(text: string, label: string) { this.text = text; this.label = label }
@@ -25,11 +27,14 @@ class Strict {
   // The character after the next item: a comma, or the closing bracket.
   next(): string { this.ws(); return this.text[this.at++] }
   // Items between an opening bracket and `close`, separated by commas.
+  // Nested no deeper than any record ringi reads, so a hostile text cannot exhaust the stack.
   items(close: string, item: () => void): void {
+    if (++this.depth > MAX_DEPTH) this.bad()
     this.at++
-    if (this.peek() === close) { this.at++; return }
+    if (this.peek() === close) { this.at++; this.depth--; return }
     do item(); while (this.next() === ',')
     if (this.text[this.at - 1] !== close) this.bad()
+    this.depth--
   }
   object(): void {
     const keys = new Set<string>()

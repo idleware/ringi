@@ -30,8 +30,15 @@ const segment = (s: string): string =>
   !s || s === '.' || s === '..' || /[/\\\0]/.test(s) ? fail(`bad state key segment ${JSON.stringify(s)}`) : s
 
 type StateOptions = {root: string, build: Build}
+// The home holds the keys: it is the user's own and nobody else writes it.
+const own = (root: string): void => {
+  const st = fs.statSync(root)
+  if (process.getuid && st.uid !== process.getuid()) fail(`${root} belongs to another user; a ringi home is its user's own`)
+  if (st.mode & 0o022) fail(`${root} can be written by others (mode ${(st.mode & 0o777).toString(8)}); run chmod go-w ${root}`)
+}
 const ensureHome = (state: LocalState, build: Build, version: number): void => {
   const root = state.root, marker = path.join(root, 'home.json')
+  if (fs.existsSync(root)) own(root)
   if (fs.existsSync(marker)) {
     const v = readJson<{version?: number}>(marker, {}).version
     if (v !== version) fail(`${root} is a ringi home of version ${v}; this ringi ${build.version} needs version ${version}. Move it away (the ringi that made it still reads it with RINGI_HOME pointing there) or set RINGI_HOME to a new directory; ringi does not migrate`)

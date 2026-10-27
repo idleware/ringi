@@ -18,10 +18,13 @@ import {wireHub} from '../../main/ts/core/hub/ports/index.ts'
 import * as Create from '../../main/ts/core/hub/usecases/room-create.ts'
 import * as Rooms from '../../main/ts/core/hub/usecases/rooms.ts'
 import * as Membership from '../../main/ts/core/hub/usecases/membership.ts'
+import {deleteServerRoom} from '../../main/ts/core/hub/usecases/access.ts'
 import {BASE, BIN} from './cli.ts'
+import {fixtureAccess} from './access-fixture.ts'
+import {identityCases} from './access-identity-cases.ts'
 
 type Rule = {rule_name: string, enable_push: boolean, enable_push_whitelist: boolean, push_whitelist_usernames: string[], push_whitelist_deploy_keys: boolean}
-type Repo = {name: string, private: boolean, rules: Rule[], collaborators: Map<string, string>, tags: Array<{name_pattern: string, whitelist_usernames: string[]}>}
+type Repo = {id: number, name: string, private: boolean, chat?: boolean, rules: Rule[], collaborators: Map<string, string>, tags: Array<{name_pattern: string, whitelist_usernames: string[]}>}
 
 // A Forgejo that knows one organisation, one token and the calls the adapter makes; it records every write.
 const fake = async (t: TestContext, served?: string) => {
@@ -35,7 +38,7 @@ const fake = async (t: TestContext, served?: string) => {
     keys.get(user)!.push(String(b.key))
     return 201
   }
-  let admin = true, keepDeleted = false, ownKeyFails = false, keysMalformed = false
+  let admin = true, keepDeleted = false, ownKeyFails = false, keysMalformed = false, nextRepo = 1
   const ids = new Map([...keys.keys()].map((u, i) => [u, i + 1]))
   const body = (req: http.IncomingMessage): Promise<Record<string, unknown>> => new Promise(done => {
     let s = ''
@@ -67,17 +70,18 @@ const fake = async (t: TestContext, served?: string) => {
     if (enrol) { if (!admin) return send(403, {message: 'forbidden'}); const status = addKey(enrol[1], b); return send(status, status === 422 ? {message: 'Key title has been used'} : {}) }
     const sshUrl = (name: string) => served ? `file://${path.join(served, `${name}.git`)}` : `ssh://git@forge.test:2222/ringi/${name}.git`
     if (url === '/orgs/ringi/repos' && req.method === 'POST') {
-      const r: Repo = {name: String(b.name), private: !!b.private, rules: [], collaborators: new Map(), tags: []}
+      const r: Repo = {id: nextRepo++, name: String(b.name), private: !!b.private, rules: [], collaborators: new Map(), tags: []}
       repos.set(r.name, r)
       if (served) spawnSync('git', ['init', '-q', '--bare', '-b', 'main', path.join(served, `${r.name}.git`)])
-      return send(201, {ssh_url: sshUrl(r.name)})
+      return send(201, {id: r.id, private: r.private, ssh_url: sshUrl(r.name)})
     }
     const m = /^\/repos\/ringi\/([^/]+)(\/.*)?$/.exec(url)
     const r = m && repos.get(m[1])
     if (!m) return send(404, {})
     if (!r) return send(404, {})
     const rest = m[2] ?? ''
-    if (rest === '' && req.method === 'GET') return send(200, {ssh_url: sshUrl(r.name), private: r.private})
+    if (rest === '' && req.method === 'GET') return send(200, {id: r.id, ssh_url: sshUrl(r.name), private: r.private})
+    if (rest === '/branches/chat') return send(r.chat || served && spawnSync('git', ['--git-dir', path.join(served, `${r.name}.git`), 'show-ref', '--verify', '--quiet', 'refs/heads/chat']).status === 0 ? 200 : 404, {})
     if (rest === '' && req.method === 'DELETE') { if (!keepDeleted) repos.delete(r.name); return send(204) }
     if (rest === '/branch_protections' && req.method === 'GET') return send(200, r.rules)
     if (rest === '/branch_protections' && req.method === 'POST') { r.rules.push(b as unknown as Rule); return send(201, b) }
@@ -107,10 +111,11 @@ const fake = async (t: TestContext, served?: string) => {
     titled: (user: string, key: string, title: string) => { keys.get(user)!.push(key); titles.set(user, [...titles.get(user) ?? [], title]) },
     ownKeyFailsOnce: () => { ownKeyFails = true },
     keysMalformed: () => { keysMalformed = true },
-    access: forgejoAccess(`forgejo://127.0.0.1:${port}/ringi`, auth)}
+    access: fixtureAccess(forgejoAccess(`forgejo://127.0.0.1:${port}/ringi`, auth))}
 }
 
 describe('access: forgejo', () => {
+  identityCases(fake)
   it('makes a private room repository that only the root may push, its own signals too, and asking again changes nothing', async t => {
     const f = await fake(t)
     assert.deepEqual(await f.access.inspect(), {version: '13.0.0', principal: 'root', can: {actorBranches: true, privateRepos: true, deleteServer: true, refuseForcePush: true, accountKeys: true, deployKeys: false, hostKeysByApi: false}})
@@ -302,6 +307,7 @@ describe('rooms in a space, through the command line', () => {
     assert.equal(f.repos.get('fix')!.private, true)
     assert.match(made, new RegExp(`created room ${room.replace(/[.]/g, '\\.')} with profile a2a-1`))
     const invitation = /claude-zurich joins as claude-zurich: .*\n {2}ringi join (ringi:\S+)/.exec(made)![1]
+    const root = /the root of .*: (SHA256:\S+);/.exec(made)![1]
     // A create that stopped after its room was made finishes the root's list when run again, and says nothing new
     // once it is complete.
     const lists = fs.readdirSync(path.join(op, 'catalogue', 'rooms'), {recursive: true}).map(String).filter(x => x.endsWith('invitations.json'))
@@ -324,12 +330,17 @@ describe('rooms in a space, through the command line', () => {
     const first = await run(agent, ['join', invitation], 'C')
     assert.equal(first.code, 3, first.err)
     const key = /ringi room admit claude-zurich '([^']+)'/.exec(first.out)![1]
+    // Fingerprints the operator compares on both machines: the root this one pinned, and the key admit takes.
+    assert.ok(first.out.includes(`the room's root, as this machine pinned it: ${root};`), first.out)
+    const print = /'s key on this machine \((SHA256:\S+)\)/.exec(first.out)![1]
     assert.equal(/ringi room admit claude-zurich '([^']+)'/.exec((await run(agent, ['join', invitation], 'C')).out)![1], key, 'the key it was shown is the one it joins with')
     // The host vouches for the key: until it is on the invited account, nothing is written.
     assert.match((await run(op, ['room', 'admit', 'claude-zurich', key])).err, /this key is not on claude-zurich's SSH keys on the forge/)
     assert.match((await run(op, ['room', 'admit', 'mallory', key])).err, /mallory was never invited/)
     f.keys.get('claude-zurich')!.push(key)
-    assert.match(await ok(op, ['room', 'admit', 'claude-zurich', key]), /admitted claude-zurich to .* as claude-zurich on the forge/)
+    const admitted = await ok(op, ['room', 'admit', 'claude-zurich', key])
+    assert.match(admitted, /admitted claude-zurich to .* as claude-zurich on the forge/)
+    assert.ok(admitted.includes(`the key admitted: ${print},`), admitted)
     assert.deepEqual(await f.access.effective('fix'), {main: ['root'], chat: ['root', 'claude-zurich'], signals: {operator: 'root', 'claude-zurich': 'claude-zurich'}})
     assert.match(await ok(agent, ['join', invitation], 'C'), /joined forgejo:\/\/127\.0\.0\.1:\d+\/ringi\/fix as claude-zurich/)
     // The fake enforces no rules on a push: what both sides really push is held against the matrix instead.
@@ -399,7 +410,8 @@ describe('rooms in a space, through the command line', () => {
   it('writes nothing, here or on the forge, through a view of a room deleted and made again at its address', async t => {
     const {base, served, f, pins} = await machine(t), room = `${f.space}/fix`
     const old = (await Create.create(room, {invite: ['claude-zurich'], tokenFile: f.auth, hostKeyFile: pins})).R
-    await f.access.deleteServer('fix')
+    const registered = Rooms.doomed(room)
+    await f.access.deleteServer('fix', Rooms.catalogue().providerId(registered.id, registered.reservation!.generation)!)
     fs.rmSync(path.join(served, 'fix.git'), {recursive: true})
     Rooms.erase(Rooms.doomed(room))
     const now = (await Create.create(room, {invite: ['claude-zurich']})).R
@@ -412,5 +424,14 @@ describe('rooms in a space, through the command line', () => {
     await assert.rejects(Membership.removeFromSpace(old, 'claude-zurich'), /incarnation changed|of another room|never invited/)
     assert.equal(f.writes.length, writes, 'nothing written on the forge')
     assert.equal(Rooms.roomNamed(room).head, head, 'nothing written in the room')
+  })
+  it('refuses server deletion without a saved local identity and gives manual host recovery guidance', async t => {
+    const {f, state, pins} = await machine(t), address = `${f.space}/legacy`
+    await Create.create(address, {tokenFile: f.auth, hostKeyFile: pins})
+    const r = Rooms.doomed(address), before = [...f.writes]
+    state.remove(['catalogue', 'rooms', r.id, 'provider'])
+    await assert.rejects(deleteServerRoom(r), /no saved provider repository id; server deletion is refused; delete it on the host yourself/)
+    assert.deepEqual(f.writes, before)
+    assert.ok(f.repos.has('legacy'))
   })
 })

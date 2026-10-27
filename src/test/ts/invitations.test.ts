@@ -69,6 +69,7 @@ describe('invitations: the root\'s list', () => {
     const old = 'ringi:' + Buffer.from(JSON.stringify({schema: 'ringi-invite/2'})).toString('base64url')
     assert.throws(() => readInvite(old), /is ringi-invite\/2; this ringi reads ringi-invite\/3/)
     assert.throws(() => inviteV3({...fields, actor: 'Alice'}), /no invitation can be made/)
+    assert.throws(() => readInvite('ringi:' + 'A'.repeat(20000)), /longer than any ringi makes/)
   })
 
   it('picks the joiner\'s key: the realm\'s for an account\'s first actor, a room key for a returning one or a deploy key', () => {

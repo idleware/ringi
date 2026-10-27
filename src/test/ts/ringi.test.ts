@@ -332,7 +332,7 @@ describe('journals and attachments', () => {
     w.ok(['room', 'create', 'r'])
     w.ok(['join', 'r', '--as', 'codex'], {as: 'C'})
     w.ok(['agent', 'send', '--to', 'operator', '-m', 'valid other log'], {as: 'C'})
-    for (const value of ['not json', '[1]', '["../x"]', '["x", "x"]', '["A", "a"]', '[]\nRingi-Files: []', '["\\u001b"]']) {
+    for (const value of ['not json', '[1]', '["../x"]', '["x", "x"]', '["A", "a"]', '[]\nRingi-Files: []', '["\\u001b"]', '[".GIT/config"]', '[".g\\u200cit/config"]']) {
       const id = w.forge('operator', `bad attachment\n\nTo: codex\nRingi-Files: ${value}`)
       const records = w.json(['log'])
       const bad = records.find(m => m.id === id)!
@@ -392,6 +392,27 @@ describe('journals and attachments', () => {
     fs.writeFileSync(big, '')
     fs.truncateSync(big, 65 << 20)
     w.no(['send', '--to', 'codex', '-m', 'big', '--attach', big], /at most 64 MiB/)
+  })
+
+  it('gets a message\'s files only into a directory it makes, never over a file or through a link', t => {
+    const w = world(t)
+    w.ok(['room', 'create', 'r'])
+    const work = fs.mkdtempSync(path.join(w.home, 'work-'))
+    const id = w.lastId(['send', '-m', 'files', '--attach', `${w.fixture}:.claude/settings.json`, '--attach', `${w.fixture}:link/x.txt`])
+    // Into a project, a peer's paths would overwrite its files: an existing directory is refused, whatever it holds.
+    const project = path.join(work, 'project'), outside = path.join(work, 'outside')
+    fs.mkdirSync(path.join(project, '.claude'), {recursive: true})
+    fs.mkdirSync(outside)
+    fs.writeFileSync(path.join(project, '.claude/settings.json'), 'mine')
+    fs.symlinkSync(outside, path.join(project, 'link'))
+    w.no(['get', id, '-o', project], /exists; get writes into a new directory/)
+    assert.equal(fs.readFileSync(path.join(project, '.claude/settings.json'), 'utf8'), 'mine')
+    assert.deepEqual(fs.readdirSync(outside), [])
+    const fresh = path.join(work, 'new', 'files')
+    w.ok(['get', id, '-o', fresh])
+    assert.equal(fs.readFileSync(path.join(fresh, '.claude/settings.json'), 'utf8'), fs.readFileSync(w.fixture, 'utf8'))
+    assert.equal(fs.lstatSync(path.join(fresh, 'link')).isDirectory(), true)
+    w.no(['get', id, '-o', fresh], /exists/)
   })
 
   it('quarantines rewritten, deleted and foreign histories', (t) => {
@@ -454,6 +475,12 @@ describe('contracts', () => {
     const w4 = world(t)
     fs.writeFileSync(path.join(w4.home, 'home.json'), JSON.stringify({version: 3}))
     w4.no(['room', 'list'], /ringi home of version 3; this ringi .* needs version 5\. Move it away/)
+    // The home holds keys: its records are owner-only, and a home others can write is refused.
+    const files = fs.readdirSync(w.home, {recursive: true}).map(String)
+    assert.equal(fs.statSync(path.join(w.home, 'home.json')).mode & 0o777, 0o600)
+    assert.deepEqual(files.filter(f => /\.json\.\d+\./.test(f)), [], 'no temporary file is left')
+    fs.chmodSync(w4.home, 0o775)
+    w4.no(['room', 'list'], /can be written by others \(mode 775\); run chmod go-w/)
   })
 
 })

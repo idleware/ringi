@@ -1,8 +1,9 @@
 // Controlled page numbers read even server-capped lists to an empty page, without following remote URLs.
 import {fail} from '../../lib/index.ts'
 import type {Send} from './request.ts'
+import type {ApiReply} from '../http/request.ts'
 
-const countOf = (r: Response, previous: number | undefined): number | undefined => {
+const countOf = (r: ApiReply, previous: number | undefined): number | undefined => {
   const value = r.headers.get('x-total-count')
   if (value === null) return previous
   const count = Number(value)
@@ -10,13 +11,13 @@ const countOf = (r: Response, previous: number | undefined): number | undefined 
   if (previous !== undefined && count !== previous) fail('Gitea returned an inconsistent list count')
   return count
 }
-const pageOf = async <T>(r: Response, path: string, accept: (x: unknown) => x is T): Promise<T[]> => {
+const pageOf = async <T>(r: ApiReply, path: string, accept: (x: unknown) => x is T): Promise<T[]> => {
   if (r.status === 404) fail(`Gitea ${path}: no complete list`)
   const page: unknown = await r.json()
   if (!Array.isArray(page) || !page.every(accept)) return fail(`Gitea ${path}: not a list of the requested records`)
   return page
 }
-const complete = (r: Response, count: number | undefined, length: number) => {
+const complete = (r: ApiReply, count: number | undefined, length: number) => {
   if (count !== undefined && count !== length) fail('Gitea returned an incomplete list')
   if (r.headers.get('link')?.includes('rel="next"')) fail('Gitea returned an incomplete list')
 }

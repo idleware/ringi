@@ -10,14 +10,15 @@ import {adoptHub, adoptRegisteredRoom, roomContextKey} from '../../hub/rooms/ind
 import {roomCatalogue, registrationId} from '../../hub/rooms/room-catalogue.ts'
 import type {JoinKey, RoomEndpointV2, StoreV4, TransportV4} from '../../hub/ports/store.ts'
 import {roomNamed, transportOfHub} from '../../hub/usecases/rooms.ts'
-import {keyRefFor} from '../../hub/usecases/invite.ts'
+import {fingerprintOf, keyRefFor} from '../../hub/usecases/invite.ts'
 import type {InviteV3} from '../../hub/usecases/invite.ts'
 import {fail} from '../../../lib/index.ts'
 
-// Not admitted yet: the key the root admits, and in account mode the account and host it goes on first.
-export type Pending = {key: JoinKey, login: string | null, realm: string | null}
-export const pendingOf = (x: InviteV3 | null, key: JoinKey): Pending => x && !('label' in x.principal)
-  ? {key, login: x.principal.login, realm: x.principal.realm} : {key, login: null, realm: null}
+// Not admitted yet: the key the root admits, in account mode the account and host it goes on first, and the root this
+// machine pinned, for the operator to compare with the root's own machine.
+export type Pending = {key: JoinKey, login: string | null, realm: string | null, root: string | null}
+export const pendingOf = (x: InviteV3 | null, key: JoinKey): Pending => ({key, root: x ? fingerprintOf(x.root) : null,
+  ...x && !('label' in x.principal) ? {login: x.principal.login, realm: x.principal.realm} : {login: null, realm: null}})
 // A join the host refused so far, kept until it succeeds: the same endpoint, directory and key on every retry.
 const pendingKey = (x: InviteV3) => ['joins', registrationId(x.address)]
 // The endpoint an invitation pins, in a directory of this machine's own: the room's address and history, the root,

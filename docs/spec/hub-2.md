@@ -54,8 +54,9 @@ $RINGI_HOME/                         unset: ~/.ringi
   trash/, room-archives/             what `room delete` moved aside: a room's repository, its registration and lists
 ```
 
-A room's endpoint pins where its repository is on this machine (the directory and its file-system identity), so a
-copy or a moved directory is not mistaken for it; its `keyRef` names the key it signs and reaches with, the same one.
+A room's endpoint pins where its repository is on this machine (the directory and its file-system identity, compared
+by inode and birth time: the device number a file system gets when it is mounted may change when the machine
+restarts), so a copy or a moved directory is not mistaken for it; its `keyRef` names the key it signs and reaches with, the same one.
 
 A room's git store (layout `git/4`), one repository per room:
 

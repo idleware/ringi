@@ -8,14 +8,17 @@ import os from 'node:os'
 import path from 'node:path'
 import {giteaAccess} from '../../main/ts/adapters/access-gitea/index.ts'
 import type {Rule} from '../../main/ts/adapters/access-gitea/rules.ts'
+import {fixtureAccess} from './access-fixture.ts'
+import {identityCases} from './access-identity-cases.ts'
 
 type Tag = {name_pattern: string, whitelist_usernames: string[], whitelist_teams: string[]}
-type Repo = {private: boolean, rules: Rule[], tags: Tag[], collaborators: Map<string, string>}
+type Repo = {id: number, private: boolean, chat?: boolean, rules: Rule[], tags: Tag[], collaborators: Map<string, string>}
 const fake = (t: TestContext) => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'ringi-gitea-'))
   const auth = path.join(base, 'dummy-token')
   fs.writeFileSync(auth, 'fixture-only-not-a-real-token', {mode: 0o600})
   const repos = new Map<string, Repo>(), calls: string[] = [], writes: string[] = []
+  let nextRepo = 1
   const users = new Map([['root', {id: 1, keys: [] as string[]}], ['alice', {id: 2, keys: [] as string[]}], ['bob', {id: 3, keys: [] as string[]}]])
   const mode = {version: '1.25.0', fail: '', status: 503, total: '', permission: '',
     readbackPushers: '', ignorePriority: false, badKeys: false, hostileLink: false, keepDeleted: false}
@@ -51,13 +54,15 @@ const fake = (t: TestContext) => {
       return response({login, id: value.id})
     }
     if (p === '/orgs/team/repos' && method === 'POST') {
-      repos.set(String(b.name), {private: b.private === true, rules: [], tags: [], collaborators: new Map([['root', 'admin']])})
-      return response({}, 201)
+      const r = {id: nextRepo++, private: b.private === true, rules: [], tags: [], collaborators: new Map([['root', 'admin']])}
+      repos.set(String(b.name), r)
+      return response({id: r.id, private: r.private, ssh_url: `git@gitea.example.invalid:team/${b.name}.git`}, 201)
     }
     const match = /^\/repos\/team\/([^/]+)(.*)$/.exec(p), r = match && repos.get(match[1]), rest = match?.[2] ?? ''
     if (!r) return response({}, 404)
     if (!rest && method === 'DELETE') { if (!mode.keepDeleted) repos.delete(match![1]); return response(undefined, 204) }
-    if (!rest) return response({private: r.private, ssh_url: `git@gitea.example.invalid:team/${match![1]}.git`})
+    if (!rest) return response({id: r.id, private: r.private, ssh_url: `git@gitea.example.invalid:team/${match![1]}.git`})
+    if (rest === '/branches/chat') return response({}, r.chat ? 200 : 404)
     if (rest === '/branch_protections' && method === 'POST') {
       const rule = {...b, priority: mode.ignorePriority ? Math.max(0, ...r.rules.map(x => x.priority)) + 1 : b.priority} as Rule
       if (!rule.enable_push) rule.enable_push_whitelist = false
@@ -91,7 +96,7 @@ const fake = (t: TestContext) => {
     }
     throw new Error('unexpected fixture call ' + call)
   }
-  const access = giteaAccess('gitea://gitea.example.invalid/team', auth)
+  const access = fixtureAccess(giteaAccess('gitea://gitea.example.invalid/team', auth))
   const pushers = (room: string, branch: string) => {
     const r = repos.get(room)!, rule = [...r.rules].sort((a, b) => a.priority - b.priority).find(x => x.rule_name === branch || x.rule_name === '**')
     return rule?.enable_push && rule.enable_push_whitelist ? rule.push_whitelist_usernames : []
@@ -100,6 +105,7 @@ const fake = (t: TestContext) => {
 }
 
 describe('access: gitea', {concurrency: false}, () => {
+  identityCases(fake)
   it('accepts Gitea sorted pushers through grant/revoke but refuses missing, extra and duplicated readback members', async t => {
     await t.test('canonical order survives grant, repeat and revoke', async t => {
       const f = fake(t)

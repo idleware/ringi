@@ -7,7 +7,8 @@
 
 import crypto from 'node:crypto'
 import {fail} from '../../lib/index.ts'
-import type {Access, AccessType} from '../../core/hub/ports/access.ts'
+import type {Access, AccessType, RoomProvision} from '../../core/hub/ports/access.ts'
+import {checkServerDelete, provisionRepository, sameRepository} from '../../core/hub/rooms/provider-repository.ts'
 import type {Call} from './api.ts'
 import {caller, space, typed} from './api.ts'
 import {rulesOf, signalsOf} from './rules.ts'
@@ -54,12 +55,15 @@ const ownAccount = async (S: Space, room: string, actor: string, principal: stri
   const holder = Object.entries((await S.rules(room).effective(room)).signals).find(([a, p]) => p === principal && a !== actor)
   if (holder) fail(`${principal} already writes ${holder[0]}'s signals; each actor needs its own account`)
 }
-type Repo = {ssh_url: string, private: boolean}
+type Repo = {id: number, ssh_url: string, private: boolean}
+const providerRepo = (r: Repo | null) => r && ({id: r.id, private: r.private, address: typeof r.ssh_url === 'string' ? typed(r.ssh_url) : null})
+const readRepo = (S: Space, room: string) => async () => providerRepo(await S.call<Repo>('GET', S.repo(room)))
 // The room's repository, private and with the matrix's rules read back, before its address is handed to anyone.
-const ensureRoom = async (S: Space, room: string) => {
-  const found = await S.call<Repo>('GET', S.repo(room))
-  if (found && !found.private) fail(`${S.org}/${room} exists on the forge and is public; ringi makes rooms in private repositories only`)
-  if (!found) await S.call('POST', `/orgs/${S.org}/repos`, {name: room, private: true, auto_init: false, default_branch: 'main'})
+const ensureRoom = async (S: Space, room: string, intent: RoomProvision) => {
+  const bound = await provisionRepository({read: readRepo(S, room), label: `${S.org}/${room}`,
+    create: async () => providerRepo(await S.call<Repo>('POST', `/orgs/${S.org}/repos`, {name: room, private: true, auto_init: false, default_branch: 'main'})),
+    hasChat: async () => !!await S.call('GET', `${S.repo(room)}/branches/chat`),
+    privateError: `${S.org}/${room} exists on the forge and is public; ringi makes rooms in private repositories only`}, intent)
   const r = S.rules(room), root = await S.self()
   await r.set('main', [root])
   if (!(await r.has('chat'))) await r.set('chat', [root])
@@ -67,6 +71,7 @@ const ensureRoom = async (S: Space, room: string) => {
   await r.set('**', [])
   await r.closeTags(root)
   const repo = await S.call<Repo>('GET', S.repo(room)), now = await r.effective(room)
+  if (repo) sameRepository(repo, bound.repositoryId)
   if (!repo?.private || now.main.join() !== root || !now.chat.includes(root) || now.signals[OPERATOR] !== root)
     fail(`${S.org}/${room} on the forge is not private with main, chat and the operator's signals for ${root}`)
   return {address: typed(repo!.ssh_url)}
@@ -107,13 +112,14 @@ const forgejo = (locator: string, authRef: string): Access => {
     inspect: async () => ({version: (await S.call<{version: string}>('GET', '/version'))?.version ?? '?', principal: await S.self(),
       can: {actorBranches: true, privateRepos: true, deleteServer: true, refuseForcePush: true, accountKeys: true, deployKeys: false, hostKeysByApi: false}}),
     ownKey: async key => keyOn(S.call, {read: '/user/keys', write: '/user/keys', who: await S.self(), then: 'create the room again'}, key),
-    ensureRoom: room => ensureRoom(S, room),
+    ensureRoom: (room, intent) => ensureRoom(S, room, intent),
     account: login => account(S.call, login),
     accountKeys: a => accountKeys(S.call, a),
     grant: (room, actor, principal, key) => grant(S, room, actor, principal, key),
     revoke: (room, actor, principal) => revoke(S, room, actor, principal),
     effective: room => S.rules(room).effective(room),
-    deleteServer: async room => {
+    deleteServer: async (room, repositoryId) => {
+      if (!await checkServerDelete(readRepo(S, room), repositoryId)) return
       await S.call('DELETE', S.repo(room))
       if (await S.call('GET', S.repo(room))) fail(`${S.org}/${room} is still on the forge after deleting it`)
     },

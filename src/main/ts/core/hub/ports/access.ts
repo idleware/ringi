@@ -13,6 +13,10 @@ export type AccessAbility = {actorBranches: boolean, privateRepos: boolean, dele
 // the medium keeps for it, so a removal never mistakes a foreign key of the same title for the room's.
 export type Account = {id: string | null, login: string}
 export type DeployKey = {record: string, key: string, title: string}
+// A provider object is bound durably before any repository policy is changed. A name or an empty repository is no
+// ownership proof. Existing chat must be verified against this creation's pinned genesis before policy writes.
+export type ProvisionedRoom = {address: string, repositoryId: string}
+export type RoomProvision = {repositoryId?: string, bind(result: ProvisionedRoom): void, checkChat(): void}
 
 export interface Access {
   // The medium's version, the principal its credentials act as (the root's), and what this adapter can enforce there.
@@ -20,7 +24,7 @@ export interface Access {
   // A public key on the credentials' own account, so the root pushes as it; there once, whatever the call count.
   ownKey(key: string): Promise<void>
   // The room's repository, found or made private with main and chat for the root and nothing else; its typed address.
-  ensureRoom(room: string): Promise<{address: string}>
+  ensureRoom(room: string, provision: RoomProvision): Promise<{address: string}>
   // An actor's write access through its own principal: the repository, chat and its own signals; with `key`, also
   // that public key on the principal's account, if the operator's credentials may put it there. Or its removal.
   grant(room: string, actor: string, principal: string, key?: string): Promise<void>
@@ -28,7 +32,7 @@ export interface Access {
   // The grants the medium enforces now, read from it.
   effective(room: string): Promise<Grants>
   // The served repository gone; a machine's own copy is not the medium's.
-  deleteServer(room: string): Promise<void>
+  deleteServer(room: string, repositoryId: string): Promise<void>
   // The canonical account of a login, none if it has none; its public keys, complete or a failure,
   // never a partial list.
   account?(login: string): Promise<Account | null>

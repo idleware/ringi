@@ -1,7 +1,7 @@
 // Canonical filesystem object witnesses; pathname equality alone proves no continuity.
 import fs from 'node:fs'
 import path from 'node:path'
-import {errno, fail} from '../../lib/index.ts'
+import {errno, fail, sameObject} from '../../lib/index.ts'
 // Structural witness shared by filesystem adapters; it has no domain dependency.
 export type DirectoryWitness = {path: string, identity: string}
 
@@ -23,7 +23,7 @@ export const canonical = (value: string): DirectoryWitness | null => {
 }
 export const check = (directory: DirectoryWitness): void => {
   const found = canonical(directory.path)
-  if (found?.path !== directory.path || found.identity !== directory.identity) fail('repository directory disappeared or changed identity')
+  if (found?.path !== directory.path || !sameObject(found.identity, directory.identity)) fail('repository directory disappeared or changed identity')
 }
 export const protectedHome = (target: string, home: string): DirectoryWitness => {
   const found = canonical(home) ?? fail('protected home must already exist')

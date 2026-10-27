@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {createHash} from 'node:crypto'
-import {fail, strictJson} from '../../lib/index.ts'
+import {fail, sameObject, strictJson} from '../../lib/index.ts'
 import type {StateArchive} from '../../core/hub/ports/state.ts'
 import type {RoomDirectory} from '../../core/hub/ports/location.ts'
 import {canonical, check, entryExists} from '../fs/directory.ts'
@@ -67,12 +67,12 @@ export const archiveState = (root: string, request: StateArchive): string => gua
   check(intent.home); check(intent.parent); check(intent.destination)
   const destination = path.join(intent.destination.path, 'namespace'), old = canonical(source), archived = canonical(destination)
   if (old) {
-    if (old.path !== source || old.identity !== intent.source.identity || entryExists(destination)) return bad('source changed or archive destination is occupied')
+    if (old.path !== source || !sameObject(old.identity, intent.source.identity) || entryExists(destination)) return bad('source changed or archive destination is occupied')
     checkRecord(source, request)
     fs.renameSync(source, destination)
-  } else if (entryExists(source) || archived?.path !== destination || archived.identity !== intent.source.identity) return bad('missing source is not proof of completed archive')
+  } else if (entryExists(source) || archived?.path !== destination || !sameObject(archived.identity, intent.source.identity)) return bad('missing source is not proof of completed archive')
   check(intent.home); check(intent.parent); check(intent.destination)
-  if (entryExists(source) || canonical(destination)?.path !== destination || canonical(destination)?.identity !== intent.source.identity) return bad('post-rename namespace identity changed')
+  if (entryExists(source) || canonical(destination)?.path !== destination || !sameObject(canonical(destination)!.identity, intent.source.identity)) return bad('post-rename namespace identity changed')
   checkRecord(destination, request)
   return destination
 })

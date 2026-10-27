@@ -7,16 +7,17 @@ import * as C from '../../../lib/index.ts'
 import type {CommandOpt} from './types.ts'
 import {checkSshAccess} from './denied.ts'
 
-export const ENV = {GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GIT_NO_REPLACE_OBJECTS: '1', LC_ALL: 'C'}
+export const ENV = {GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GIT_NO_REPLACE_OBJECTS: '1',
+  GIT_ALLOW_PROTOCOL: 'file:ssh:https', LC_ALL: 'C'}
 
-export const BASE = ['-c', 'core.hooksPath=' + os.devNull, '-c', 'gpg.format=ssh', '-c', 'gpg.ssh.program=ssh-keygen',
+export const BASE = ['-c', 'core.hooksPath=' + os.devNull, '-c', 'core.fsmonitor=false', '-c', 'gpg.format=ssh', '-c', 'gpg.ssh.program=ssh-keygen',
   '-c', 'color.ui=false', '-c', 'log.showSignature=false', '-c', 'core.quotePath=false',
   '-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always', '-c', 'protocol.ssh.allow=always',
   '-c', 'protocol.https.allow=always', '-c', 'http.followRedirects=false']
 
 export const gitEnv = (extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
   ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(GIT_CONFIG_|GIT_DIR$|GIT_WORK_TREE$|GIT_INDEX_FILE$|GIT_OBJECT_DIRECTORY$|GIT_ALTERNATE_OBJECT_DIRECTORIES$|GIT_REPLACE_REF_BASE$|GIT_SSH(?:_COMMAND|_VARIANT)?$)/.test(k))),
-  ...ENV, ...extra,
+  ...extra, ...ENV,
 })
 
 export const gitTimeout = (): number => {

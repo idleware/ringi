@@ -15,7 +15,7 @@ export const typed = (ssh: string): string => {
   const scp = /^([^@/]+@[^:/]+):(.+)$/.exec(ssh)
   return scp ? `git+ssh://${scp[1]}/${scp[2]}` : `git+${ssh}`
 }
-export type Repo = {ssh_url: string, private: boolean}
+export type Repo = {id: number, ssh_url: string, private: boolean}
 export type Key = {id: number, key: string, title: string, read_only?: boolean}
 export type Org = {plan?: {name?: string}, default_repository_permission?: string}
 export type Space = {call: Call, pages: Pages, org: string, host: string, repo: (room: string) => string, self: () => Promise<string>}

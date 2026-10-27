@@ -2,13 +2,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {createHash, randomUUID} from 'node:crypto'
-import {fail, strictJson} from '../../lib/index.ts'
+import {fail, sameObject, strictJson} from '../../lib/index.ts'
 import type {RoomDirectory, RoomQuarantine} from '../../core/hub/ports/location.ts'
 import {canonical, check, entryExists} from '../fs/directory.ts'
 import {guardWrite} from '../fs/write.ts'
 
 type Allocation = {schema: 'ringi-allocation/1', source: RoomDirectory, home: RoomDirectory, parent: RoomDirectory}
-const same = (a: RoomDirectory | null, b: RoomDirectory): boolean => a?.path === b.path && a.identity === b.identity
+const same = (a: RoomDirectory | null, b: RoomDirectory): boolean => a?.path === b.path && sameObject(a.identity, b.identity)
 const bad = (why: string): never => fail(`managed room quarantine: ${why}; files are retained`)
 const managedParent = (source: RoomDirectory, home: RoomDirectory): RoomDirectory | null => {
   const parent = path.dirname(source.path)
@@ -66,9 +66,9 @@ export const quarantine = (plan: RoomQuarantine, root: string): RoomDirectory =>
     if (!same(source, plan.source) || entryExists(plan.destination)) return bad('source changed or destination is occupied')
     // The private destination is unused under the caller's object lock; no OS-level no-replace claim is made.
     fs.renameSync(plan.source.path, plan.destination)
-  } else if (entryExists(plan.source.path) || destination?.path !== plan.destination || destination.identity !== plan.source.identity) return bad('neither a pinned source nor its exact quarantined object exists')
+  } else if (entryExists(plan.source.path) || destination?.path !== plan.destination || !sameObject(destination.identity, plan.source.identity)) return bad('neither a pinned source nor its exact quarantined object exists')
   validatePlan(plan, root)
   const moved = canonical(plan.destination)
-  if (entryExists(plan.source.path) || moved?.identity !== plan.source.identity || moved.path !== plan.destination) return bad('post-rename object check failed')
+  if (entryExists(plan.source.path) || !moved || !sameObject(moved.identity, plan.source.identity) || moved.path !== plan.destination) return bad('post-rename object check failed')
   return moved
 })

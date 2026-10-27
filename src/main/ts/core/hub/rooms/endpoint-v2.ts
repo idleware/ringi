@@ -1,4 +1,5 @@
 // Validate the future local endpoint without broadening the active endpoint/1 gate.
+import {sameObject} from '../../../lib/index.ts'
 import type {RoomEndpointV2} from '../ports/store.ts'
 import {badRegistration as bad, directory, record, reference, revision, roomName, token} from './registration-checks.ts'
 import {addressName, canonicalRoom} from './room-registration.ts'
@@ -18,7 +19,7 @@ const receiptMatches = (e: RoomEndpointV2): boolean => {
   const r = e.receipt
   if (!r) return true
   const identity = r.address === e.address && r.genesis === e.genesis && token(r.reservation)
-  const location = r.directory?.path === e.location.directory.path && r.directory.identity === e.location.directory.identity
+  const location = r.directory?.path === e.location.directory.path && sameObject(r.directory.identity, e.location.directory.identity)
   return identity && location
 }
 const checkDisposal = (e: RoomEndpointV2): void => {
