@@ -1,5 +1,5 @@
 // Activate a durable create reservation, or adopt a verified repository without claiming its ownership.
-import {sameObject} from '../../../lib/index.ts'
+import {objectOf, sameObject} from '../../../lib/index.ts'
 import type {RoomEndpointV2} from '../ports/store.ts'
 import {CatalogueRecords, byAddress, registeredDirectory, catalogueFailure as bad} from './catalogue-records.ts'
 import {checkOwner, ownerMatches} from './registration-checks.ts'
@@ -15,11 +15,16 @@ const sameRepository = (a: RoomEndpointV2, b: RoomEndpointV2): boolean => {
   const identity = a.keyRef === b.keyRef && a.authRef === b.authRef && JSON.stringify(a.hostKeys) === JSON.stringify(b.hostKeys)
   return history && location && reach && identity
 }
+const comparableEndpoint = (e: RoomEndpointV2): RoomEndpointV2 => {
+  const copy = copyRecord(e)
+  copy.location.directory.identity = objectOf(copy.location.directory.identity)
+  return copy
+}
 const activeRetry = (old: RoomRegistration & {phase: 'active'}, e: RoomEndpointV2, operation?: string): RoomRegistration => {
   if (old.deletion || old.endpoint.disposal) return bad('room disposal is in progress')
   if (operation !== undefined && old.reservation?.operation !== operation) return bad('create operation does not own this active registration')
   const aliasRetry = e.address !== old.address && operation === undefined && !e.receipt && sameRepository(old.endpoint, e)
-  if (!equalRecord(old.endpoint, e) && !aliasRetry) bad('active endpoint pins differ')
+  if (!equalRecord(comparableEndpoint(old.endpoint), comparableEndpoint(e)) && !aliasRetry) bad('active endpoint pins differ')
   return old
 }
 const reservedMatches = (old: RoomRegistration, e: RoomEndpointV2, operation?: string): void => {

@@ -56,7 +56,9 @@ $RINGI_HOME/                         unset: ~/.ringi
 
 A room's endpoint pins where its repository is on this machine (the directory and its file-system identity, compared
 by inode and birth time: the device number a file system gets when it is mounted may change when the machine
-restarts), so a copy or a moved directory is not mistaken for it; its `keyRef` names the key it signs and reaches with, the same one.
+restarts), so a copy or a moved directory is not mistaken for it. A directory on another volume with the same inode
+and birth time (a cloned volume mounted at the room's path) is not told apart: only the operator's own user can
+mount there, and it can rewrite the registration anyway; its `keyRef` names the key it signs and reaches with, the same one.
 
 A room's git store (layout `git/4`), one repository per room:
 

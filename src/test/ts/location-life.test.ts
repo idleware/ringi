@@ -12,7 +12,7 @@ import type {PreparedRoom} from '../../main/ts/core/hub/rooms/location-creation.
 import type {RepositoryCreation} from '../../main/ts/core/hub/rooms/location-install.ts'
 import {locationLifecycle} from '../../main/ts/core/hub/rooms/location-life.ts'
 import {roomCatalogue} from '../../main/ts/core/hub/rooms/catalogue-v2.ts'
-import {registrationKey} from '../../main/ts/core/hub/rooms/room-registration.ts'
+import {registrationId, registrationKey} from '../../main/ts/core/hub/rooms/room-registration.ts'
 import {parseAddress} from '../../main/ts/core/hub/rooms/address.ts'
 import {stateFs, stateFsV5} from '../../main/ts/adapters/state-fs/index.ts'
 import {roomFiles} from '../../main/ts/adapters/location-fs/index.ts'
@@ -135,6 +135,29 @@ describe('inert location-aware room lifecycle', () => {
     assert.equal(f.life.adopt(owner, {...e, address: 'local:///alias/fix'}, () => {}).id, first.id)
     assert.throws(() => f.life.dispose(first, {confirmed: true}), /no creation receipt/)
     assert.equal(f.events.includes('purge'), false)
+  })
+
+  it('keeps stored objects on distinct filesystems separate even when their inode and birth time coincide', () => {
+    const f = memory(), directories = [
+      {path: '/volumes/a/r', identity: '101:42:1792345410458359652'},
+      {path: '/volumes/b/r', identity: '102:42:1792345410458359652'},
+    ]
+    const entries = directories.map(directory => {
+      const endpoint: RoomEndpointV2 = {schema: 'ringi-room/2', address: 'local://' + directory.path, name: 'r',
+        hubGenesis: owner.genesis, genesis: 'b'.repeat(40), trust: 'asserted', location: {directory, generation: 'adopted'}, store: {path: 'store'}}
+      const r: RoomRegistration = {schema: 'ringi-registration/1', id: registrationId(endpoint.address), address: endpoint.address,
+        name: endpoint.name, owner, aliases: [], phase: 'active', endpoint}
+      f.dirs.set(directory.path, directory)
+      f.state.write([...registrationKey(r.id), 'registration'], r)
+      return r
+    })
+    assert.equal(f.catalogue.all().filter(r => r.phase === 'active').length, 2)
+    for (const r of entries) assert.equal(f.catalogue.select(parseAddress(r.address, 'lookup'), f.files).id, r.id)
+    const first = active(entries[0]), address = 'local:///volumes/c/r'
+    const duplicate = {...first, id: registrationId(address), address, endpoint: {...first.endpoint, address,
+      location: {...first.endpoint.location, directory: {...first.endpoint.location.directory, path: '/volumes/c/r'}}}}
+    f.state.write([...registrationKey(duplicate.id), 'registration'], duplicate)
+    assert.throws(() => f.catalogue.all(), /duplicate repository object registrations/)
   })
 
   it('requires confirmation and matching pins before any disposal mutation', () => {

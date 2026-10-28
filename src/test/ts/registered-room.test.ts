@@ -394,6 +394,30 @@ describe('git/4 registered room integration', () => {
     fs.unlinkSync(alias); fs.symlinkSync(copy, alias, 'dir')
     assert.throws(() => openRegisteredRoom(f.H, pathAddress(alias), f.transport), /changed its repository object/)
   })
+  it('retries primary-address adoption after device renumbering without changing pins or admitting a replacement', t => {
+    const f = fixture(t, true), R = createRegisteredRoom(f.H, f.reserved.id, f.target, f.transport, f.spec)
+    const replica = path.join(f.base, 'adopted-copy')
+    fs.cpSync(f.target, replica, {recursive: true})
+    const {receipt, ...unowned} = R.endpoint
+    const e = {...unowned, address: pathAddress(replica), location: {directory: roomFiles.canonical(replica)!, generation: 'adopted-generation'}}
+    const first = adoptRegisteredRoom(f.H, e, f.transport), stored = f.catalogue.get(first.id)!
+    if (stored.phase !== 'active') assert.fail('active registration required')
+    const parts = stored.endpoint.location.directory.identity.split(':')
+    parts[0] = String(BigInt(parts[0]) + 4n)
+    stored.endpoint.location.directory.identity = parts.join(':')
+    f.state.write(['catalogue', 'rooms', first.id, 'registration'], stored)
+    const fresh = {...e, location: {...e.location, directory: roomFiles.canonical(replica)!}}, before = structuredClone(fresh)
+    assert.notEqual(fresh.location.directory.identity, stored.endpoint.location.directory.identity)
+    const retried = adoptRegisteredRoom(f.H, fresh, f.transport)
+    assert.equal(retried.id, first.id); assert.deepEqual(retried.context, first.context)
+    assert.deepEqual(fresh, before); assert.deepEqual(f.catalogue.get(first.id), stored, 'stored witnesses are retained')
+    assert.throws(() => adoptRegisteredRoom(f.H, {...fresh, location: {...fresh.location, generation: 'another-generation'}}, f.transport), /active endpoint pins differ/)
+    fs.renameSync(replica, replica + '.aside')
+    fs.cpSync(replica + '.aside', replica, {recursive: true})
+    const replacement = {...fresh, location: {...fresh.location, directory: roomFiles.canonical(replica)!}}
+    assert.notEqual(replacement.location.directory.identity.split(':')[1], fresh.location.directory.identity.split(':')[1])
+    assert.throws(() => adoptRegisteredRoom(f.H, replacement, f.transport), /active endpoint pins differ/)
+  })
   it('requires explicit home/5 rather than writing a new catalogue into a legacy home', t => {
     const f = fixture(t), root = path.join(f.base, 'old-home'), legacyState = stateFs({root, build: f.build}); legacyState.ensure()
     wireHub({state: legacyState, build: f.build, transports: {git: f.legacy}, store: 'git', roomFiles})

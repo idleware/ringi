@@ -521,7 +521,9 @@ Git covers several of these by construction. That is the bet here.
   Fewer connections per sync of a room in a space (one listing, one fetch).
 - **A restart broke every room.** A directory's identity was its device, inode and birth time; macOS gives an APFS
   volume its device number when it is mounted, and after a restart it was another, so every room on the machine read
-  as a replaced repository. The device is no longer compared, and the stored format is unchanged: a copy or another
-  directory at the path still has another inode or birth time.
+  as a replaced repository. The device is no longer compared where a fresh look meets a stored one, and the stored
+  format is unchanged: a copy still has another inode and birth time. A cloned volume mounted at the room's path is
+  not told apart; only the operator's own user can mount there, and it can rewrite the records anyway, so a volume
+  id read on every check (diskutil, findmnt) was rejected as more than it is worth.
 - **Rejected.** A description marker as proof that a repository is the room's: anyone who can edit the repository can
   copy it. Witnesses against a forking host, key rotation, our own crypto envelope: more than they are worth now.
