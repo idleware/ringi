@@ -1,3 +1,8 @@
+## [0.12.4](https://github.com/idleware/ringi/compare/v0.12.3...v0.12.4) (2026-10-28)
+
+### Fixes & improvements
+* fix: identity across restarts, cloned volumes apart ([82b76d0](https://github.com/idleware/ringi/commit/82b76d07adb42cebdd172b37f82e0e164fce8955))
+
 ## [0.12.3](https://github.com/idleware/ringi/compare/v0.12.2...v0.12.3) (2026-10-27)
 
 ### Fixes & improvements
