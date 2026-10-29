@@ -1,3 +1,8 @@
+## [0.12.5](https://github.com/idleware/ringi/compare/v0.12.4...v0.12.5) (2026-10-29)
+
+### Fixes & improvements
+* fix: a failed git read is no answer; an alarm does not halt ([cc6bf45](https://github.com/idleware/ringi/commit/cc6bf4533787db0da5cec91676a4c8caaef210d1))
+
 ## [0.12.4](https://github.com/idleware/ringi/compare/v0.12.3...v0.12.4) (2026-10-28)
 
 ### Fixes & improvements
