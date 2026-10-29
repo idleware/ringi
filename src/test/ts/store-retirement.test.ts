@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
+import {execFileSync} from 'node:child_process'
 import {GitStore} from '../../main/ts/adapters/store-git/index.ts'
 import {init} from '../../main/ts/adapters/store-git/repo.ts'
 import {keysFile} from '../../main/ts/adapters/keys-file/index.ts'
@@ -78,6 +79,21 @@ describe('git/4 membership policy', () => {
 })
 
 describe('signed git/4 control validation on disposable repositories', () => {
+  it('reads a control file only as git shows it: absent is null, a failed read fails', t => {
+    const f = fixture(t), r = f.store.room('r')!
+    assert.ok(f.store.controlFile(r, 'members.json'))
+    assert.equal(f.store.controlFile(r, 'nothing.json'), null)
+    // A git that cannot show the file, though the tree has it: the read fails, never reads as an absent file.
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'ringi-git-')), real = process.env.PATH
+    t.after(() => { process.env.PATH = real; fs.rmSync(bin, {recursive: true, force: true}) })
+    const git = execFileSync('sh', ['-c', 'command -v git'], {encoding: 'utf8'}).trim()
+    fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nfor a in "$@"; do case "$a" in *:members.json) echo 'fatal: injected read failure' >&2; exit 128;; esac; done\nexec '${git}' "$@"\n`, {mode: 0o755})
+    process.env.PATH = `${bin}:${real}`
+    assert.throws(() => f.store.controlFile(r, 'members.json'), /injected read failure/)
+    process.env.PATH = real
+    assert.ok(f.store.controlFile(r, 'members.json'))
+  })
+
   it('removes one member under the pinned root, preserves history and returns its first verified retirement', t => {
     const f = fixture(t), alice = f.select('alice')
     f.store.admit(f.store.room('r')!, 'alice', alice.line)

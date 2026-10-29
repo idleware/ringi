@@ -8,6 +8,7 @@ import {fail} from '../../lib/index.ts'
 import {mkdirIn} from '../fs/index.ts'
 import * as Remote from './remote.ts'
 import {ZERO, ident, runGit, runGitOk} from './run.ts'
+import {answer} from './remote/process.ts'
 import type {GitOpt} from './run.ts'
 import type {Descriptor, RoomEndpoint, RoomEndpointV2} from '../../core/hub/ports/store.ts'
 import type {GitLayout} from './remote/types.ts'
@@ -73,9 +74,9 @@ export class Repo {
   protected gitOk(a: string[], o?: GitOpt) { return runGitOk(this.args(a), o) }
   rev(ref: string): string | null {
     const r = this.gitOk(['rev-parse', '-q', '--verify', `${ref}^{commit}`])
-    return r.status === 0 ? r.stdout.trim() : null
+    return answer(r, 'rev-parse') ? r.stdout.trim() : null
   }
-  isAncestor(a: string, b: string): boolean { return this.gitOk(['merge-base', '--is-ancestor', a, b]).status === 0 }
+  isAncestor(a: string, b: string): boolean { return answer(this.gitOk(['merge-base', '--is-ancestor', a, b]), 'merge-base') }
   isRef(s: string): boolean { return /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(s ?? '') }
   extends(older: string, newer: string): boolean { return older === newer || this.isAncestor(older, newer) }
   // A tree from a base tree without the `drop` paths, with entries put on top; nested paths are fine.
@@ -112,10 +113,12 @@ export class Repo {
     if (this.rev('refs/heads/main') !== main) this.checkout()
   }
   contractHead(): string { return this.rev('refs/heads/main') ?? fail(`hub ${this.d.name} has no contract (main)`) }
-  contractFile(rev: string, name: string): string | null {
-    const r = this.gitOk(['show', `${rev}:${name}`])
-    return r.status === 0 ? r.stdout : null
+  // A file at a commit: null only when the commit's tree has no such path; a read that fails fails, never "absent".
+  protected fileAt(rev: string, name: string): string | null {
+    if (rev === ZERO || !this.git(['ls-tree', '-z', rev, '--', name])) return null
+    return this.git(['show', `${rev}:${name}`])
   }
+  contractFile(rev: string, name: string): string | null { return this.fileAt(rev, name) }
   // Copy only contract objects. A room never acquires another room's refs, evidence or attachments this way.
   seedContract(source: Repo): string {
     if (this.rev('refs/heads/main')) fail('contract seeding is only for a fresh room repository')

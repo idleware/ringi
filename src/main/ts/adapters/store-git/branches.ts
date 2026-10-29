@@ -74,8 +74,7 @@ export class Branches extends Repo {
   }
   // Control files are read at a control record, never at the branch's tip.
   controlFile(room: StoredRoom, name: string, rev?: string): string | null {
-    const r = this.gitOk(['show', `${rev ?? room.head}:${name}`])
-    return r.status === 0 ? r.stdout : null
+    return this.fileAt(rev ?? room.head, name)
   }
   createRoom(name: string, who: string, text: string, files: Record<string, string>): string {
     const ref = this.ref(name)

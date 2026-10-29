@@ -26,6 +26,15 @@ export const gitTimeout = (): number => {
   return ms
 }
 
+// A git yes or no: 0 is yes, 1 is no, and so is git saying only that the object is not in this repository. Anything
+// else (an error, a killed or failed process, an object it could not read) is no answer, and never a "no": a reader
+// that took it for one would report accepted history as rewritten or removed.
+const ABSENT = /^fatal: Not a valid (?:commit|object) name [0-9a-f]+$/
+export const answer = (r: Pick<SpawnSyncReturns<string>, 'status' | 'signal' | 'error' | 'stderr'>, what: string): boolean => {
+  if (r.status === 0) return true
+  if (r.status === 1 || r.status === 128 && ABSENT.test(String(r.stderr).trim())) return false
+  return C.fail(`git ${what} gave no answer: ${String(r.error?.message ?? r.signal ?? r.stderr ?? 'failed').trim().split('\n').at(-1)}`)
+}
 export const checkGitTimeout = (error?: NodeJS.ErrnoException): void => {
   if (error?.code === 'ETIMEDOUT') throw Object.assign(new C.Fail('git timed out; increase RINGI_GIT_TIMEOUT_MS (positive integer milliseconds)'), {code: 'ETIMEDOUT'})
 }

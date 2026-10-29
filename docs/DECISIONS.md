@@ -525,5 +525,12 @@ Git covers several of these by construction. That is the bet here.
   format is unchanged: a copy still has another inode and birth time. A cloned volume mounted at the room's path is
   not told apart; only the operator's own user can mount there, and it can rewrite the records anyway, so a volume
   id read on every check (diskutil, findmnt) was rejected as more than it is worth.
+- **A failed git check read as "no".** Ancestry and ref lookups took any exit but 0 for "not an ancestor" or "no
+  such ref", and a control or contract file git failed to show read as absent. A reader's alarm that its accepted
+  stream was removed and rewritten, though the stream had not changed, came out of that: reproduced with a git that
+  fails the ancestry check. What made git fail at that moment is not known; it fell in a dark wake of the sleeping
+  machine. Now 0 is yes, 1 is no, git saying only that an object is not in the repository is no, and anything else
+  (an object it cannot read included) fails the command; a file is absent only when its commit's tree lacks it, and
+  a failed read of one that is there fails.
 - **Rejected.** A description marker as proof that a repository is the room's: anyone who can edit the repository can
   copy it. Witnesses against a forking host, key rotation, our own crypto envelope: more than they are worth now.

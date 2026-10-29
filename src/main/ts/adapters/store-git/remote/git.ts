@@ -8,7 +8,7 @@ import * as FS from '../../fs/index.ts'
 import * as P from '../../../core/hub/protocol/index.ts'
 import {storeOf} from '../../../core/hub/rooms/address.ts'
 import {withVerification} from './cache.ts'
-import {BASE, command} from './process.ts'
+import {BASE, answer, command} from './process.ts'
 import type {CommandOpt, Handle} from './types.ts'
 import {ACCEPT, TRACK} from './types.ts'
 import {withTransportAuth} from '../auth.ts'
@@ -41,20 +41,21 @@ export function networkGit(H: Handle, args: string[], opt: CommandOpt = {}): str
 }
 
 export const config = (H: Handle, key: string, value?: string): string => value === undefined
-  ? String(git(H, ['config', '--get', key], {ok: true}).stdout || '').trim()
+  ? configValue(git(H, ['config', '--get', key], {ok: true}))
   : git(H, ['config', key, String(value)])
 
+const configValue = (r: SpawnSyncReturns<string>): string => answer(r, 'config') ? String(r.stdout).trim() : ''
 export const rev = (H: Handle, ref: string): string | null => {
   const r = git(H, ['rev-parse', '-q', '--verify', `${ref}^{commit}`], {ok: true})
-  return r.status === 0 ? r.stdout.trim() : null
+  return answer(r, 'rev-parse') ? r.stdout.trim() : null
 }
 
 export const object = (H: Handle, ref: string): string | null => {
   const r = git(H, ['rev-parse', '-q', '--verify', ref], {ok: true})
-  return r.status === 0 ? r.stdout.trim() : null
+  return answer(r, 'rev-parse') ? r.stdout.trim() : null
 }
 
-export const ancestor = (H: Handle, a: string, b: string): boolean => !!a && !!b && git(H, ['merge-base', '--is-ancestor', a, b], {ok: true}).status === 0
+export const ancestor = (H: Handle, a: string, b: string): boolean => !!a && !!b && answer(git(H, ['merge-base', '--is-ancestor', a, b], {ok: true}), 'merge-base')
 
 export const isRemote = (H: Handle): boolean => {
   if (H.d.trust !== 'signed' && H.d.trust !== 'asserted') C.fail(`unsupported hub trust ${String(H.d.trust)}`)
