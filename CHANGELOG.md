@@ -1,3 +1,8 @@
+## [0.12.6](https://github.com/idleware/ringi/compare/v0.12.5...v0.12.6) (2026-11-12)
+
+### Fixes & improvements
+* fix: a failed read shows its messages again; fewer git calls ([d112555](https://github.com/idleware/ringi/commit/d1125550231671507f551f57e74bbb20ca33a54f))
+
 ## [0.12.5](https://github.com/idleware/ringi/compare/v0.12.4...v0.12.5) (2026-10-29)
 
 ### Fixes & improvements
