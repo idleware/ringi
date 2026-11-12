@@ -130,6 +130,27 @@ describe('Node implementation: git answers', () => {
   })
 })
 
+describe('Node implementation: delivery', () => {
+  it('shows an inbox again when its reading failed after showing it, instead of losing it', t => {
+    const w = world(t)
+    w.ok(['room', 'create', 'r'])
+    w.ok(['join', 'r', '--as', 'codex'], {as: 'C'})
+    w.ok(['send', '--to', 'codex', '-m', 'hello'])
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'ringi-git-'))
+    t.after(() => fs.rmSync(bin, {recursive: true, force: true}))
+    const real = spawnSync('sh', ['-c', 'command -v git'], {encoding: 'utf8'}).stdout.trim()
+    // The read mark cannot be written, as a reader killed or failing after it showed the inbox. It takes its input
+    // first, so the failure is its own and not a pipe closed under the writer.
+    fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nfor a in "$@"; do [ "$a" = commit-tree ] && { cat >/dev/null; echo 'fatal: injected write failure' >&2; exit 128; }; done\nexec ${quote(real)} "$@"\n`, {mode: 0o755})
+    const failing = spawnSync(NODE, [CLI, 'agent', 'inbox'], {encoding: 'utf8', env: {...BASE, RINGI_HOME: w.home, RINGI_SESSION: 'C', PATH: `${bin}:${process.env.PATH}`}})
+    assert.notEqual(failing.status, 0)
+    assert.match(failing.stdout, /hello/)
+    assert.match(failing.stderr, /injected write failure/)
+    assert.match(w.ok(['agent', 'inbox'], {as: 'C'}), /hello/)
+    assert.match(w.ok(['agent', 'inbox'], {as: 'C'}), /nothing new/)
+  })
+})
+
 describe('Node implementation: main', () => {
   it('handles a closed stdout when called through its public export', t => {
     const w = world(t), status = path.join(w.home, 'status')

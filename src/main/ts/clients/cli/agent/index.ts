@@ -4,23 +4,29 @@ import * as Agent from '../../../core/agents/sessions/agent.ts'
 import {asJson, render} from '../../../core/hub/usecases/view.ts'
 import {addressOf} from '../../../core/hub/usecases/rooms.ts'
 import {fail, short} from '../../../lib/index.ts'
-import {dump, flag, opt, out} from '../args.ts'
+import {dump, flag, flushed, opt, out} from '../args.ts'
 import type {Opts} from '../args.ts'
 import type {Ctx} from '../context.ts'
 import {scopeLine, waiting} from '../shared/index.ts'
 
 const options = (o: Opts) => ({peek: flag(o, 'peek'), limit: opt(o, 'limit') ? Number(opt(o, 'limit')) : undefined})
-export const showInbox = ({R, me, s}: Ctx, res: Agent.Inbox, o: Opts) => {
+const print = ({R, me, s}: Ctx, res: Agent.Inbox, o: Opts) => {
   if (flag(o, 'json')) return dump(res.msgs.map(asJson))
   if (!res.msgs.length) return out('inbox: nothing new')
   out(`inbox: ${res.msgs.length} new for ${me} in ${addressOf(R)} (senders ${R.hub.signed ? 'verified by signature' : 'asserted, not verified'})${s?.scope ? `\nyour scope: ${s.scope}` : ''}`)
   for (const m of res.msgs) out(`\n${render(res.all, m, {max: 4000})}`)
   if (res.rest) out(`\n(${res.rest} more: run ringi agent inbox again)`)
 }
+// Delivered once it has left the process: until then the inbox keeps it.
+export const showInbox = async (a: Ctx, res: Agent.Inbox, o: Opts) => {
+  print(a, res, o)
+  await flushed()
+  Agent.delivered(a, res)
+}
 export const inbox = (a: Ctx, o: Opts) => {
   const st = Agent.started(a)
   if (!st.started) return out(waiting(addressOf(a.R), st))
-  showInbox(a, Agent.inbox(a, options(o)), o)
+  return showInbox(a, Agent.inbox(a, options(o)), o)
 }
 export const take = (a: Ctx, o: Opts) => {
   const {m, made} = Agent.take(a, o._[0] ?? fail('usage: ringi agent take <work>'))
@@ -32,7 +38,7 @@ export const whoami = (a: Ctx) => {
 }
 export const wait = async (a: Ctx, o: Opts) => {
   const r = await Agent.wait(a, {...options(o), max: opt(o, 'max') === undefined ? undefined : Number(opt(o, 'max'))})
-  if (r.inbox) return showInbox(a, r.inbox, o)
+  if (r.inbox) return showInbox(r.actor, r.inbox, o)
   out(`wait: nothing for ${a.me} in ${Math.round(r.seconds)}s`)
   process.exitCode = 3
 }

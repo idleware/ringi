@@ -6,11 +6,11 @@ import type {Facts} from './stream-facts.ts'
 import {streamAdmission} from './stream-control.ts'
 import type {Dependencies} from './stream-control.ts'
 import type {Handle, Raw, Room} from './types.ts'
-export type CheckContext = {H: Handle, R: Room, actor: string, parent: string, dep: Dependencies}
-const frame = ({H, actor, parent}: CheckContext, c: Raw): void => {
+export type CheckContext = {H: Handle, R: Room, actor: string, parent: string, parentTree?: string, dep: Dependencies}
+const frame = ({H, actor, parent, parentTree}: CheckContext, c: Raw): void => {
   if (c.parents.length !== 1 || c.parents[0] !== parent) fail('stream is not one linear continuation of its room genesis')
   if (c.author !== actor || c.committer !== actor) fail('stream author and committer must be its actor')
-  if (c.tree !== git(H, ['rev-parse', `${parent}^{tree}`]).trim()) fail('stream changes its parent tree')
+  if (c.tree !== (parentTree ?? git(H, ['rev-parse', `${parent}^{tree}`]).trim())) fail('stream changes its parent tree')
 }
 const controlReady = ({H, R, dep}: CheckContext, control: string): boolean => {
   if (dep.controls.has(control)) return true

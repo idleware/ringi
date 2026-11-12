@@ -23,15 +23,32 @@ export const streamDependencies = (H: Handle, R: Room): Dependencies => {
   return {controls: new Set(list.filter(c => control(R, c)).map(c => c.sha)),
     messages: new Set(list.filter(c => !control(R, c)).map(c => c.sha)), skipped: new Set()}
 }
+
+type Authority = Pick<ReturnType<typeof rosterAt>, 'entries' | 'members'>
+const authorities = new WeakMap<Handle, Map<string, Authority>>()
+// A control names immutable blobs. Reuse only successful reads under the same trust and root pin.
+const authorityAt = (H: Handle, control: string, signed: boolean): Authority => {
+  const cache = authorities.get(H) ?? new Map<string, Authority>()
+  const key = JSON.stringify([control, H.layout, H.d.trust, H.d.root])
+  const known = cache.get(key)
+  if (known) return known
+  const authority = signed ? rosterAt(H, control) : {
+    entries: [], members: membershipFile(blobText(H, control, 'members.json'), H.layout ?? 'git/3', false).members,
+  }
+  cache.set(key, authority)
+  authorities.set(H, cache)
+  if (cache.size > 256) cache.delete(cache.keys().next().value!)
+  return authority
+}
+
 export const streamAdmission = (H: Handle, control: string, actor: string, sha: string): void => {
-  if (isRemote(H)) {
-    const key = rosterAt(H, control).entries.find(e => e.principal === actor)?.key ?? invalidStream(`${actor} is unadmitted at stream Control`)
+  const signed = isRemote(H)
+  const {entries, members} = authorityAt(H, control, signed)
+  if (signed) {
+    const key = entries.find(e => e.principal === actor)?.key ?? invalidStream(`${actor} is unadmitted at stream Control`)
     try {checkSignature(H, sha, actor, key)} catch (e) {
       if (e instanceof C.Fail && (e as {invalidSignature?: boolean}).invalidSignature) invalidStream(e.message)
       throw e
     }
-  } else {
-    const members = membershipFile(blobText(H, control, 'members.json'), H.layout ?? 'git/3', false).members
-    if (!Object.hasOwn(members, actor)) invalidStream(`${actor} is unadmitted at stream Control`)
-  }
+  } else if (!Object.hasOwn(members, actor)) invalidStream(`${actor} is unadmitted at stream Control`)
 }

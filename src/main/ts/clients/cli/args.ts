@@ -7,6 +7,8 @@ import {fail} from '../../lib/index.ts'
 import type {Entry} from '../../core/hub/protocol/files.ts'
 
 export const out = (s = ''): void => {process.stdout.write(s.endsWith('\n') ? s : `${s}\n`)}
+// Once what was written has left the process (a pipe on macOS is written asynchronously).
+export const flushed = (): Promise<void> => new Promise((resolve, reject) => process.stdout.write('', e => e ? reject(e) : resolve()))
 export const dump = (v: unknown): void => out(JSON.stringify(v, null, 2))
 
 // --- arguments ---

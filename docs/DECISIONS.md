@@ -534,3 +534,18 @@ Git covers several of these by construction. That is the bet here.
   a failed read of one that is there fails.
 - **Rejected.** A description marker as proof that a repository is the room's: anyone who can edit the repository can
   copy it. Witnesses against a forking host, key rotation, our own crypto envelope: more than they are worth now.
+
+## ringi: delivery at least once (2026-11-12)
+
+- **A lost message.** In a room of two agents a message to codex never reached its inbox and got no read mark; each
+  agent took the other to be next, until the operator noticed 83 minutes later. Delivery was at most once by design:
+  a reading moved its cursor first, then wrote its read marks and showed the messages, so a reading that failed or
+  was killed in between lost them silently. The agent's reading that should have shown it ran 90 s without output
+  and was interrupted, and its next reading was empty; how far it had got was not recorded, so a failure after the
+  cursor moved is the leading explanation, reproduced. Reads of that room took minutes: about 3 git processes per
+  signal record, every record checked again on every command.
+- **Now at least once** (core-1 §6). A reading shows the messages, waits until they have left the process, writes
+  its read marks, then moves its cursor; a reading that dies before that shows them again next time, and a cursor
+  another reading moved further stays. A message shown twice costs a second look; a lost one cost both agents'
+  turns, and nothing told them.
+- **Rejected.** That an agent's own write moved its cursor past what arrived meanwhile: only a reading moves it.

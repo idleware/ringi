@@ -2,13 +2,18 @@
 import {describe, it} from 'node:test'
 import type {TestContext} from 'node:test'
 import assert from 'node:assert/strict'
+import childProcess from 'node:child_process'
 import fs from 'node:fs'
+import {syncBuiltinESMExports} from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import {GitStore} from '../../main/ts/adapters/store-git/index.ts'
 import {init} from '../../main/ts/adapters/store-git/repo.ts'
 import {git, ident} from '../../main/ts/adapters/store-git/remote/git.ts'
+import {branchData} from '../../main/ts/adapters/store-git/remote/branch.ts'
+import {withVerification} from '../../main/ts/adapters/store-git/remote/cache.ts'
 import {treeWith} from '../../main/ts/adapters/store-git/remote/control-tree.ts'
+import {scanStream} from '../../main/ts/adapters/store-git/remote/streams.ts'
 import {membershipFile, membershipText} from '../../main/ts/adapters/store-git/remote/membership.ts'
 import type {Membership} from '../../main/ts/adapters/store-git/remote/membership.ts'
 import type {Descriptor, RoomEndpointV2} from '../../main/ts/core/hub/ports/store.ts'
@@ -38,6 +43,44 @@ const fixture = (t: TestContext) => {
 }
 
 describe('asserted git/4 controls without a Signer', () => {
+  it('reads each stream control once and uses listed parent trees across a verified suffix', t => {
+    const f = fixture(t), before = f.store.room('r')!
+    const target = f.store.append(before, 'alice', 'task\n\nTo: bob\nKind: task\n', [])
+    const updated = f.replace({members: {...root, alice: {}, bob: {}, charlie: {}}, retired: {}}, 'admit charlie')
+    const H = {...f.store.h}, R = {...before, head: updated, ref: 'refs/heads/chat'}
+    const tree = git(H, ['rev-parse', `${R.genesis}^{tree}`]).trim()
+    const records: string[] = []
+    for (const [i, control] of [R.genesis, R.genesis, updated, updated, updated].entries()) {
+      const input = `Room: ${R.genesis}\nControl: ${control}\nTarget: ${target}\nSignal: test-${i}\n`
+      records.push(git(H, ['commit-tree', tree, '-p', records.at(-1) ?? R.genesis], {input, env: ident('alice')}).trim())
+    }
+
+    withVerification(H, () => {
+      branchData(H, R.name, updated, R.genesis)
+      const membership: string[] = [], trees: string[] = []
+      const original = childProcess.spawnSync
+      const mock = t.mock.method(childProcess, 'spawnSync', (...args: Parameters<typeof childProcess.spawnSync>) => {
+        const [, argv] = args
+        if (Array.isArray(argv)) {
+          const last = argv.at(-1) ?? ''
+          if (argv.at(-3) === 'cat-file' && argv.at(-2) === 'blob' && last.endsWith(':members.json')) membership.push(last)
+          if (argv.at(-2) === 'rev-parse' && last.endsWith('^{tree}')) trees.push(last)
+        }
+        return original(...args)
+      })
+      syncBuiltinESMExports()
+      try {
+        const first = scanStream({H, R, actor: 'alice', head: records[3]})
+        assert.equal(first.why, undefined)
+        assert.deepEqual(first.records.map(r => r.raw.sha), records.slice(0, 4))
+        const suffix = scanStream({H, R, actor: 'alice', head: records[4]})
+        assert.equal(suffix.why, undefined)
+        assert.deepEqual(suffix.records.map(r => r.raw.sha), records)
+        assert.deepEqual(membership, [`${R.genesis}:members.json`, `${updated}:members.json`])
+        assert.deepEqual(trees, [`${R.genesis}^{tree}`])
+      } finally {mock.mock.restore(); syncBuiltinESMExports()}
+    })
+  })
   it('retains a null-key terminal tombstone, historical chat, first removal and exact signal retry', t => {
     const f = fixture(t), before = f.store.room('r')!
     const task = f.store.append(before, 'alice', 'task\n\nTo: bob\nKind: task\n', [])

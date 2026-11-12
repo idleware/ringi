@@ -4,7 +4,7 @@
 import {HIDDEN} from '../../hub/rooms/index.ts'
 import {fail, sleep} from '../../../lib/index.ts'
 import {unread} from '../../hub/protocol/index.ts'
-import {loadRoom} from '../../hub/history/index.ts'
+import {loadRoom, readersKey} from '../../hub/history/index.ts'
 import {bound} from './index.ts'
 import type {InboxOptions} from './agent.ts'
 import {inbox} from './agent.ts'
@@ -16,10 +16,11 @@ export const wait = async (a: Actor, {max = 120, ...options}: InboxOptions & {ma
   for (;;) {
     // Each poll renews the lease and checks stop, takeover, membership and the room's identity.
     const current = bound()
-    if (current.R.genesis !== a.R.genesis || current.me !== a.me) fail('the waiting session changed its binding')
+    if (String(readersKey(current.R)) !== String(readersKey(a.R)) || current.me !== a.me) fail('the waiting session changed its binding')
     const {logs, st} = loadRoom(current.R, current.me)
-    if (unread(logs, current.me, st.seen ?? {}, Infinity, HIDDEN).msgs.length) return {inbox: inbox(current, options), seconds: (Date.now() - start) / 1000}
-    if (Date.now() >= until) return {inbox: null, seconds: (Date.now() - start) / 1000}
+    // The room as this poll found it shows the inbox and takes its delivery: a member admitted meanwhile counts.
+    if (unread(logs, current.me, st.seen ?? {}, Infinity, HIDDEN).msgs.length) return {inbox: inbox(current, options), actor: current, seconds: (Date.now() - start) / 1000}
+    if (Date.now() >= until) return {inbox: null, actor: current, seconds: (Date.now() - start) / 1000}
     await sleep(Math.min(1000, until - Date.now()))
   }
 }

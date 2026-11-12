@@ -6,7 +6,7 @@ import type {Opts} from '../args.ts'
 import {showInbox} from './index.ts'
 import {scopeLine, taskLine, waiting} from '../shared/index.ts'
 
-export const briefing = (s: Session.Session) => {
+export const briefing = async (s: Session.Session) => {
   const r = Session.briefing(s)
   const auto = r.start.quorum !== null
   out(`${s.agent} in ${s.room}; scope: ${scopeLine(s, auto)}`)
@@ -15,9 +15,9 @@ export const briefing = (s: Session.Session) => {
   if (auto) out(`started: room ${s.room} has its quorum (${r.start.agents} of ${r.start.quorum} agents); your first turn starts now, on the work and inbox below; nothing to confirm with the operator`)
   if (!r.tasks.length) out(`no open work (profile ${r.actor.R.profile.name}; tasks --all for everything)`)
   for (const task of r.tasks) out(taskLine(task))
-  showInbox(r.actor, r.inbox!, {_: []})
+  await showInbox(r.actor, r.inbox!, {_: []})
 }
-export const join = (o: Opts) => {
+export const join = async (o: Opts) => {
   const [room] = o._
   if (!room) fail('usage: ringi join <room or its invitation> [--as <id>] [--scope "<what the operator delegates>"] [--identity <key file>]')
   const r = Session.join({room, agent: opt(o, 'as'), scope: opt(o, 'scope'), identity: opt(o, 'identity')})
@@ -30,12 +30,9 @@ export const join = (o: Opts) => {
     return
   }
   out(`joined ${r.room} as ${r.agent}`)
-  briefing(r.session!)
+  await briefing(r.session!)
 }
-export const resume = (o: Opts) => {
-  const s = Session.resume(o._[0])
-  briefing(s)
-}
+export const resume = (o: Opts) => briefing(Session.resume(o._[0]))
 export const stop = () => {
   const s = Session.stop()
   out(`stopped: ${s.agent} keeps its seat in ${s.room} and reacts to nothing until the operator says "continue"`)

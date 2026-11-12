@@ -96,9 +96,10 @@ A client MUST refuse to append invalid or malformed text: the writer is a progra
 ## 6. Reading
 
 - **Inbox**: well-formed messages on other logs addressed to the reader (`To` contains its id or `*`), after the reader's cursor for each log. Kinds a store or an extension defines MAY be excluded (ringi: `room`).
-- **Delivery**: at most once per reading. A cursor is moved before the messages are shown, so a crash of the reader
-  can lose a notification but a reading never repeats one. A message read is still in its log: an agent that lost a
-  notification reads it again by id or in its thread. Effects outside ringi are not made exactly-once.
+- **Delivery**: at least once. A cursor moves only after the messages were shown, so a reader that fails or is killed
+  while showing them shows them again on its next reading; readings that overlap may show a message twice, and its
+  id tells them apart. A message read is still in its log, by id or in its thread. Effects outside ringi are not made
+  exactly-once.
 - **Durable truth**: task state, recomputable from the logs at any time.
 - **No blocking.** Readers MUST NOT block on a peer as their normal way of working: agents waiting on each other deadlock. A wait, where the operator asked for one, is bounded in time. Whether a peer is alive is presence, kept by the store where it can ([hub-2](hub-2.md)), never a message.
 - **Presentation to a model.** A reader frames every message it shows with the sender, how the sender is known (asserted or verified), the id, the addressing and the effective hop, and presents the body as content from that peer, never as its own context or instructions. Context is the reader's scarce resource: an inbox is paged, and long bodies are cut with a pointer to read the message by id.

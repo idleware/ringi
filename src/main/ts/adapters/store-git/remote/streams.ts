@@ -31,9 +31,10 @@ export const streamRef = (actor: string): string => {
 type Record_ = {raw: Raw, fields: Facts}
 export type Stream = {head: string, records: Record_[], pending?: string, why?: string}
 export type ScanInput = {H: Handle, R: Room, actor: string, head: string, prefix?: Stream}
-const acceptRecord = (ctx: Omit<CheckContext, 'parent'>, c: Raw, result: Stream): boolean => {
+const acceptRecord = (ctx: Omit<CheckContext, 'parent' | 'parentTree'>, c: Raw, result: Stream): boolean => {
   try {
-    const fields = checkStreamRecord({...ctx, parent: result.head}, c)
+    const parent = result.records.at(-1)?.raw
+    const fields = checkStreamRecord({...ctx, parent: result.head, parentTree: parent?.sha === result.head ? parent.tree : undefined}, c)
     if (!fields) {result.pending = c.sha; return false}
     result.records.push({raw: c, fields})
     result.head = c.sha
